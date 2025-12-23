@@ -1,16 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Algorithmic Trading Bot - Project Overview</title>
+    <title>Algorithmic Trading Bot - Project Overview | December 2024</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             line-height: 1.6;
@@ -20,11 +21,11 @@
             padding: 40px;
             background: #fff;
         }
-        
+
         .page-break {
             page-break-after: always;
         }
-        
+
         h1 {
             color: #1a365d;
             font-size: 32px;
@@ -32,7 +33,7 @@
             border-bottom: 3px solid #2563eb;
             padding-bottom: 10px;
         }
-        
+
         h2 {
             color: #2563eb;
             font-size: 24px;
@@ -40,48 +41,49 @@
             border-left: 4px solid #2563eb;
             padding-left: 15px;
         }
-        
+
         h3 {
             color: #1e40af;
             font-size: 18px;
             margin: 20px 0 10px 0;
         }
-        
+
         .subtitle {
             color: #64748b;
             font-size: 18px;
             margin-bottom: 30px;
         }
-        
+
         .date {
             color: #94a3b8;
             font-size: 14px;
             margin-bottom: 40px;
         }
-        
+
         table {
             width: 100%;
             border-collapse: collapse;
             margin: 15px 0;
             font-size: 14px;
         }
-        
-        th, td {
+
+        th,
+        td {
             padding: 12px 15px;
             text-align: left;
             border: 1px solid #e2e8f0;
         }
-        
+
         th {
             background: #1e40af;
             color: white;
             font-weight: 600;
         }
-        
+
         tr:nth-child(even) {
             background: #f8fafc;
         }
-        
+
         .highlight {
             background: #dbeafe;
             padding: 20px;
@@ -89,14 +91,30 @@
             margin: 20px 0;
             border-left: 4px solid #2563eb;
         }
-        
+
+        .highlight-success {
+            background: #dcfce7;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #16a34a;
+        }
+
+        .highlight-ichimoku {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #f59e0b;
+        }
+
         .metric-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
             margin: 20px 0;
         }
-        
+
         .metric-box {
             background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
             color: white;
@@ -104,30 +122,50 @@
             border-radius: 12px;
             text-align: center;
         }
-        
+
+        .metric-box.live {
+            background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+        }
+
+        .metric-box.ichimoku {
+            background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+        }
+
         .metric-value {
-            font-size: 32px;
+            font-size: 28px;
             font-weight: 700;
         }
-        
+
         .metric-label {
-            font-size: 12px;
+            font-size: 11px;
             opacity: 0.9;
             margin-top: 5px;
         }
-        
-        .green { color: #16a34a; font-weight: 600; }
-        .red { color: #dc2626; font-weight: 600; }
-        
+
+        .green {
+            color: #16a34a;
+            font-weight: 600;
+        }
+
+        .red {
+            color: #dc2626;
+            font-weight: 600;
+        }
+
+        .orange {
+            color: #f59e0b;
+            font-weight: 600;
+        }
+
         ul {
             margin: 10px 0;
             padding-left: 25px;
         }
-        
+
         li {
             margin: 5px 0;
         }
-        
+
         code {
             background: #f1f5f9;
             padding: 2px 6px;
@@ -135,7 +173,7 @@
             font-family: 'Consolas', monospace;
             font-size: 13px;
         }
-        
+
         .code-block {
             background: #1e293b;
             color: #e2e8f0;
@@ -146,7 +184,7 @@
             margin: 10px 0;
             overflow-x: auto;
         }
-        
+
         .architecture {
             background: #f8fafc;
             padding: 30px;
@@ -154,14 +192,14 @@
             margin: 20px 0;
             text-align: center;
         }
-        
+
         .arch-row {
             display: flex;
             justify-content: center;
             gap: 10px;
             margin: 10px 0;
         }
-        
+
         .arch-box {
             background: #2563eb;
             color: white;
@@ -170,12 +208,48 @@
             font-size: 12px;
             font-weight: 500;
         }
-        
+
         .arch-arrow {
             color: #64748b;
             font-size: 20px;
         }
-        
+
+        .live-badge {
+            display: inline-block;
+            background: #16a34a;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.7;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .url-box {
+            background: #1e293b;
+            color: #22c55e;
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-family: 'Consolas', monospace;
+            font-size: 16px;
+            text-align: center;
+            margin: 15px 0;
+        }
+
         .footer {
             margin-top: 50px;
             padding-top: 20px;
@@ -184,57 +258,174 @@
             font-size: 12px;
             text-align: center;
         }
+
+        .qr-placeholder {
+            width: 120px;
+            height: 120px;
+            background: #f1f5f9;
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 10px auto;
+            font-size: 10px;
+            color: #94a3b8;
+        }
     </style>
 </head>
+
 <body>
 
     <!-- Page 1: Title Slide -->
     <div class="title-page">
         <h1>🤖 Algorithmic Trading Bot</h1>
-        <p class="subtitle">Automated Trading System with Technical Analysis & Machine Learning</p>
-        <p class="date">Project Status Update | December 2024</p>
-        
+        <p class="subtitle">Automated Trading System with Ichimoku Cloud (一目均衡表) & Technical Analysis</p>
+        <p class="date">Project Status Update | December 23, 2024</p>
+
         <div class="metric-grid">
-            <div class="metric-box">
-                <div class="metric-value">370%</div>
-                <div class="metric-label">Backtest Return<br>(5 years)</div>
+            <div class="metric-box live">
+                <div class="metric-value">LIVE</div>
+                <div class="metric-label">Dashboard<br>Deployed</div>
+            </div>
+            <div class="metric-box ichimoku">
+                <div class="metric-value">一目</div>
+                <div class="metric-label">Ichimoku<br>Cloud</div>
             </div>
             <div class="metric-box">
-                <div class="metric-value">53.8%</div>
-                <div class="metric-label">Intraday<br>Win Rate</div>
+                <div class="metric-value">₹10L</div>
+                <div class="metric-label">Paper Trading<br>Capital</div>
             </div>
             <div class="metric-box">
-                <div class="metric-value">41</div>
+                <div class="metric-value">13+</div>
                 <div class="metric-label">Technical<br>Indicators</div>
             </div>
         </div>
-        
+
+        <div class="highlight-success">
+            <span class="live-badge">🌐 LIVE NOW</span>
+            <p style="margin-top: 10px;"><strong>Access the Dashboard:</strong></p>
+            <div class="url-box">https://tradingbot-hack101.streamlit.app/</div>
+            <p style="font-size: 12px; color: #64748b;">Accessible from anywhere in the world • Works on mobile, tablet
+                & desktop</p>
+        </div>
+
         <div class="highlight">
-            <strong>Project Goal:</strong> Build an automated trading system that analyzes NIFTY 50 stocks 
-            using technical analysis and machine learning to generate buy/sell signals with automatic 
-            execution, stop-loss, and take-profit management.
+            <strong>Project Goal:</strong> Build an automated trading system that analyzes NSE/BSE stocks
+            using <strong>Ichimoku Cloud</strong> and technical analysis to generate buy/sell signals with
+            paper trading simulation in Indian Rupees (₹).
         </div>
     </div>
-    
+
     <div class="page-break"></div>
-    
-    <!-- Page 2: Architecture -->
+
+    <!-- Page 2: Streamlit Dashboard -->
+    <h2>🖥️ Streamlit Dashboard (NEW)</h2>
+
+    <div class="highlight-success">
+        <strong>Deployed & Live!</strong> Your team can access the trading dashboard from anywhere worldwide.
+    </div>
+
+    <h3>Dashboard Features</h3>
+    <table>
+        <tr>
+            <th>Tab</th>
+            <th>Feature</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>📈 Charts</td>
+            <td>Interactive Candlestick</td>
+            <td>Plotly-powered charts with zoom, pan, and indicators</td>
+        </tr>
+        <tr>
+            <td>📈 Charts</td>
+            <td>Ichimoku Cloud (一目均衡表)</td>
+            <td>Full 5-component Ichimoku with Japanese names</td>
+        </tr>
+        <tr>
+            <td>📊 Indicators</td>
+            <td>13+ Indicators</td>
+            <td>RSI, MACD, Bollinger Bands, Supertrend, ADX, etc.</td>
+        </tr>
+        <tr>
+            <td>🎯 Paper Trading</td>
+            <td>Buy/Sell Simulation</td>
+            <td>Execute trades with ₹10 Lakh starting capital</td>
+        </tr>
+        <tr>
+            <td>📊 P&L Analysis</td>
+            <td>Profit/Loss Tracking</td>
+            <td>Real-time P&L, trade history, performance metrics</td>
+        </tr>
+        <tr>
+            <td>📚 Guide</td>
+            <td>Indicator Guide</td>
+            <td>Complete explanation of all indicators</td>
+        </tr>
+    </table>
+
+    <h3>Ichimoku Cloud Components (一目均衡表)</h3>
+    <div class="highlight-ichimoku">
+        <strong>🌩️ Primary Indicator - Ichimoku Kinko Hyo</strong>
+        <p style="margin-top: 10px;">The most comprehensive indicator, providing 5 key signals at a glance:</p>
+    </div>
+
+    <table>
+        <tr>
+            <th>Component</th>
+            <th>Japanese Name</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><strong>Tenkan-sen</strong></td>
+            <td>天転換線</td>
+            <td>Conversion Line (9-period high+low)/2</td>
+        </tr>
+        <tr>
+            <td><strong>Kijun-sen</strong></td>
+            <td>基準線</td>
+            <td>Base Line (26-period high+low)/2</td>
+        </tr>
+        <tr>
+            <td><strong>Senkou Span A</strong></td>
+            <td>先行スパンA</td>
+            <td>Leading Span A, plotted 26 periods ahead</td>
+        </tr>
+        <tr>
+            <td><strong>Senkou Span B</strong></td>
+            <td>先行スパンB</td>
+            <td>Leading Span B (52-period), plotted 26 periods ahead</td>
+        </tr>
+        <tr>
+            <td><strong>Chikou Span</strong></td>
+            <td>遅行スパン</td>
+            <td>Lagging Span, close plotted 26 periods behind</td>
+        </tr>
+    </table>
+
+    <div class="page-break"></div>
+
+    <!-- Page 3: Architecture -->
     <h2>System Architecture</h2>
-    
+
     <div class="architecture">
+        <div class="arch-row">
+            <div class="arch-box" style="background: #16a34a;">🌐 Streamlit Dashboard (LIVE)</div>
+        </div>
+        <div class="arch-arrow">↓</div>
         <div class="arch-row">
             <div class="arch-box" style="background: #059669;">📊 Data Sources</div>
         </div>
         <div class="arch-arrow">↓</div>
         <div class="arch-row">
             <div class="arch-box">Excel/CSV Loader</div>
-            <div class="arch-box">Yahoo Finance</div>
             <div class="arch-box">Alpha Vantage API</div>
         </div>
         <div class="arch-arrow">↓</div>
         <div class="arch-row">
-            <div class="arch-box" style="background: #7c3aed;">📈 Technical Indicators (41)</div>
-            <div class="arch-box" style="background: #7c3aed;">🧠 ML Features (110)</div>
+            <div class="arch-box" style="background: #f59e0b;">🌩️ Ichimoku Cloud (一目均衡表)</div>
+            <div class="arch-box" style="background: #7c3aed;">📈 13+ Indicators</div>
         </div>
         <div class="arch-arrow">↓</div>
         <div class="arch-row">
@@ -247,10 +438,10 @@
         </div>
         <div class="arch-arrow">↓</div>
         <div class="arch-row">
-            <div class="arch-box" style="background: #059669;">📤 Order Execution</div>
+            <div class="arch-box" style="background: #059669;">💰 Paper Trading (₹10 Lakhs)</div>
         </div>
     </div>
-    
+
     <h3>Key Components</h3>
     <table>
         <tr>
@@ -259,23 +450,23 @@
             <th>Status</th>
         </tr>
         <tr>
+            <td><code>dashboard.py</code></td>
+            <td>Streamlit web dashboard with Ichimoku Cloud</td>
+            <td class="green">✓ LIVE</td>
+        </tr>
+        <tr>
             <td><code>src/data/</code></td>
-            <td>Data providers (Excel, Yahoo Finance, Alpha Vantage)</td>
+            <td>Data providers (Excel, Alpha Vantage)</td>
             <td class="green">✓ Complete</td>
         </tr>
         <tr>
             <td><code>src/indicators/</code></td>
-            <td>41 technical indicators (MA, RSI, MACD, Ichimoku, etc.)</td>
-            <td class="green">✓ Complete</td>
-        </tr>
-        <tr>
-            <td><code>src/ml/</code></td>
-            <td>XGBoost & LSTM forecasters, 110 ML features</td>
+            <td>13+ technical indicators + Ichimoku Cloud</td>
             <td class="green">✓ Complete</td>
         </tr>
         <tr>
             <td><code>src/strategy/</code></td>
-            <td>TA, ML Hybrid, and Intraday strategies</td>
+            <td>TA, Hybrid, and Intraday strategies</td>
             <td class="green">✓ Complete</td>
         </tr>
         <tr>
@@ -289,73 +480,14 @@
             <td class="green">✓ Complete</td>
         </tr>
     </table>
-    
+
     <div class="page-break"></div>
-    
-    <!-- Page 3: Strategy Details -->
-    <h2>Trading Strategy</h2>
-    
-    <h3>Daily Strategy (Swing Trading)</h3>
-    <p>Confluence-based signal generation using multiple indicator agreement:</p>
-    
-    <table>
-        <tr>
-            <th>Indicator</th>
-            <th>BUY Condition</th>
-            <th>SELL Condition</th>
-        </tr>
-        <tr>
-            <td>MA44 (Custom)</td>
-            <td>Price > MA44</td>
-            <td>Price < MA44</td>
-        </tr>
-        <tr>
-            <td>EMA Crossover</td>
-            <td>EMA9 > EMA21</td>
-            <td>EMA9 < EMA21</td>
-        </tr>
-        <tr>
-            <td>Ichimoku Cloud</td>
-            <td>Price above cloud</td>
-            <td>Price below cloud</td>
-        </tr>
-        <tr>
-            <td>MACD</td>
-            <td>MACD > Signal</td>
-            <td>MACD < Signal</td>
-        </tr>
-        <tr>
-            <td>RSI (14)</td>
-            <td>RSI > 50</td>
-            <td>RSI < 50</td>
-        </tr>
-        <tr>
-            <td>Supertrend</td>
-            <td>Bullish</td>
-            <td>Bearish</td>
-        </tr>
-    </table>
-    
-    <div class="highlight">
-        <strong>Signal Rule:</strong> Minimum 3 indicators must agree (confluence) before generating a signal. 
-        This reduces false signals and improves accuracy.
-    </div>
-    
-    <h3>Intraday Strategy (5-min/30-min)</h3>
-    <ul>
-        <li><strong>Entry:</strong> EMA 9/21 crossover</li>
-        <li><strong>Stop-Loss:</strong> 1.5× ATR from entry</li>
-        <li><strong>Take-Profit:</strong> 3× ATR from entry (2:1 R:R)</li>
-        <li><strong>EOD:</strong> Automatic square-off at 15:15</li>
-    </ul>
-    
-    <div class="page-break"></div>
-    
+
     <!-- Page 4: Backtest Results -->
     <h2>Backtest Results</h2>
-    
+
     <h3>Daily Strategy (January 2020 - August 2025)</h3>
-    
+
     <table>
         <tr>
             <th>Stock</th>
@@ -382,14 +514,14 @@
             <td>24%</td>
         </tr>
     </table>
-    
+
     <div class="highlight">
-        📊 <strong>Key Insight:</strong> Despite a low win rate (26%), the strategy is highly profitable 
+        📊 <strong>Key Insight:</strong> Despite a low win rate (26%), the strategy is highly profitable
         because winning trades are significantly larger than losing trades (2:1 risk-reward ratio).
     </div>
-    
+
     <h3>Intraday Simulation (July 28-31, 2025)</h3>
-    
+
     <table>
         <tr>
             <th>Date</th>
@@ -434,79 +566,127 @@
             <td class="green">+₹40.82</td>
         </tr>
     </table>
-    
+
     <div class="page-break"></div>
-    
-    <!-- Page 5: How to Run -->
-    <h2>How to Run</h2>
-    
-    <h3>Step 1: Activate Environment</h3>
-    <div class="code-block">
-cd "Trading_bot"
-.\TB\Scripts\Activate.ps1
-    </div>
-    
-    <h3>Step 2: Verify Installation</h3>
-    <div class="code-block">
-python demo.py
-    </div>
-    
-    <h3>Step 3: Run Daily Backtest</h3>
-    <div class="code-block">
-python run_bot.py --mode backtest
-    </div>
-    
-    <h3>Step 4: Run Intraday Simulation</h3>
-    <div class="code-block">
-# Latest available date
-python intraday_simulation.py
 
-# Specific date
-python intraday_simulation.py --date 2025-07-28
+    <!-- Page 5: How to Access -->
+    <h2>How to Access</h2>
 
-# Custom capital
-python intraday_simulation.py --capital 50000
-    </div>
-    
-    <h3>Step 5: Check Daily Signals</h3>
+    <h3>Option 1: Use Live Dashboard (Recommended)</h3>
+    <div class="url-box">https://tradingbot-hack101.streamlit.app/</div>
+    <p>Simply open the URL in any browser - mobile, tablet, or desktop.</p>
+
+    <h3>Option 2: Run Locally</h3>
     <div class="code-block">
-python paper_trade.py
+        # Clone repository
+        git clone https://github.com/ProBob-code/Trading_bot.git
+        cd Trading_bot
+
+        # Install dependencies
+        pip install -r requirements.txt
+
+        # Run dashboard locally
+        python -m streamlit run dashboard.py
     </div>
-    
+
+    <h3>Option 3: Command Line Scripts</h3>
+    <table>
+        <tr>
+            <th>Command</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><code>python demo.py</code></td>
+            <td>Verify installation, test indicators</td>
+        </tr>
+        <tr>
+            <td><code>python run_bot.py --mode backtest</code></td>
+            <td>Run daily strategy backtest</td>
+        </tr>
+        <tr>
+            <td><code>python intraday_simulation.py</code></td>
+            <td>Run intraday paper trading simulation</td>
+        </tr>
+        <tr>
+            <td><code>python paper_trade.py</code></td>
+            <td>Check daily signals for stocks</td>
+        </tr>
+    </table>
+
+    <h2>Project Files</h2>
+    <table>
+        <tr>
+            <th>File</th>
+            <th>Purpose</th>
+        </tr>
+        <tr>
+            <td><code>dashboard.py</code></td>
+            <td>Streamlit web dashboard (main application)</td>
+        </tr>
+        <tr>
+            <td><code>QUICKSTART.md</code></td>
+            <td>Step-by-step running instructions</td>
+        </tr>
+        <tr>
+            <td><code>DEPLOYMENT.md</code></td>
+            <td>Hosting & deployment guide</td>
+        </tr>
+        <tr>
+            <td><code>config.yaml</code></td>
+            <td>Trading configuration settings</td>
+        </tr>
+        <tr>
+            <td><code>requirements.txt</code></td>
+            <td>Python dependencies</td>
+        </tr>
+    </table>
+
     <h2>Next Steps</h2>
-    
+
     <table>
         <tr>
             <th>Priority</th>
             <th>Task</th>
-            <th>Description</th>
+            <th>Status</th>
         </tr>
         <tr>
             <td>1</td>
-            <td>Paper Trading Validation</td>
-            <td>Run paper trading for 2-4 weeks to validate signals</td>
+            <td>Deploy to Streamlit Cloud</td>
+            <td class="green">✓ DONE</td>
         </tr>
         <tr>
             <td>2</td>
-            <td>Add More Stocks</td>
-            <td>Download 5-min data for more NIFTY 50 stocks</td>
+            <td>Add Ichimoku Cloud as primary indicator</td>
+            <td class="green">✓ DONE</td>
         </tr>
         <tr>
             <td>3</td>
-            <td>Discord Alerts</td>
-            <td>Integrate trading signals with Discord notifications</td>
+            <td>Team testing & validation (2-4 weeks)</td>
+            <td class="orange">In Progress</td>
         </tr>
         <tr>
             <td>4</td>
-            <td>Live Broker Integration</td>
-            <td>Connect Zerodha/Alpaca for live trading</td>
+            <td>Add more NIFTY 50 stocks</td>
+            <td>Pending</td>
+        </tr>
+        <tr>
+            <td>5</td>
+            <td>Discord alerts integration</td>
+            <td>Pending</td>
+        </tr>
+        <tr>
+            <td>6</td>
+            <td>Live broker integration (Zerodha/Alpaca)</td>
+            <td>Pending</td>
         </tr>
     </table>
-    
+
     <div class="footer">
-        <p>Algorithmic Trading Bot | Built with Python | December 2024</p>
+        <p><strong>Algorithmic Trading Bot</strong> | Built with Python & Streamlit | December 2024</p>
+        <p>Repository: <code>github.com/ProBob-code/Trading_bot</code></p>
         <p>⚠️ Past performance does not guarantee future results. Trade responsibly.</p>
     </div>
 
 </body>
+
 </html>
