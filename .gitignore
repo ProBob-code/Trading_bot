@@ -1,2 +1,69 @@
-discord.env
-news_discord.ipynb
+# Git ignore for Trading Bot
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+TB/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# Cache
+.cache/
+data/cache/
+
+# Secrets - NEVER COMMIT
+.env
+*.env
+config.local.yaml
+secrets.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data files (large)
+# Uncomment if you want to include stock data in repo
+# stock_data/
+
+# ML Models
+models/*.pkl
+models/*.joblib
+
+# Temp
+tmp/
+temp/

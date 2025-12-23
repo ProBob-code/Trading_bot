@@ -1,0 +1,166 @@
+# Trading Bot Configuration
+# Copy this file to config.local.yaml and fill in your API keys
+
+# =============================================================================
+# TRADING MODE
+# =============================================================================
+mode: "backtest"  # Options: backtest, paper, live
+
+# =============================================================================
+# MARKET SETTINGS
+# =============================================================================
+market:
+  type: "stocks"  # Options: stocks, crypto, forex
+  exchange: "US"  # US for Alpha Vantage
+  
+  # US Stocks (Alpha Vantage API works best with these)
+  symbols:
+    - "AAPL"
+    - "MSFT"
+
+# =============================================================================
+# TIMEFRAME SETTINGS
+# =============================================================================
+timeframe:
+  interval: "1d"  # 1m, 5m, 15m, 30m, 1h, 4h, 1d
+  trading_hours:
+    start: "09:15"
+    end: "15:30"
+  timezone: "Asia/Kolkata"  # Indian timezone
+
+# =============================================================================
+# DATA SOURCES
+# =============================================================================
+data:
+  provider: "alphavantage"  # Options: local, yfinance, alpaca, alphavantage
+  history_days: 365
+  cache_enabled: true
+  cache_dir: "./data/cache"
+  
+  # Alpha Vantage API Configuration
+  alphavantage:
+    api_key: "9N8KYMVUSI2VRBOZ"
+
+# =============================================================================
+# STRATEGY SETTINGS
+# =============================================================================
+strategy:
+  name: "hybrid"  # Options: ta_only, ml_only, hybrid
+  
+  # Technical Analysis Parameters
+  technical:
+    ma_fast: 9
+    ma_slow: 21
+    ma_signal: 44
+    rsi_period: 14
+    rsi_overbought: 70
+    rsi_oversold: 30
+    bb_period: 20
+    bb_std: 2.0
+    atr_period: 14
+    
+  # Ichimoku Parameters
+  ichimoku:
+    conversion_period: 9
+    base_period: 26
+    span_b_period: 52
+    
+  # ML Parameters
+  ml:
+    model_type: "xgboost"  # Options: xgboost, lightgbm, lstm, ensemble
+    lookback_period: 60
+    prediction_horizon: 5
+    retrain_interval: "weekly"  # daily, weekly, monthly
+    confidence_threshold: 0.6
+
+# =============================================================================
+# RISK MANAGEMENT
+# =============================================================================
+risk:
+  # Position Sizing
+  position_sizing: "fixed_fractional"  # Options: fixed, fixed_fractional, kelly, volatility
+  max_position_pct: 10.0  # Maximum 10% of capital per position
+  
+  # Risk Limits
+  max_daily_loss_pct: 2.0  # Stop trading if daily loss exceeds 2%
+  max_drawdown_pct: 10.0  # Stop trading if drawdown exceeds 10%
+  max_positions: 5  # Maximum concurrent positions
+  
+  # Stop Loss / Take Profit
+  stop_loss:
+    type: "atr"  # Options: fixed, atr, trailing
+    atr_multiplier: 2.0
+    fixed_pct: 2.0
+    trailing_pct: 1.0
+    
+  take_profit:
+    type: "atr"  # Options: fixed, atr, risk_reward
+    atr_multiplier: 3.0
+    fixed_pct: 4.0
+    risk_reward_ratio: 2.0
+
+# =============================================================================
+# BROKER SETTINGS
+# =============================================================================
+broker:
+  name: "alpaca"  # Options: alpaca, kite, binance, paper
+  
+  # Alpaca (US Stocks - Free Paper Trading)
+  alpaca:
+    api_key: "${ALPACA_API_KEY}"
+    secret_key: "${ALPACA_SECRET_KEY}"
+    base_url: "https://paper-api.alpaca.markets"  # paper trading
+    # base_url: "https://api.alpaca.markets"  # live trading
+    
+  # Zerodha Kite (India)
+  # kite:
+  #   api_key: "${KITE_API_KEY}"
+  #   api_secret: "${KITE_API_SECRET}"
+  
+  # Binance (Crypto)
+  # binance:
+  #   api_key: "${BINANCE_API_KEY}"
+  #   api_secret: "${BINANCE_API_SECRET}"
+  #   testnet: true
+
+# =============================================================================
+# BACKTESTING SETTINGS
+# =============================================================================
+backtest:
+  start_date: "2024-08-01"  # Last ~100 trading days (Alpha Vantage compact)
+  end_date: "2024-12-31"
+  initial_capital: 100000
+  commission: 0.001  # 0.1%
+  slippage: 0.0005  # 0.05%
+
+# =============================================================================
+# ALERTS & NOTIFICATIONS
+# =============================================================================
+alerts:
+  enabled: true
+  
+  discord:
+    enabled: true
+    webhook_url: "${DISCORD_WEBHOOK_URL}"
+    
+  telegram:
+    enabled: false
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+
+# =============================================================================
+# DASHBOARD
+# =============================================================================
+dashboard:
+  enabled: true
+  port: 8501
+  refresh_interval: 60  # seconds
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "./logs/trading_bot.log"
+  rotation: "10 MB"
+  retention: "7 days"

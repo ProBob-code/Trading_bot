@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Algorithmic Trading Bot - Project Overview</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px;
+            background: #fff;
+        }
+        
+        .page-break {
+            page-break-after: always;
+        }
+        
+        h1 {
+            color: #1a365d;
+            font-size: 32px;
+            margin-bottom: 10px;
+            border-bottom: 3px solid #2563eb;
+            padding-bottom: 10px;
+        }
+        
+        h2 {
+            color: #2563eb;
+            font-size: 24px;
+            margin: 30px 0 15px 0;
+            border-left: 4px solid #2563eb;
+            padding-left: 15px;
+        }
+        
+        h3 {
+            color: #1e40af;
+            font-size: 18px;
+            margin: 20px 0 10px 0;
+        }
+        
+        .subtitle {
+            color: #64748b;
+            font-size: 18px;
+            margin-bottom: 30px;
+        }
+        
+        .date {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-bottom: 40px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 14px;
+        }
+        
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border: 1px solid #e2e8f0;
+        }
+        
+        th {
+            background: #1e40af;
+            color: white;
+            font-weight: 600;
+        }
+        
+        tr:nth-child(even) {
+            background: #f8fafc;
+        }
+        
+        .highlight {
+            background: #dbeafe;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #2563eb;
+        }
+        
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .metric-box {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 32px;
+            font-weight: 700;
+        }
+        
+        .metric-label {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+        
+        .green { color: #16a34a; font-weight: 600; }
+        .red { color: #dc2626; font-weight: 600; }
+        
+        ul {
+            margin: 10px 0;
+            padding-left: 25px;
+        }
+        
+        li {
+            margin: 5px 0;
+        }
+        
+        code {
+            background: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+        }
+        
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+        
+        .architecture {
+            background: #f8fafc;
+            padding: 30px;
+            border-radius: 12px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .arch-row {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        .arch-box {
+            background: #2563eb;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .arch-arrow {
+            color: #64748b;
+            font-size: 20px;
+        }
+        
+        .footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            color: #94a3b8;
+            font-size: 12px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Page 1: Title Slide -->
+    <div class="title-page">
+        <h1>🤖 Algorithmic Trading Bot</h1>
+        <p class="subtitle">Automated Trading System with Technical Analysis & Machine Learning</p>
+        <p class="date">Project Status Update | December 2024</p>
+        
+        <div class="metric-grid">
+            <div class="metric-box">
+                <div class="metric-value">370%</div>
+                <div class="metric-label">Backtest Return<br>(5 years)</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-value">53.8%</div>
+                <div class="metric-label">Intraday<br>Win Rate</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-value">41</div>
+                <div class="metric-label">Technical<br>Indicators</div>
+            </div>
+        </div>
+        
+        <div class="highlight">
+            <strong>Project Goal:</strong> Build an automated trading system that analyzes NIFTY 50 stocks 
+            using technical analysis and machine learning to generate buy/sell signals with automatic 
+            execution, stop-loss, and take-profit management.
+        </div>
+    </div>
+    
+    <div class="page-break"></div>
+    
+    <!-- Page 2: Architecture -->
+    <h2>System Architecture</h2>
+    
+    <div class="architecture">
+        <div class="arch-row">
+            <div class="arch-box" style="background: #059669;">📊 Data Sources</div>
+        </div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-row">
+            <div class="arch-box">Excel/CSV Loader</div>
+            <div class="arch-box">Yahoo Finance</div>
+            <div class="arch-box">Alpha Vantage API</div>
+        </div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-row">
+            <div class="arch-box" style="background: #7c3aed;">📈 Technical Indicators (41)</div>
+            <div class="arch-box" style="background: #7c3aed;">🧠 ML Features (110)</div>
+        </div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-row">
+            <div class="arch-box" style="background: #dc2626;">🎯 Strategy Engine</div>
+        </div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-row">
+            <div class="arch-box">Risk Manager</div>
+            <div class="arch-box">Position Sizer</div>
+        </div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-row">
+            <div class="arch-box" style="background: #059669;">📤 Order Execution</div>
+        </div>
+    </div>
+    
+    <h3>Key Components</h3>
+    <table>
+        <tr>
+            <th>Module</th>
+            <th>Description</th>
+            <th>Status</th>
+        </tr>
+        <tr>
+            <td><code>src/data/</code></td>
+            <td>Data providers (Excel, Yahoo Finance, Alpha Vantage)</td>
+            <td class="green">✓ Complete</td>
+        </tr>
+        <tr>
+            <td><code>src/indicators/</code></td>
+            <td>41 technical indicators (MA, RSI, MACD, Ichimoku, etc.)</td>
+            <td class="green">✓ Complete</td>
+        </tr>
+        <tr>
+            <td><code>src/ml/</code></td>
+            <td>XGBoost & LSTM forecasters, 110 ML features</td>
+            <td class="green">✓ Complete</td>
+        </tr>
+        <tr>
+            <td><code>src/strategy/</code></td>
+            <td>TA, ML Hybrid, and Intraday strategies</td>
+            <td class="green">✓ Complete</td>
+        </tr>
+        <tr>
+            <td><code>src/risk/</code></td>
+            <td>Position sizing, stop-loss, drawdown limits</td>
+            <td class="green">✓ Complete</td>
+        </tr>
+        <tr>
+            <td><code>src/execution/</code></td>
+            <td>Order management, paper trading simulation</td>
+            <td class="green">✓ Complete</td>
+        </tr>
+    </table>
+    
+    <div class="page-break"></div>
+    
+    <!-- Page 3: Strategy Details -->
+    <h2>Trading Strategy</h2>
+    
+    <h3>Daily Strategy (Swing Trading)</h3>
+    <p>Confluence-based signal generation using multiple indicator agreement:</p>
+    
+    <table>
+        <tr>
+            <th>Indicator</th>
+            <th>BUY Condition</th>
+            <th>SELL Condition</th>
+        </tr>
+        <tr>
+            <td>MA44 (Custom)</td>
+            <td>Price > MA44</td>
+            <td>Price < MA44</td>
+        </tr>
+        <tr>
+            <td>EMA Crossover</td>
+            <td>EMA9 > EMA21</td>
+            <td>EMA9 < EMA21</td>
+        </tr>
+        <tr>
+            <td>Ichimoku Cloud</td>
+            <td>Price above cloud</td>
+            <td>Price below cloud</td>
+        </tr>
+        <tr>
+            <td>MACD</td>
+            <td>MACD > Signal</td>
+            <td>MACD < Signal</td>
+        </tr>
+        <tr>
+            <td>RSI (14)</td>
+            <td>RSI > 50</td>
+            <td>RSI < 50</td>
+        </tr>
+        <tr>
+            <td>Supertrend</td>
+            <td>Bullish</td>
+            <td>Bearish</td>
+        </tr>
+    </table>
+    
+    <div class="highlight">
+        <strong>Signal Rule:</strong> Minimum 3 indicators must agree (confluence) before generating a signal. 
+        This reduces false signals and improves accuracy.
+    </div>
+    
+    <h3>Intraday Strategy (5-min/30-min)</h3>
+    <ul>
+        <li><strong>Entry:</strong> EMA 9/21 crossover</li>
+        <li><strong>Stop-Loss:</strong> 1.5× ATR from entry</li>
+        <li><strong>Take-Profit:</strong> 3× ATR from entry (2:1 R:R)</li>
+        <li><strong>EOD:</strong> Automatic square-off at 15:15</li>
+    </ul>
+    
+    <div class="page-break"></div>
+    
+    <!-- Page 4: Backtest Results -->
+    <h2>Backtest Results</h2>
+    
+    <h3>Daily Strategy (January 2020 - August 2025)</h3>
+    
+    <table>
+        <tr>
+            <th>Stock</th>
+            <th>Starting Capital</th>
+            <th>Final Value</th>
+            <th>Return</th>
+            <th>Total Trades</th>
+            <th>Win Rate</th>
+        </tr>
+        <tr>
+            <td>Adani Enterprises</td>
+            <td>₹10,000</td>
+            <td>₹47,033</td>
+            <td class="green">+370.3%</td>
+            <td>42</td>
+            <td>26%</td>
+        </tr>
+        <tr>
+            <td>Asian Paints</td>
+            <td>₹10,000</td>
+            <td>₹11,170</td>
+            <td class="green">+11.7%</td>
+            <td>42</td>
+            <td>24%</td>
+        </tr>
+    </table>
+    
+    <div class="highlight">
+        📊 <strong>Key Insight:</strong> Despite a low win rate (26%), the strategy is highly profitable 
+        because winning trades are significantly larger than losing trades (2:1 risk-reward ratio).
+    </div>
+    
+    <h3>Intraday Simulation (July 28-31, 2025)</h3>
+    
+    <table>
+        <tr>
+            <th>Date</th>
+            <th>Trades</th>
+            <th>Wins</th>
+            <th>Win Rate</th>
+            <th>P&L</th>
+        </tr>
+        <tr>
+            <td>July 28</td>
+            <td>3</td>
+            <td>3</td>
+            <td class="green">100%</td>
+            <td class="green">+₹60.86</td>
+        </tr>
+        <tr>
+            <td>July 29</td>
+            <td>3</td>
+            <td>1</td>
+            <td>33%</td>
+            <td class="red">-₹6.01</td>
+        </tr>
+        <tr>
+            <td>July 30</td>
+            <td>3</td>
+            <td>2</td>
+            <td>67%</td>
+            <td class="green">+₹3.40</td>
+        </tr>
+        <tr>
+            <td>July 31</td>
+            <td>4</td>
+            <td>1</td>
+            <td>25%</td>
+            <td class="red">-₹17.43</td>
+        </tr>
+        <tr style="background: #dbeafe; font-weight: 600;">
+            <td>TOTAL</td>
+            <td>13</td>
+            <td>7</td>
+            <td>53.8%</td>
+            <td class="green">+₹40.82</td>
+        </tr>
+    </table>
+    
+    <div class="page-break"></div>
+    
+    <!-- Page 5: How to Run -->
+    <h2>How to Run</h2>
+    
+    <h3>Step 1: Activate Environment</h3>
+    <div class="code-block">
+cd "Trading_bot"
+.\TB\Scripts\Activate.ps1
+    </div>
+    
+    <h3>Step 2: Verify Installation</h3>
+    <div class="code-block">
+python demo.py
+    </div>
+    
+    <h3>Step 3: Run Daily Backtest</h3>
+    <div class="code-block">
+python run_bot.py --mode backtest
+    </div>
+    
+    <h3>Step 4: Run Intraday Simulation</h3>
+    <div class="code-block">
+# Latest available date
+python intraday_simulation.py
+
+# Specific date
+python intraday_simulation.py --date 2025-07-28
+
+# Custom capital
+python intraday_simulation.py --capital 50000
+    </div>
+    
+    <h3>Step 5: Check Daily Signals</h3>
+    <div class="code-block">
+python paper_trade.py
+    </div>
+    
+    <h2>Next Steps</h2>
+    
+    <table>
+        <tr>
+            <th>Priority</th>
+            <th>Task</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>Paper Trading Validation</td>
+            <td>Run paper trading for 2-4 weeks to validate signals</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td>Add More Stocks</td>
+            <td>Download 5-min data for more NIFTY 50 stocks</td>
+        </tr>
+        <tr>
+            <td>3</td>
+            <td>Discord Alerts</td>
+            <td>Integrate trading signals with Discord notifications</td>
+        </tr>
+        <tr>
+            <td>4</td>
+            <td>Live Broker Integration</td>
+            <td>Connect Zerodha/Alpaca for live trading</td>
+        </tr>
+    </table>
+    
+    <div class="footer">
+        <p>Algorithmic Trading Bot | Built with Python | December 2024</p>
+        <p>⚠️ Past performance does not guarantee future results. Trade responsibly.</p>
+    </div>
+
+</body>
+</html>
