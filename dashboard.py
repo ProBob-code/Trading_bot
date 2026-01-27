@@ -29,11 +29,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.data.historical_loader import HistoricalLoader
 from src.data.data_provider import AlphaVantageProvider
+from src.data.crypto_provider import BinanceCryptoProvider, LiveCryptoFeed
 from src.indicators.technical import TechnicalIndicators
 from src.indicators.custom import CustomIndicators
 from src.strategy.ta_strategy import TAStrategy
 from src.execution.brokers.paper_trader import PaperTrader
 from src.execution.order_manager import OrderManager
+from src.engine.ichimoku_auto_trader import IchimokuAutoTrader, TradingState
+from src.reports.trading_report import TradingReportGenerator
 
 # Currency symbol
 CURRENCY = "₹"
@@ -93,6 +96,17 @@ if 'paper_trader' not in st.session_state:
     st.session_state.trades = []
     st.session_state.data_loaded = False
     st.session_state.df = None
+    st.session_state.show_market_depth = False
+    st.session_state.timeline_filter = "All"
+    # Auto-trading state
+    st.session_state.auto_trader = None
+    st.session_state.auto_trading_active = False
+    st.session_state.auto_trade_report = None
+    st.session_state.auto_trade_signals = []
+    # Crypto state
+    st.session_state.market_mode = "Stocks"
+    st.session_state.crypto_provider = BinanceCryptoProvider()
+    st.session_state.crypto_feed = None
 
 # Indicator definitions with full names
 INDICATORS = {
@@ -422,7 +436,11 @@ def execute_trade(symbol: str, side: str, quantity: int, price: float):
 # MAIN APP
 # ============================================================
 
-st.markdown('<h1 class="main-header">📈 Trading Bot Dashboard - NSE/BSE</h1>', unsafe_allow_html=True)
+# Dynamic header based on market mode
+if 'market_mode' in st.session_state and st.session_state.market_mode == "Crypto":
+    st.markdown('<h1 class="main-header">🪙 Crypto Trading Bot - Binance (24/7)</h1>', unsafe_allow_html=True)
+else:
+    st.markdown('<h1 class="main-header">📈 Trading Bot Dashboard - NSE/BSE</h1>', unsafe_allow_html=True)
 
 # Ichimoku Cloud info banner
 st.markdown("""
@@ -438,22 +456,68 @@ st.markdown("""
 # Sidebar
 st.sidebar.header("⚙️ Settings")
 
-# Data Source
-st.sidebar.subheader("📂 Data Source")
-data_source = st.sidebar.radio("Select Data Source", ["Local Excel Files (NSE/BSE)", "Alpha Vantage API"])
+# Market Mode Selector - NEW!
+st.sidebar.subheader("🌐 Market Mode")
+market_mode = st.sidebar.radio(
+    "Select Market",
+    ["📈 Stocks (NSE/BSE)", "🪙 Crypto (24/7 Live)"],
+    index=0 if st.session_state.market_mode == "Stocks" else 1
+)
+st.session_state.market_mode = "Stocks" if "Stocks" in market_mode else "Crypto"
 
-if data_source == "Local Excel Files (NSE/BSE)":
-    local_files = {
-        "ADANIENT - Adani Enterprises (Daily)": "stock_data/Adani enterprise annual.xlsx",
-        "ASIANPAINT - Asian Paints Ltd (Daily)": "stock_data/Asian Paints Annual.xlsx",
-        "ADANIENT - Adani Enterprises (5-min Intraday)": "stock_data/Adani enterprise 5 min.xlsx",
-        "ASIANPAINT - Asian Paints Ltd (5-min Intraday)": "stock_data/Asian paints 5 min.xlsx",
-    }
-    selected_file = st.sidebar.selectbox("Select Stock", list(local_files.keys()))
-    symbol = selected_file.split(" - ")[0]
+# Dynamic currency based on market
+if st.session_state.market_mode == "Crypto":
+    CURRENCY_DISPLAY = "$"
 else:
-    symbol = st.sidebar.text_input("Stock Symbol", "RELIANCE.BSE")
-    api_key = st.sidebar.text_input("Alpha Vantage API Key", "9N8KYMVUSI2VRBOZ", type="password")
+    CURRENCY_DISPLAY = CURRENCY  # INR
+
+# Data Source (conditional based on market mode)
+if st.session_state.market_mode == "Stocks":
+    st.sidebar.subheader("📂 Data Source")
+    data_source = st.sidebar.radio("Select Data Source", ["Local Excel Files (NSE/BSE)", "Alpha Vantage API"])
+    
+    if data_source == "Local Excel Files (NSE/BSE)":
+        local_files = {
+            "ADANIENT - Adani Enterprises (Daily)": "stock_data/Adani enterprise annual.xlsx",
+            "ASIANPAINT - Asian Paints Ltd (Daily)": "stock_data/Asian Paints Annual.xlsx",
+            "ADANIENT - Adani Enterprises (5-min Intraday)": "stock_data/Adani enterprise 5 min.xlsx",
+            "ASIANPAINT - Asian Paints Ltd (5-min Intraday)": "stock_data/Asian paints 5 min.xlsx",
+        }
+        selected_file = st.sidebar.selectbox("Select Stock", list(local_files.keys()))
+        symbol = selected_file.split(" - ")[0]
+    else:
+        symbol = st.sidebar.text_input("Stock Symbol", "RELIANCE.BSE")
+        api_key = st.sidebar.text_input("Alpha Vantage API Key", "9N8KYMVUSI2VRBOZ", type="password")
+    
+    data_source_type = "stocks"
+
+else:
+    # CRYPTO MODE
+    st.sidebar.subheader("🪙 Crypto Settings")
+    st.sidebar.markdown("*Live data from Binance (24/7)*")
+    
+    # Crypto pair selector
+    crypto_pairs = BinanceCryptoProvider.get_available_pairs()
+    selected_crypto = st.sidebar.selectbox(
+        "Select Crypto Pair",
+        list(crypto_pairs.keys()),
+        format_func=lambda x: f"{x} - {crypto_pairs[x]}"
+    )
+    symbol = selected_crypto
+    
+    # Interval selector
+    intervals = BinanceCryptoProvider.get_available_intervals()
+    selected_interval = st.sidebar.selectbox(
+        "Candle Interval",
+        list(intervals.keys()),
+        index=2,  # Default to 15m
+        format_func=lambda x: f"{x} ({intervals[x]})"
+    )
+    
+    # History bars
+    history_bars = st.sidebar.slider("History Bars", 100, 500, 200)
+    
+    data_source_type = "crypto"
 
 # Technical Indicators - Ichimoku FIRST and DEFAULT
 st.sidebar.subheader("📊 Technical Indicators")
@@ -477,11 +541,32 @@ selected_indicators = st.sidebar.multiselect(
 # Load Data Button
 if st.sidebar.button("📥 Load Data", type="primary"):
     with st.spinner("Loading data..."):
-        if data_source == "Local Excel Files (NSE/BSE)":
-            file_path = local_files[selected_file]
-            df = load_data_local(symbol, file_path)
+        if data_source_type == "stocks":
+            if data_source == "Local Excel Files (NSE/BSE)":
+                file_path = local_files[selected_file]
+                df = load_data_local(symbol, file_path)
+            else:
+                df = load_data_api(symbol, api_key)
         else:
-            df = load_data_api(symbol, api_key)
+            # CRYPTO - Load from Binance
+            try:
+                crypto_provider = st.session_state.crypto_provider
+                df = crypto_provider.get_historical_klines(
+                    symbol=symbol,
+                    interval=selected_interval,
+                    limit=history_bars
+                )
+                
+                # Create live feed for real-time updates
+                st.session_state.crypto_feed = LiveCryptoFeed(
+                    symbol=symbol,
+                    interval=selected_interval,
+                    history_bars=history_bars
+                )
+                
+            except Exception as e:
+                st.error(f"Error loading crypto data: {e}")
+                df = pd.DataFrame()
         
         if not df.empty:
             df = add_indicators(df, selected_indicators)
@@ -489,7 +574,11 @@ if st.sidebar.button("📥 Load Data", type="primary"):
             st.session_state.data_loaded = True
             st.session_state.current_symbol = symbol
             st.session_state.selected_indicators = selected_indicators
-            st.success(f"✅ Loaded {len(df)} data points for {symbol}")
+            
+            if data_source_type == "crypto":
+                st.success(f"✅ Loaded {len(df)} candles for {symbol} (Live 24/7 data)")
+            else:
+                st.success(f"✅ Loaded {len(df)} data points for {symbol}")
         else:
             st.error("Failed to load data")
 
@@ -499,11 +588,59 @@ if st.session_state.data_loaded and st.session_state.df is not None:
     symbol = st.session_state.current_symbol
     
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 Charts & Ichimoku", "🎯 Paper Trading", "📊 P&L Analysis", "📚 Indicator Guide"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Charts & Ichimoku", "🎯 Paper Trading", "📋 Positions & Orders", "🤖 Auto Trading", "📊 P&L Analysis", "📚 Indicator Guide"])
     
     with tab1:
+        # Timeline filter
+        st.markdown("### ⏱️ Timeline Filter")
+        timeline_col1, timeline_col2, timeline_col3 = st.columns([2, 2, 2])
+        
+        with timeline_col1:
+            timeline_options = ["All Data", "1 Week", "1 Month", "3 Months", "6 Months", "1 Year", "Custom"]
+            timeline_filter = st.selectbox("Select Timeframe", timeline_options, index=0)
+        
+        with timeline_col2:
+            if timeline_filter == "Custom":
+                start_date = st.date_input("Start Date", df.index.min().date() if hasattr(df.index.min(), 'date') else df.index.min())
+            else:
+                start_date = None
+        
+        with timeline_col3:
+            if timeline_filter == "Custom":
+                end_date = st.date_input("End Date", df.index.max().date() if hasattr(df.index.max(), 'date') else df.index.max())
+            else:
+                end_date = None
+        
+        # Apply timeline filter
+        if timeline_filter != "All Data":
+            if timeline_filter == "1 Week":
+                filter_start = df.index.max() - pd.Timedelta(days=7)
+            elif timeline_filter == "1 Month":
+                filter_start = df.index.max() - pd.Timedelta(days=30)
+            elif timeline_filter == "3 Months":
+                filter_start = df.index.max() - pd.Timedelta(days=90)
+            elif timeline_filter == "6 Months":
+                filter_start = df.index.max() - pd.Timedelta(days=180)
+            elif timeline_filter == "1 Year":
+                filter_start = df.index.max() - pd.Timedelta(days=365)
+            elif timeline_filter == "Custom" and start_date and end_date:
+                filter_start = pd.Timestamp(start_date)
+                filter_end = pd.Timestamp(end_date)
+                df_filtered = df[(df.index >= filter_start) & (df.index <= filter_end)]
+            
+            if timeline_filter != "Custom":
+                df_filtered = df[df.index >= filter_start]
+            
+            if len(df_filtered) > 0:
+                chart_df = df_filtered
+            else:
+                chart_df = df
+                st.warning("No data in selected range, showing all data")
+        else:
+            chart_df = df
+        
         # Display chart
-        fig = create_chart(df, selected_indicators, symbol)
+        fig = create_chart(chart_df, selected_indicators, symbol)
         st.plotly_chart(fig, use_container_width=True)
         
         # Current price and indicators
@@ -528,7 +665,17 @@ if st.session_state.data_loaded and st.session_state.df is not None:
                 st.metric("MACD", f"{macd:.2f}", "Bullish" if macd > signal else "Bearish")
         
         with col4:
-            if 'atr' in df.columns:
+            # Open Interest (simulated for derivatives)
+            import random
+            simulated_oi = random.randint(50000, 200000)
+            oi_change = random.uniform(-5, 5)
+            st.metric("Open Interest (OI)", f"{simulated_oi:,}", f"{oi_change:+.2f}%")
+        
+        # Additional row for ATR if available
+        if 'atr' in df.columns:
+            st.markdown("---")
+            atr_col1, atr_col2, atr_col3, atr_col4 = st.columns(4)
+            with atr_col1:
                 atr = df['atr'].iloc[-1]
                 st.metric("ATR (Volatility)", f"{CURRENCY}{atr:.2f}")
         
@@ -586,16 +733,37 @@ if st.session_state.data_loaded and st.session_state.df is not None:
             current_price = df['close'].iloc[-1]
             st.write(f"**Current Price:** {CURRENCY}{current_price:,.2f}")
             
-            trade_side = st.radio("Trade Side", ["BUY", "SELL"], horizontal=True)
+            trade_side = st.radio("Trade Side", ["BUY", "SELL"], horizontal=True, key="trade_side_radio")
+            
+            # Market Depth display when side is selected
+            st.session_state.paper_trader.set_prices({symbol: current_price})
+            market_depth = st.session_state.paper_trader.get_market_depth(symbol)
+            
+            st.markdown("#### 📊 Market Depth (Order Book)")
+            depth_col1, depth_col2 = st.columns(2)
+            
+            with depth_col1:
+                st.markdown("**🟢 Bids (Buy Orders)**")
+                bids_df = pd.DataFrame(market_depth['bids'])
+                bids_df.columns = ['Price (₹)', 'Volume']
+                st.dataframe(bids_df, use_container_width=True, hide_index=True)
+            
+            with depth_col2:
+                st.markdown("**🔴 Asks (Sell Orders)**")
+                asks_df = pd.DataFrame(market_depth['asks'])
+                asks_df.columns = ['Price (₹)', 'Volume']
+                st.dataframe(asks_df, use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
             
             account = st.session_state.paper_trader.get_account_info()
-            max_shares = int(account['cash'] / current_price)
+            max_shares = int(account['cash'] / current_price) if current_price > 0 else 1
             
             quantity = st.number_input(
                 "Quantity (Shares)", 
                 min_value=1, 
                 max_value=max(max_shares, 1), 
-                value=min(10, max_shares)
+                value=min(10, max(max_shares, 1))
             )
             
             trade_value = quantity * current_price
@@ -626,18 +794,318 @@ if st.session_state.data_loaded and st.session_state.df is not None:
             pnl = account['pnl']
             pnl_pct = (pnl / INITIAL_CAPITAL) * 100
             st.metric("P&L", f"{CURRENCY}{pnl:+,.2f}", f"{pnl_pct:+.2f}%")
-        
-        # Current positions
-        st.subheader("📋 Current Positions")
-        positions = st.session_state.paper_trader.get_positions()
-        
-        if positions:
-            pos_df = pd.DataFrame(positions)
-            st.dataframe(pos_df, use_container_width=True)
-        else:
-            st.info("No open positions")
+            
+            # Calculate and show Avg Buying Price for current positions
+            positions = st.session_state.paper_trader.get_positions()
+            if positions:
+                total_invested = sum(p['avg_price'] * p['quantity'] for p in positions)
+                total_qty = sum(p['quantity'] for p in positions)
+                if total_qty > 0:
+                    avg_buying = total_invested / total_qty
+                    st.metric("Avg Buying Price", f"{CURRENCY}{avg_buying:,.2f}")
     
     with tab3:
+        st.subheader("📋 Positions & Orders")
+        
+        # Sub-tabs for Open Positions, Closed Positions, Trade History, Pending Orders
+        pos_tab1, pos_tab2, pos_tab3, pos_tab4 = st.tabs(["📈 Open Positions", "✅ Closed Positions", "📜 Trade History", "⏳ Pending Orders"])
+        
+        with pos_tab1:
+            st.markdown("### Open Positions")
+            positions = st.session_state.paper_trader.get_positions()
+            
+            if positions:
+                pos_df = pd.DataFrame(positions)
+                # Rename unrealized_pnl to net_position
+                if 'unrealized_pnl' in pos_df.columns:
+                    pos_df = pos_df.rename(columns={
+                        'unrealized_pnl': 'net_position',
+                        'unrealized_pnl_pct': 'net_position_pct'
+                    })
+                
+                # Display with custom formatting
+                st.dataframe(
+                    pos_df,
+                    column_config={
+                        "symbol": "Symbol",
+                        "quantity": "Qty",
+                        "avg_price": st.column_config.NumberColumn("Avg Buying Price", format=f"{CURRENCY}%.2f"),
+                        "current_price": st.column_config.NumberColumn("Current Price", format=f"{CURRENCY}%.2f"),
+                        "market_value": st.column_config.NumberColumn("Market Value", format=f"{CURRENCY}%.2f"),
+                        "net_position": st.column_config.NumberColumn("Net Position (P&L)", format=f"{CURRENCY}%.2f"),
+                        "net_position_pct": st.column_config.NumberColumn("Net Position %", format="%.2f%%"),
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Summary
+                total_invested = sum(p['avg_price'] * p['quantity'] for p in positions)
+                total_market_value = sum(p['market_value'] for p in positions)
+                total_net_position = sum(p.get('net_position', p.get('unrealized_pnl', 0)) for p in positions)
+                
+                st.markdown("---")
+                summary_col1, summary_col2, summary_col3 = st.columns(3)
+                with summary_col1:
+                    st.metric("Total Invested", f"{CURRENCY}{total_invested:,.2f}")
+                with summary_col2:
+                    st.metric("Total Market Value", f"{CURRENCY}{total_market_value:,.2f}")
+                with summary_col3:
+                    st.metric("Total Net Position", f"{CURRENCY}{total_net_position:+,.2f}")
+            else:
+                st.info("No open positions. Start trading in the Paper Trading tab!")
+        
+        with pos_tab2:
+            st.markdown("### Closed Positions")
+            closed_positions = st.session_state.paper_trader.get_closed_positions()
+            
+            if closed_positions:
+                closed_df = pd.DataFrame(closed_positions)
+                closed_df['closed_at'] = pd.to_datetime(closed_df['closed_at']).dt.strftime('%Y-%m-%d %H:%M:%S')
+                
+                st.dataframe(
+                    closed_df,
+                    column_config={
+                        "symbol": "Symbol",
+                        "quantity": "Qty Sold",
+                        "entry_price": st.column_config.NumberColumn("Entry Price", format=f"{CURRENCY}%.2f"),
+                        "exit_price": st.column_config.NumberColumn("Exit Price", format=f"{CURRENCY}%.2f"),
+                        "realized_pnl": st.column_config.NumberColumn("Realized P&L", format=f"{CURRENCY}%.2f"),
+                        "commission": st.column_config.NumberColumn("Commission", format=f"{CURRENCY}%.2f"),
+                        "closed_at": "Closed At",
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Summary
+                total_realized = sum(p['realized_pnl'] for p in closed_positions)
+                total_commission = sum(p['commission'] for p in closed_positions)
+                
+                st.markdown("---")
+                closed_summary_col1, closed_summary_col2 = st.columns(2)
+                with closed_summary_col1:
+                    st.metric("Total Realized P&L", f"{CURRENCY}{total_realized:+,.2f}")
+                with closed_summary_col2:
+                    st.metric("Total Commissions", f"{CURRENCY}{total_commission:,.2f}")
+            else:
+                st.info("No closed positions yet. Sell some positions to see them here.")
+        
+        with pos_tab3:
+            st.markdown("### Trade History")
+            
+            if st.session_state.trades:
+                trades_df = pd.DataFrame(st.session_state.trades)
+                trades_df['time'] = trades_df['time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                
+                st.dataframe(
+                    trades_df,
+                    column_config={
+                        "time": "Time",
+                        "symbol": "Symbol",
+                        "side": st.column_config.TextColumn("Side"),
+                        "quantity": "Qty",
+                        "price": st.column_config.NumberColumn("Price", format=f"{CURRENCY}%.2f"),
+                        "value": st.column_config.NumberColumn("Value", format=f"{CURRENCY}%.2f"),
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No trades executed yet.")
+        
+        with pos_tab4:
+            st.markdown("### Pending Orders")
+            pending_orders = st.session_state.paper_trader.get_pending_orders()
+            
+            if pending_orders:
+                pending_df = pd.DataFrame(pending_orders)
+                pending_df['created_at'] = pd.to_datetime(pending_df['created_at']).dt.strftime('%Y-%m-%d %H:%M:%S')
+                
+                st.dataframe(
+                    pending_df,
+                    column_config={
+                        "order_id": "Order ID",
+                        "symbol": "Symbol",
+                        "side": "Side",
+                        "order_type": "Type",
+                        "quantity": "Qty",
+                        "price": st.column_config.NumberColumn("Limit Price", format=f"{CURRENCY}%.2f"),
+                        "stop_price": st.column_config.NumberColumn("Stop Price", format=f"{CURRENCY}%.2f"),
+                        "status": "Status",
+                        "created_at": "Created At",
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Cancel order functionality
+                st.markdown("---")
+                order_to_cancel = st.selectbox(
+                    "Select Order to Cancel",
+                    [o['order_id'] for o in pending_orders],
+                    key="cancel_order_select"
+                )
+                
+                if st.button("❌ Cancel Selected Order", type="secondary"):
+                    # Find the order and cancel it
+                    for order_id, order in st.session_state.paper_trader.pending_orders.items():
+                        if order_id == order_to_cancel:
+                            st.session_state.paper_trader.cancel_order(order)
+                            st.success(f"Order {order_to_cancel} cancelled!")
+                            st.rerun()
+                            break
+            else:
+                st.info("No pending orders. Place a limit or stop order to see them here.")
+                st.markdown("*Note: Market orders are executed immediately and won't appear here.*")
+    
+    with tab4:
+        st.subheader("🤖 Automated Trading with Ichimoku Cloud")
+        
+        # Information banner
+        st.markdown("""
+        <div class="indicator-info">
+            <span class="ichimoku-badge">🌩️ Ichimoku Cloud Strategy</span>
+            <p style="margin-top:0.5rem; color: #94a3b8;">
+                Uses 4-signal confluence: Kumo Breakout, TK Cross, Cloud Twist, Chikou Confirmation.
+                Trades are executed automatically when 3+ signals align.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Control columns
+        ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 1, 2])
+        
+        with ctrl_col1:
+            # Initialize auto-trader if not exists
+            if st.session_state.auto_trader is None:
+                st.session_state.auto_trader = IchimokuAutoTrader(
+                    paper_trader=st.session_state.paper_trader,
+                    order_manager=st.session_state.order_manager,
+                    check_interval_seconds=0.5,
+                    min_confluence=3,
+                    position_size_pct=0.10
+                )
+            
+            # Start/Stop Button
+            is_running = st.session_state.auto_trader.is_running()
+            
+            if is_running:
+                if st.button("🛑 STOP Auto-Trading", type="primary", use_container_width=True):
+                    report = st.session_state.auto_trader.stop()
+                    st.session_state.auto_trade_report = report
+                    st.session_state.auto_trading_active = False
+                    st.rerun()
+            else:
+                if st.button("🚀 START Auto-Trading", type="primary", use_container_width=True):
+                    # Set data and start
+                    st.session_state.auto_trader.set_data(df, symbol)
+                    if st.session_state.auto_trader.start():
+                        st.session_state.auto_trading_active = True
+                        st.session_state.auto_trade_report = None
+                        st.rerun()
+                    else:
+                        st.error("Failed to start auto-trading. Ensure data is loaded.")
+        
+        with ctrl_col2:
+            # Status indicator
+            if is_running:
+                st.markdown("### 🟢 RUNNING")
+                status = st.session_state.auto_trader.get_status()
+                st.caption(f"Progress: {status['progress_pct']:.1f}%")
+                st.caption(f"Trades: {status['total_trades']}")
+            else:
+                st.markdown("### 🔴 STOPPED")
+                st.caption("Click START to begin")
+        
+        with ctrl_col3:
+            # Configuration
+            with st.expander("⚙️ Strategy Settings"):
+                confluence = st.slider("Min Confluence (signals)", 2, 4, 3, key="auto_confluence")
+                position_size = st.slider("Position Size (%)", 5, 25, 10, key="auto_pos_size")
+                check_interval = st.slider("Check Interval (sec)", 0.1, 2.0, 0.5, key="auto_interval")
+                
+                if st.button("Apply Settings"):
+                    st.session_state.auto_trader.min_confluence = confluence
+                    st.session_state.auto_trader.position_size_pct = position_size / 100
+                    st.session_state.auto_trader.check_interval = check_interval
+                    st.success("Settings applied!")
+        
+        st.markdown("---")
+        
+        # Live feed or Report display
+        if is_running:
+            # Show live status
+            st.subheader("📊 Live Trading Status")
+            
+            status = st.session_state.auto_trader.get_status()
+            
+            # Progress bar
+            st.progress(status['progress_pct'] / 100)
+            
+            # Current stats
+            stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+            with stat_col1:
+                st.metric("Total Trades", status['total_trades'])
+            with stat_col2:
+                st.metric("Current P&L", f"{CURRENCY}{status['current_pnl']:+,.2f}")
+            with stat_col3:
+                st.metric("Current Bar", f"{status['current_bar']}/{status['total_bars']}")
+            with stat_col4:
+                if status['latest_signal']:
+                    signal = status['latest_signal']
+                    st.metric("Latest Signal", signal.signal_type, f"{signal.confidence*100:.0f}%")
+            
+            # Recent signals
+            st.subheader("📡 Recent Signals")
+            recent_signals = st.session_state.auto_trader.signal_history[-10:]
+            if recent_signals:
+                for sig in reversed(recent_signals):
+                    if sig.signal_type == "BUY":
+                        st.success(f"🟢 BUY @ ₹{sig.price:,.2f} | Confidence: {sig.confidence*100:.0f}% | {', '.join(sig.reasons[:2])}")
+                    elif sig.signal_type == "SELL":
+                        st.error(f"🔴 SELL @ ₹{sig.price:,.2f} | Confidence: {sig.confidence*100:.0f}% | {', '.join(sig.reasons[:2])}")
+                    else:
+                        st.info(f"⚪ HOLD @ ₹{sig.price:,.2f}")
+            
+            # Auto-refresh hint
+            st.caption("💡 The dashboard updates when you interact with it. Click anywhere to refresh.")
+            
+        elif st.session_state.auto_trade_report:
+            # Show report
+            st.subheader("📋 Trading Session Report")
+            
+            report = st.session_state.auto_trade_report
+            report_md = TradingReportGenerator.format_report_for_display(report)
+            st.markdown(report_md)
+            
+            # Download button
+            if st.button("📥 Download Report as CSV"):
+                trades_df = TradingReportGenerator.trades_to_dataframe(report)
+                if not trades_df.empty:
+                    csv = trades_df.to_csv(index=False)
+                    st.download_button(
+                        label="Download",
+                        data=csv,
+                        file_name=f"trading_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+        else:
+            # Instructions
+            st.info("""
+            ### How it works:
+            1. **Load data** from the sidebar
+            2. Click **START** to begin automated trading
+            3. The bot uses Ichimoku Cloud strategy with 4-signal confluence:
+               - 🌩️ **Kumo Breakout**: Price above/below cloud
+               - 📈 **TK Cross**: Tenkan crosses Kijun
+               - 🔄 **Cloud Twist**: Span A vs Span B
+               - 👁️ **Chikou Confirmation**: Lagging span position
+            4. Trades execute when 3+ signals align
+            5. Click **STOP** to end and generate report
+            """)
+    
+    with tab5:
         st.subheader("📊 P&L Analysis")
         
         # Account metrics
@@ -703,7 +1171,7 @@ if st.session_state.data_loaded and st.session_state.df is not None:
             st.success(f"Account reset to {CURRENCY}{INITIAL_CAPITAL:,.2f}")
             st.rerun()
     
-    with tab4:
+    with tab6:
         st.subheader("📚 Technical Indicator Guide")
         
         st.markdown("""

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GodBotTrade - Login</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .login-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+        }
+
+        .login-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .login-logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .login-logo .icon {
+            font-size: 48px;
+            filter: drop-shadow(0 0 20px var(--accent));
+        }
+
+        .login-logo h1 {
+            background: linear-gradient(135deg, var(--accent), var(--gold));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 28px;
+            margin: 10px 0 5px;
+        }
+
+        .login-logo p {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group label {
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-group input {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 14px 16px;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .btn-login {
+            background: linear-gradient(135deg, var(--accent), #9333ea);
+            border: none;
+            color: white;
+            padding: 16px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(124, 58, 237, 0.4);
+        }
+
+        .login-message {
+            text-align: center;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            display: none;
+        }
+
+        .login-message.error {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--red);
+            display: block;
+        }
+
+        .login-message.success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--green);
+            display: block;
+        }
+
+        .login-footer {
+            text-align: center;
+            margin-top: 20px;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .login-footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .paper-badge {
+            display: inline-block;
+            background: var(--gold);
+            color: #000;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-logo">
+                <span class="icon">⚡</span>
+                <h1>GodBotTrade</h1>
+                <p>Multi-Asset Trading Platform</p>
+                <span class="paper-badge">📝 PAPER TRADING MODE</span>
+            </div>
+
+            <div class="login-message" id="loginMessage"></div>
+
+            <form class="login-form" id="loginForm">
+                <div class="form-group">
+                    <label>Username / Email</label>
+                    <input type="text" id="username" placeholder="Enter username" required>
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" placeholder="Enter password" required>
+                </div>
+                <button type="submit" class="btn-login">
+                    🚀 Login / Register
+                </button>
+            </form>
+
+            <p class="login-footer">
+                No account? Enter credentials and one will be created automatically.
+                <br><br>
+                <a href="#">Credentials stored locally (offline mode)</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Local storage key
+        const USERS_KEY = 'godbottrade_users';
+        const SESSION_KEY = 'godbottrade_session';
+
+        // Create default admin account if not exists
+        let users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
+        if (!users['admin']) {
+            users['admin'] = {
+                password: btoa('admin123'),  // Default: admin / admin123
+                createdAt: Date.now(),
+                isAdmin: true,
+                settings: {
+                    confluence: 3,
+                    positionSize: 10,
+                    checkInterval: 5,
+                    stopLoss: 5,
+                    takeProfit: 10
+                }
+            };
+            localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        }
+
+        // Check if already logged in
+        document.addEventListener('DOMContentLoaded', () => {
+            const session = localStorage.getItem(SESSION_KEY);
+            if (session) {
+                window.location.href = 'index.html';
+            }
+        });
+
+        document.getElementById('loginForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const username = document.getElementById('username').value.trim().toLowerCase();
+            const password = document.getElementById('password').value;
+            const messageEl = document.getElementById('loginMessage');
+
+            if (!username || !password) {
+                messageEl.className = 'login-message error';
+                messageEl.textContent = 'Please enter both username and password';
+                return;
+            }
+
+            if (password.length < 4) {
+                messageEl.className = 'login-message error';
+                messageEl.textContent = 'Password must be at least 4 characters';
+                return;
+            }
+
+            // Get existing users
+            let users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
+
+            if (users[username]) {
+                // Existing user - verify password
+                if (users[username].password === btoa(password)) {
+                    // Login success
+                    localStorage.setItem(SESSION_KEY, JSON.stringify({
+                        username: username,
+                        loginTime: Date.now()
+                    }));
+                    messageEl.className = 'login-message success';
+                    messageEl.textContent = '✅ Login successful! Redirecting...';
+                    setTimeout(() => window.location.href = 'index.html', 1000);
+                } else {
+                    messageEl.className = 'login-message error';
+                    messageEl.textContent = '❌ Incorrect password';
+                }
+            } else {
+                // New user - create account
+                users[username] = {
+                    password: btoa(password),
+                    createdAt: Date.now(),
+                    settings: {
+                        confluence: 3,
+                        positionSize: 10,
+                        checkInterval: 5,
+                        stopLoss: 5,
+                        takeProfit: 10
+                    }
+                };
+                localStorage.setItem(USERS_KEY, JSON.stringify(users));
+
+                // Auto login
+                localStorage.setItem(SESSION_KEY, JSON.stringify({
+                    username: username,
+                    loginTime: Date.now()
+                }));
+
+                messageEl.className = 'login-message success';
+                messageEl.textContent = '✅ Account created! Redirecting...';
+                setTimeout(() => window.location.href = 'index.html', 1000);
+            }
+        });
+    </script>
+</body>
+
+</html>

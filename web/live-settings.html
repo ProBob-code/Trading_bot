@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GodBotTrade - Live Trading Settings</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .settings-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #1a0a0a 0%, #2a1a1a 100%);
+            padding: 20px;
+        }
+
+        .settings-card {
+            background: var(--bg-card);
+            border: 2px solid #ef4444;
+            border-radius: 20px;
+            padding: 40px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(239, 68, 68, 0.2);
+        }
+
+        .settings-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .settings-header .icon {
+            font-size: 48px;
+        }
+
+        .settings-header h1 {
+            color: #ef4444;
+            font-size: 24px;
+            margin: 10px 0 5px;
+        }
+
+        .settings-header p {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .warning-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .warning-banner .warning-icon {
+            font-size: 24px;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .warning-banner p {
+            color: #ef4444;
+            font-size: 12px;
+            margin: 0;
+        }
+
+        .broker-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .broker-tab {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .broker-tab.active {
+            border-color: #ef4444;
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .broker-section {
+            display: none;
+        }
+
+        .broker-section.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .form-group input {
+            width: 100%;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 14px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #ef4444;
+        }
+
+        .form-group small {
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-top: 4px;
+            display: block;
+        }
+
+        .btn-test {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 12px;
+        }
+
+        .btn-test:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .btn-save {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            background: #ef4444;
+            color: white;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-save:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(239, 68, 68, 0.4);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            margin-left: 8px;
+        }
+
+        .status-badge.connected {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--green);
+        }
+
+        .status-badge.disconnected {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--red);
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .back-link a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 13px;
+        }
+
+        .back-link a:hover {
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="settings-container">
+        <div class="settings-card">
+            <div class="settings-header">
+                <span class="icon">💰</span>
+                <h1>Live Trading Settings</h1>
+                <p>Configure your broker API keys for live trading</p>
+            </div>
+
+            <div class="warning-banner">
+                <span class="warning-icon">⚠️</span>
+                <p>CAUTION: Live trading uses REAL MONEY.<br>Test thoroughly in paper mode first!</p>
+            </div>
+
+            <!-- Broker Tabs -->
+            <div class="broker-tabs">
+                <button class="broker-tab active" data-broker="binance">🪙 Binance</button>
+                <button class="broker-tab" data-broker="zerodha">🇮🇳 Zerodha</button>
+                <button class="broker-tab" data-broker="groww">🇮🇳 Groww</button>
+            </div>
+
+            <!-- Binance Section -->
+            <div class="broker-section active" id="binance-section">
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="text" id="binanceApiKey" placeholder="Enter Binance API Key">
+                </div>
+                <div class="form-group">
+                    <label>API Secret</label>
+                    <input type="password" id="binanceApiSecret" placeholder="Enter Binance API Secret">
+                </div>
+                <div class="form-group">
+                    <label>Mode</label>
+                    <select id="binanceMode"
+                        style="width:100%;padding:14px;background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;">
+                        <option value="testnet">🧪 Testnet (Recommended)</option>
+                        <option value="live">💰 Live (Real Money)</option>
+                    </select>
+                </div>
+                <button class="btn-test" onclick="testBinanceConnection()">🔌 Test Connection</button>
+            </div>
+
+            <!-- Zerodha Section -->
+            <div class="broker-section" id="zerodha-section">
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="text" id="zerodhaApiKey" placeholder="Enter Zerodha Kite API Key">
+                </div>
+                <div class="form-group">
+                    <label>API Secret</label>
+                    <input type="password" id="zerodhaApiSecret" placeholder="Enter Zerodha API Secret">
+                </div>
+                <div class="form-group">
+                    <label>Demat Account Number</label>
+                    <input type="text" id="zerodhaDematId" placeholder="e.g., AB1234567890">
+                    <small>Your Zerodha client ID / Demat account number</small>
+                </div>
+                <button class="btn-test" onclick="testZerodhaConnection()">🔌 Test Connection</button>
+            </div>
+
+            <!-- Groww Section -->
+            <div class="broker-section" id="groww-section">
+                <div class="form-group">
+                    <label>API Key (if available)</label>
+                    <input type="text" id="growwApiKey" placeholder="Enter Groww API Key">
+                </div>
+                <div class="form-group">
+                    <label>Demat Account Number</label>
+                    <input type="text" id="growwDematId" placeholder="e.g., 1234567890123456">
+                    <small>Your 16-digit Groww Demat account number</small>
+                </div>
+                <div class="form-group">
+                    <label>Mobile Number</label>
+                    <input type="text" id="growwMobile" placeholder="+91 XXXXXXXXXX">
+                </div>
+                <button class="btn-test" onclick="testGrowwConnection()">🔌 Test Connection</button>
+            </div>
+
+            <button class="btn-save" onclick="saveSettings()">💾 Save Settings</button>
+
+            <div class="back-link">
+                <a href="index.html">← Back to Trading Dashboard</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const LIVE_SETTINGS_KEY = 'godbottrade_live_settings';
+
+        // Tab switching
+        document.querySelectorAll('.broker-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.broker-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.broker-section').forEach(s => s.classList.remove('active'));
+
+                tab.classList.add('active');
+                document.getElementById(`${tab.dataset.broker}-section`).classList.add('active');
+            });
+        });
+
+        // Load saved settings
+        document.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem(LIVE_SETTINGS_KEY);
+            if (saved) {
+                const settings = JSON.parse(saved);
+
+                // Binance
+                if (settings.binance) {
+                    document.getElementById('binanceApiKey').value = settings.binance.apiKey || '';
+                    document.getElementById('binanceMode').value = settings.binance.mode || 'testnet';
+                }
+
+                // Zerodha
+                if (settings.zerodha) {
+                    document.getElementById('zerodhaApiKey').value = settings.zerodha.apiKey || '';
+                    document.getElementById('zerodhaDematId').value = settings.zerodha.dematId || '';
+                }
+
+                // Groww
+                if (settings.groww) {
+                    document.getElementById('growwApiKey').value = settings.groww.apiKey || '';
+                    document.getElementById('growwDematId').value = settings.groww.dematId || '';
+                    document.getElementById('growwMobile').value = settings.groww.mobile || '';
+                }
+            }
+        });
+
+        function testBinanceConnection() {
+            alert('🔌 Testing Binance connection...\n\n(This feature requires Binance broker implementation)');
+        }
+
+        function testZerodhaConnection() {
+            alert('🔌 Testing Zerodha connection...\n\n(This feature requires Zerodha Kite SDK integration)');
+        }
+
+        function testGrowwConnection() {
+            alert('🔌 Testing Groww connection...\n\n(Groww API is limited - may require manual integration)');
+        }
+
+        function saveSettings() {
+            const settings = {
+                binance: {
+                    apiKey: document.getElementById('binanceApiKey').value,
+                    apiSecret: btoa(document.getElementById('binanceApiSecret').value), // Basic encoding
+                    mode: document.getElementById('binanceMode').value
+                },
+                zerodha: {
+                    apiKey: document.getElementById('zerodhaApiKey').value,
+                    apiSecret: btoa(document.getElementById('zerodhaApiSecret').value),
+                    dematId: document.getElementById('zerodhaDematId').value
+                },
+                groww: {
+                    apiKey: document.getElementById('growwApiKey').value,
+                    dematId: document.getElementById('growwDematId').value,
+                    mobile: document.getElementById('growwMobile').value
+                },
+                savedAt: new Date().toISOString()
+            };
+
+            localStorage.setItem(LIVE_SETTINGS_KEY, JSON.stringify(settings));
+            alert('✅ Settings saved!\n\nYou can now switch to Live mode in the trading dashboard.');
+        }
+    </script>
+</body>
+
+</html>
