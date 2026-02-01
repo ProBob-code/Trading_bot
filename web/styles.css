@@ -2380,3 +2380,314 @@ body {
     justify-content: flex-end;
     background: var(--bg-secondary);
 }
+
+/* ============================================
+   NEWS FEED SIDEBAR
+   ============================================ */
+
+.news-feed {
+    grid-area: news;
+    background: var(--bg-card);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    max-height: 400px;
+    overflow: hidden;
+}
+
+.news-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.news-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.sentiment-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.sentiment-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.sentiment-dot.bullish {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+}
+
+.sentiment-dot.bearish {
+    background: var(--red);
+    box-shadow: 0 0 6px var(--red);
+}
+
+.sentiment-dot.neutral {
+    background: var(--gold);
+    box-shadow: 0 0 6px var(--gold);
+}
+
+.news-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-right: 4px;
+}
+
+.news-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.news-list::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+
+.news-loading {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 20px;
+    font-size: 12px;
+}
+
+.news-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+}
+
+.news-item:hover {
+    background: var(--bg-primary);
+    transform: translateX(2px);
+}
+
+.news-item.bullish {
+    border-left-color: var(--green);
+}
+
+.news-item.bearish {
+    border-left-color: var(--red);
+}
+
+.news-title {
+    font-size: 12px;
+    color: var(--text-primary);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.news-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+}
+
+.news-source {
+    color: var(--text-secondary);
+}
+
+.news-sentiment {
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--bg-card);
+    color: var(--accent);
+}
+
+.news-item.bullish .news-sentiment {
+    color: var(--green);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.news-item.bearish .news-sentiment {
+    color: var(--red);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* News Movers Section */
+.news-movers {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 12px;
+}
+
+.movers-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.movers-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.movers-list {
+    font-size: 11px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.movers-section.gainers .movers-list {
+    color: var(--green);
+}
+
+.movers-section.losers .movers-list {
+    color: var(--red);
+}
+
+/* Trades Feed Sidebar */
+.trades-feed {
+    grid-area: trades;
+    background: var(--bg-card);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    max-height: 350px;
+    overflow: hidden;
+}
+
+.feed-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.feed-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.btn-clear {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-clear:hover {
+    border-color: var(--red);
+    color: var(--red);
+}
+
+.feed-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    padding: 0 8px 8px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 8px;
+}
+
+#tradesFeed {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#tradesFeed::-webkit-scrollbar {
+    width: 4px;
+}
+
+#tradesFeed::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+
+.trade-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    font-size: 11px;
+    border-left: 3px solid transparent;
+}
+
+.trade-item.buy {
+    border-left-color: var(--green);
+}
+
+.trade-item.sell {
+    border-left-color: var(--red);
+}
+
+.trade-item .side {
+    font-weight: 700;
+    min-width: 50px;
+}
+
+.trade-item .symbol {
+    color: var(--text-secondary);
+    min-width: 60px;
+}
+
+.price-qty-container {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.trade-item .price {
+    font-weight: 600;
+}
+
+.trade-item .qty {
+    font-size: 9px;
+    color: var(--text-secondary);
+}
+
+.trade-item .time {
+    color: var(--text-secondary);
+    font-size: 10px;
+}
