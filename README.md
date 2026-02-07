@@ -67,8 +67,8 @@ pip install -r requirements.txt
 ### Running the Application
 
 ```powershell
-# Start the server
-python api_server.py
+# Start the server (use full path if 'python' doesn't work)
+& "C:\Users\bajacob\AppData\Local\Programs\Python\Python312\python.exe" api_server.py
 ```
 
 Then open your browser to: **http://localhost:5050**
@@ -79,7 +79,7 @@ Press `Ctrl+C` in the terminal where the server is running, or:
 
 ```powershell
 # Find and stop Python processes
-Get-Process python | Stop-Process -Force
+Get-Process python* | Stop-Process -Force
 ```
 
 ---
