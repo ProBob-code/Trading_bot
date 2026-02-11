@@ -9,20 +9,28 @@
 // ============================================================
 
 const state = {
-    socket: null,
-    chart: null,
-    candleSeries: null,
-    currentMarket: 'crypto',  // 'crypto' or 'stocks'
+    currentMarket: 'crypto',
     currentSymbol: 'BTCUSDT',
     currentInterval: '1m',
     currentStrategy: 'ichimoku',
+    chart: null,
+    socket: null,
+    tradingEnabled: false,
+    positions: {},
+    strategies: {
+        'ichimoku': 'Strategy 1',
+        'bollinger': 'Strategy 2',
+        'macd_rsi': 'Strategy 3',
+        'ml_forecast': 'Strategy 4',
+        'combined': 'Strategy 5 (Combined)'
+    },
     isAutoTrading: false,
     lastPrice: 0,
     tradeCount: 0,
     buyCount: 0,
     sellCount: 0,
     // Position tracking for P&L
-    positions: {},  // { symbol: { qty, entryPrice, side } }
+    // positions: {},  // { symbol: { qty, entryPrice, side } } - This is now part of the new state structure
     settings: {
         confluence: 3,
         positionSize: 10,
@@ -41,6 +49,10 @@ const state = {
     },
     paperBalance: 100000  // Editable paper trading balance
 };
+
+function getStrategyName(slug) {
+    return state.strategies[slug] || slug;
+}
 
 // ============================================================
 // INITIALIZATION
@@ -64,7 +76,40 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         loadNews();
     }, 60000);
+
+    initClock();
+    // Check server status periodically
+    setInterval(checkServerStatus, 10000);
 });
+
+function initClock() {
+    setInterval(() => {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString();
+        const timeEl = document.getElementById('footerTime');
+        if (timeEl) timeEl.textContent = timeStr;
+    }, 1000);
+}
+
+async function checkServerStatus() {
+    try {
+        const res = await fetch('/api/stats');
+        const statusEl = document.getElementById('serverStatusText');
+        if (res.ok && statusEl) {
+            statusEl.textContent = 'Online';
+            statusEl.style.color = 'var(--green)';
+        } else if (statusEl) {
+            statusEl.textContent = 'Degraded';
+            statusEl.style.color = 'var(--orange)';
+        }
+    } catch (e) {
+        const statusEl = document.getElementById('serverStatusText');
+        if (statusEl) {
+            statusEl.textContent = 'Offline';
+            statusEl.style.color = 'var(--red)';
+        }
+    }
+}
 
 // ============================================================
 // CHART
@@ -181,6 +226,11 @@ function initSocket() {
         addTradeToFeed(data);
         showTradeNotification(data);
         updateTradeCount();
+    });
+
+    state.socket.on('market_intel', (data) => {
+        renderPulseGauge(data);
+        renderAIInsights(data);
     });
 }
 
@@ -360,7 +410,8 @@ async function executeTrade(side) {
                 symbol: state.currentSymbol,
                 side: side,
                 quantity: quantity,
-                market: state.currentMarket
+                market: state.currentMarket,
+                user: document.getElementById('dropdownUsername')?.textContent || 'admin'
             })
         });
 
@@ -626,7 +677,7 @@ function initEventListeners() {
     document.getElementById('strategySelect').addEventListener('change', async (e) => {
         const oldStrategy = state.currentStrategy;
         state.currentStrategy = e.target.value;
-        const strategyName = e.target.options[e.target.selectedIndex].text.replace(/^[^\s]+\s/, '');
+        const strategyName = getStrategyName(state.currentStrategy);
         document.getElementById('activeStrategy').textContent = strategyName;
 
         // Check if there's a bot running for this symbol/market to hot-swap strategy
@@ -639,7 +690,7 @@ function initEventListeners() {
             });
             const result = await response.json();
             if (result.success) {
-                showNotification(`🔄 Strategy updated: ${oldStrategy} → ${state.currentStrategy}`);
+                showNotification(`🔄 Strategy updated: ${getStrategyName(oldStrategy)} → ${getStrategyName(state.currentStrategy)}`);
             }
         } catch (err) {
             // No running bot for this symbol, that's fine
@@ -677,6 +728,7 @@ function initEventListeners() {
             .then(() => {
                 showNotification('🛑 All bots stopping...');
                 loadBots();
+                loadPositions(); // Refresh positions immediately to see closures
             });
     });
 
@@ -873,7 +925,7 @@ function renderBots(bots) {
             <div class="bot-card ${bot.mode}">
                 <div class="bot-info">
                     <span class="bot-symbol">${bot.symbol}</span>
-                    <span class="bot-strategy">${bot.strategy} • ${bot.market}</span>
+                    <span class="bot-strategy">${getStrategyName(bot.strategy)} • ${bot.market}</span>
                 </div>
                 <div class="bot-stats-row">
                      <span class="bot-pnl ${pnlClass}">${pnlSign}${formatCurrencyValue(pnl)}</span>
@@ -1012,8 +1064,15 @@ function initBotManagement() {
         });
 
         state.socket.on('strategy_changed', (data) => {
-            showNotification(`🔄 Strategy changed: ${data.old_strategy} → ${data.new_strategy}`);
-            loadBots();
+            showNotification(`🔄 Strategy changed: ${getStrategyName(data.old_strategy)} → ${getStrategyName(data.new_strategy)}`);
+        });
+
+        // Live News Update
+        state.socket.on('news_update', (news) => {
+            if (news && news.length > 0) {
+                updateNewsFeed(news);
+                showNotification(`📰 New market update received`, 'info');
+            }
         });
     }
 
@@ -1051,7 +1110,13 @@ function initPositionsPanel() {
             document.querySelectorAll('.pos-content').forEach(c => c.classList.remove('active'));
 
             tab.classList.add('active');
-            document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+            const tabId = tab.dataset.tab;
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+
+            // Load specific data if needed
+            if (tabId === 'reports') {
+                loadReports();
+            }
         });
     });
 
@@ -1062,7 +1127,13 @@ function initPositionsPanel() {
     loadPositions();
 
     // Refresh every 10 seconds
-    setInterval(loadPositions, 10000);
+    setInterval(() => {
+        loadPositions();
+        const activeTab = document.querySelector('.pos-tab.active');
+        if (activeTab && activeTab.dataset.tab === 'reports') {
+            loadReports();
+        }
+    }, 10000);
 }
 
 async function loadPositions() {
@@ -1157,16 +1228,61 @@ function renderClosedPositions() {
         body.innerHTML = '<tr class="empty-row"><td colspan="7">No closed positions</td></tr>';
     } else {
         body.innerHTML = positionsData.closed.map(pos => {
-            const pnlClass = pos.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+            const pnl = pos.pnl || (pos.exit - pos.entry) * pos.qty;
+            const pnlPct = ((pos.exit / pos.entry) - 1) * 100;
+            const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+            const sideClass = pos.side === 'BUY' ? 'side-long' : 'side-short';
+
+            return `
+                <tr class="closed-trade-row">
+                    <td>
+                        <div class="trade-symbol-meta">
+                            <strong>${pos.symbol}</strong>, 
+                            <span class="${sideClass}">${pos.side === 'BUY' ? 'buy' : 'sell'} ${pos.qty}</span>
+                        </div>
+                    </td>
+                    <td colspan="3">
+                        <div class="trade-price-flow">
+                            $${parseFloat(pos.entry).toLocaleString()} &rarr; $${parseFloat(pos.exit).toLocaleString()}
+                        </div>
+                    </td>
+                    <td class="${pnlClass}">
+                        <div class="trade-pnl-cell">
+                            <strong>${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}</strong>
+                            <small>(${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)</small>
+                        </div>
+                    </td>
+                    <td colspan="2">
+                        <div class="trade-time-cell">
+                            ${new Date(pos.closed_at).toLocaleString()}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+}
+
+function renderAuditJournal() {
+    const body = document.getElementById('auditJournalBody');
+    if (!body) return;
+
+    if (!positionsData.journal || positionsData.journal.length === 0) {
+        body.innerHTML = '<tr class="empty-row"><td colspan="6">No recent audit logs</td></tr>';
+    } else {
+        body.innerHTML = positionsData.journal.slice(-30).reverse().map(log => {
+            const sideClass = log.side === 'BUY' ? 'side-long' : 'side-short';
             return `
                 <tr>
-                    <td><strong>${pos.symbol}</strong></td>
-                    <td>${pos.side}</td>
-                    <td>${pos.qty}</td>
-                    <td>$${pos.entry}</td>
-                    <td>$${pos.exit}</td>
-                    <td class="${pnlClass}">$${pos.pnl.toFixed(2)}</td>
-                    <td>${new Date(pos.closed_at).toLocaleString()}</td>
+                    <td>${new Date(log.time).toLocaleTimeString()}</td>
+                    <td><strong>${log.symbol}</strong></td>
+                    <td class="${sideClass}">${log.side}</td>
+                    <td>$${parseFloat(log.price).toLocaleString()}</td>
+                    <td>${log.qty}</td>
+                    <td class="strategy-reason-cell">
+                        <span class="strategy-badge">${getStrategyName(log.strategy)}</span>
+                        <div class="reason-text">${Array.isArray(log.reasons) ? log.reasons.join(', ') : log.reasons}</div>
+                    </td>
                 </tr>
             `;
         }).join('');
@@ -1194,6 +1310,12 @@ function renderTradeHistory() {
             </tr>
         `).join('');
     }
+
+    // Update Trade Count in UI
+    const totalTrades = positionsData.history.length;
+    document.querySelectorAll('.trade-count-badge').forEach(el => {
+        el.textContent = totalTrades;
+    });
 }
 
 function renderPendingOrders() {
@@ -1202,6 +1324,39 @@ function renderPendingOrders() {
 
     if (positionsData.orders.length === 0) {
         body.innerHTML = '<tr class="empty-row"><td colspan="9">No pending orders</td></tr>';
+    }
+}
+
+async function loadReports() {
+    try {
+        const response = await fetch('/api/reports');
+        if (!response.ok) return;
+
+        const data = await response.json();
+        renderReports(data);
+    } catch (error) {
+        console.error('Error loading reports:', error);
+    }
+}
+
+function renderReports(reports) {
+    const body = document.getElementById('dailyReportsBody');
+    if (!body) return;
+
+    if (!reports || reports.length === 0) {
+        body.innerHTML = '<tr class="empty-row"><td colspan="7">No reports generated yet</td></tr>';
+    } else {
+        body.innerHTML = reports.map(report => `
+            <tr>
+                <td>${report.date}</td>
+                <td><strong>${report.user}</strong></td>
+                <td>${report.total_trades}</td>
+                <td>${report.win_loss}</td>
+                <td class="${parseFloat(report.win_rate) >= 50 ? 'pnl-positive' : 'pnl-negative'}">${report.win_rate}</td>
+                <td class="${report.total_pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">$${report.total_pnl.toLocaleString()}</td>
+                <td class="${report.avg_profit >= 0 ? 'pnl-positive' : 'pnl-negative'}">$${report.avg_profit.toLocaleString()}</td>
+            </tr>
+        `).join('');
     }
 }
 
@@ -1695,3 +1850,57 @@ document.addEventListener('DOMContentLoaded', () => {
     // Start bot list refresher
     setInterval(loadBots, 5000);
 });
+
+// ============================================================
+// MARKET COMMAND CENTER (STAR FEATURES)
+// ============================================================
+
+function renderPulseGauge(data) {
+    const score = data.pulse_score;
+    const label = data.pulse_label;
+
+    // Update Value Text
+    const valEl = document.getElementById('pulseValue');
+    if (valEl) valEl.textContent = score;
+
+    // Update Label
+    const labelEl = document.querySelector('.pulse-label');
+    if (labelEl) labelEl.textContent = label;
+
+    // Animate Gauge Fill
+    const fill = document.getElementById('pulseGaugeFill');
+    if (fill) {
+        const offset = 251.2 - (score / 100 * 251.2);
+        fill.style.strokeDashoffset = offset;
+    }
+
+    // Rotate Needle
+    const needleLine = document.getElementById('pulseNeedleLine');
+    if (needleLine) {
+        const rotation = (score / 100 * 180) - 90;
+        needleLine.setAttribute('transform', `rotate(${rotation}, 100, 100)`);
+    }
+}
+
+let aiTypeInterval = null;
+function renderAIInsights(data) {
+    const textEl = document.getElementById('aiInsightText');
+    const timeEl = document.getElementById('aiTimestamp');
+    if (timeEl) timeEl.textContent = data.timestamp;
+
+    if (!textEl) return;
+    if (aiTypeInterval) clearInterval(aiTypeInterval);
+
+    const fullText = data.ai_thought;
+    textEl.textContent = '';
+    let i = 0;
+
+    aiTypeInterval = setInterval(() => {
+        if (i < fullText.length) {
+            textEl.textContent += fullText.charAt(i);
+            i++;
+        } else {
+            clearInterval(aiTypeInterval);
+        }
+    }, 40);
+}

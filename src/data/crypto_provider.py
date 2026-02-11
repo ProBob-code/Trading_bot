@@ -78,7 +78,7 @@ class BinanceCryptoProvider:
         """
         try:
             url = f"{self.BASE_URL}/ticker/price"
-            response = self.session.get(url, params={"symbol": symbol.upper()})
+            response = self.session.get(url, params={"symbol": symbol.upper()}, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -103,7 +103,7 @@ class BinanceCryptoProvider:
         """
         try:
             url = f"{self.BASE_URL}/ticker/24hr"
-            response = self.session.get(url, params={"symbol": symbol.upper()})
+            response = self.session.get(url, params={"symbol": symbol.upper()}, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -158,7 +158,7 @@ class BinanceCryptoProvider:
             if end_time:
                 params["endTime"] = int(end_time.timestamp() * 1000)
             
-            response = self.session.get(url, params=params)
+            response = self.session.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -208,7 +208,7 @@ class BinanceCryptoProvider:
             response = self.session.get(url, params={
                 "symbol": symbol.upper(),
                 "limit": limit
-            })
+            }, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -238,7 +238,7 @@ class BinanceCryptoProvider:
             response = self.session.get(url, params={
                 "symbol": symbol.upper(),
                 "limit": limit
-            })
+            }, timeout=10)
             response.raise_for_status()
             data = response.json()
             

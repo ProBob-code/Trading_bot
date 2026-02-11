@@ -76,12 +76,7 @@ class YahooFinanceProvider:
         """
         try:
             url = f"{self.BASE_URL}/{symbol}"
-            params = {
-                "interval": "1m",
-                "range": "1d"
-            }
-            
-            response = self.session.get(url, params=params)
+            response = self.session.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -139,7 +134,7 @@ class YahooFinanceProvider:
                 "range": period
             }
             
-            response = self.session.get(url, params=params)
+            response = self.session.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             

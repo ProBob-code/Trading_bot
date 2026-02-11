@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GodBotTrade - Multi-Asset Trading</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 </head>
@@ -100,11 +101,11 @@
                 <div class="strategy-group">
                     <label>Strategy</label>
                     <select id="strategySelect">
-                        <option value="ichimoku">🌩️ Ichimoku Cloud</option>
-                        <option value="bollinger">📊 Bollinger Bands</option>
-                        <option value="macd_rsi">📈 MACD + RSI</option>
-                        <option value="ml_forecast">🤖 ML Forecast</option>
-                        <option value="combined">⚡ Combined (All)</option>
+                        <option value="ichimoku">🌩️ Strategy 1</option>
+                        <option value="bollinger">📊 Strategy 2</option>
+                        <option value="macd_rsi">📈 Strategy 3</option>
+                        <option value="ml_forecast">🤖 Strategy 4</option>
+                        <option value="combined">⚡ Strategy 5 (Combined)</option>
                     </select>
                 </div>
 
@@ -264,44 +265,86 @@
             </div>
         </main>
 
-        <!-- Signals Feed -->
-        <aside class="trades-feed">
-            <div class="feed-header">
-                <h3>Live Signals & Trades</h3>
-                <button class="btn-clear" id="btnClearFeed">Clear</button>
-            </div>
-            <div class="feed-labels">
-                <span>Signal</span>
-                <span>Symbol</span>
-                <span>Price/Qty</span>
-                <span>Time</span>
-            </div>
-            <div id="tradesFeed"></div>
-        </aside>
+        <!-- Sidebar Column -->
+        <div class="sidebar-col">
+            <!-- Signals Feed -->
+            <aside class="trades-feed">
+                <div class="feed-header">
+                    <h3>Live Signals & Trades</h3>
+                    <button class="btn-clear" id="btnClearFeed">Clear</button>
+                </div>
+                <div class="feed-labels">
+                    <span>Signal</span>
+                    <span>Symbol</span>
+                    <span>Price/Qty</span>
+                    <span>Time</span>
+                </div>
+                <div id="tradesFeed"></div>
+            </aside>
 
-        <!-- News Feed Section -->
-        <aside class="news-feed">
-            <div class="news-header">
-                <h3 id="newsHeading">📰 Crypto Market News</h3>
-                <div class="sentiment-badge" id="overallSentiment">
-                    <span class="sentiment-dot neutral"></span>
-                    <span class="sentiment-label">NEUTRAL</span>
+            <!-- Market Command Center -->
+            <div class="command-center">
+                <div class="command-section-title">
+                    <i class="fas fa-bolt"></i> Market Pulse
+                </div>
+                <div class="pulse-container">
+                    <svg class="gauge-svg" viewBox="0 0 200 120">
+                        <defs>
+                            <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#ff4d4d" />
+                                <stop offset="50%" stop-color="#ffd700" />
+                                <stop offset="100%" stop-color="#00d4ff" />
+                            </linearGradient>
+                        </defs>
+                        <path class="gauge-bg" d="M20,100 A80,80 0 0,1 180,100" />
+                        <path class="gauge-fill" id="pulseGaugeFill" d="M20,100 A80,80 0 0,1 180,100" />
+                        <circle class="gauge-needle" id="pulseNeedle" cx="100" cy="100" r="6" />
+                        <line class="gauge-needle-line" id="pulseNeedleLine" x1="100" y1="100" x2="100" y2="40"
+                            stroke="#fff" stroke-width="3" stroke-linecap="round" />
+                    </svg>
+                    <div class="pulse-value" id="pulseValue">50</div>
+                    <div class="pulse-label">NEUTRAL VOLATILITY</div>
+                </div>
+
+                <div class="command-section-title">
+                    <i class="fas fa-robot"></i> GodBot Intelligence
+                </div>
+                <div class="ai-insight-box">
+                    <div class="ai-header">
+                        <span>Status: Analyzing</span>
+                        <span id="aiTimestamp">--:--:--</span>
+                    </div>
+                    <div class="ai-text" id="aiInsightText">
+                        Awaiting market movement to generate strategic insights...
+                    </div>
+                    <div class="ai-cursor"></div>
                 </div>
             </div>
-            <div class="news-list" id="newsFeed">
-                <div class="news-loading">Loading news...</div>
-            </div>
-            <div class="news-movers">
-                <div class="movers-section gainers">
-                    <span class="movers-title">🟢 Top Gainers</span>
-                    <div id="topGainers" class="movers-list">--</div>
+
+            <!-- News Feed Section -->
+            <aside class="news-feed">
+                <div class="news-header">
+                    <h3 id="newsHeading">📰 Crypto Market News</h3>
+                    <div class="sentiment-badge" id="overallSentiment">
+                        <span class="sentiment-dot neutral"></span>
+                        <span class="sentiment-label">NEUTRAL</span>
+                    </div>
                 </div>
-                <div class="movers-section losers">
-                    <span class="movers-title">🔴 Top Losers</span>
-                    <div id="topLosers" class="movers-list">--</div>
+                <div class="news-list" id="newsFeed">
+                    <div class="news-loading">Loading news...</div>
                 </div>
-            </div>
-        </aside>
+                <div class="news-movers">
+                    <div class="movers-section gainers">
+                        <span class="movers-title">🟢 Top Gainers</span>
+                        <div id="topGainers" class="movers-list">--</div>
+                    </div>
+                    <div class="movers-section losers">
+                        <span class="movers-title">🔴 Top Losers</span>
+                        <div id="topLosers" class="movers-list">--</div>
+                    </div>
+                </div>
+            </aside>
+        </div>
 
         <!-- Positions Panel (New) -->
         <section class="positions-panel">
@@ -309,8 +352,11 @@
                 <div class="positions-tabs">
                     <button class="pos-tab active" data-tab="open">📈 Open Positions</button>
                     <button class="pos-tab" data-tab="closed">✅ Closed</button>
-                    <button class="pos-tab" data-tab="history">📜 History</button>
+                    <button class="pos-tab" data-tab="history">📜 Trade History <span
+                            class="trade-count-badge">0</span></button>
                     <button class="pos-tab" data-tab="orders">⏳ Orders</button>
+                    <button class="pos-tab" data-tab="journal">📓 Audit Journal</button>
+                    <button class="pos-tab" data-tab="reports">📊 Daily Reports</button>
                 </div>
                 <div class="positions-actions">
                     <input type="date" id="filterDateFrom" class="date-filter">
@@ -411,7 +457,63 @@
                     </tbody>
                 </table>
             </div>
+
+            <!-- Audit Journal Tab -->
+            <div class="pos-content" id="tab-journal">
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Action</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditJournalBody">
+                        <tr class="empty-row">
+                            <td colspan="4">No logs in audit journal</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Daily Reports Tab -->
+            <div class="pos-content" id="tab-reports">
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>User</th>
+                            <th>Total Trades</th>
+                            <th>Wins/Losses</th>
+                            <th>Win Rate</th>
+                            <th>Total P&L</th>
+                            <th>Avg Profit</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dailyReportsBody">
+                        <tr class="empty-row">
+                            <td colspan="7">No reports generated yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-left">
+                <span class="system-time" id="footerTime">--:--:--</span>
+                <span class="footer-separator">|</span>
+                <span class="server-status">Server: <span id="serverStatusText">Online</span></span>
+            </div>
+            <div class="footer-center">
+                <span class="footer-copyright">&copy; 2026 GodBotTrade. All rights reserved.</span>
+            </div>
+            <div class="footer-right">
+                <span class="version-tag">v2.1.0-stable</span>
+            </div>
+        </footer>
 
         <!-- Market Depth Modal -->
         <div class="depth-modal" id="depthModal">

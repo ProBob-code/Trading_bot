@@ -1,0 +1,12 @@
+{
+    "system_bot": {
+        "total_trades": 17,
+        "wins": 0,
+        "losses": 0,
+        "total_pnl": 0,
+        "total_value": 8562230.1,
+        "trade_count_by_symbol": {
+            "BTCUSDT": 17
+        }
+    }
+}

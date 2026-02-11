@@ -1,25 +1,26 @@
-# Trading Bot Dashboard - Requirements for Streamlit Cloud
-# ========================================================
+# GodBotTrade Requirements
+# ======================
 
 # Core
-streamlit>=1.28.0
+flask>=3.0.0
+flask-cors>=4.0.0
+flask-socketio>=5.3.6
+eventlet>=0.33.3
+gunicorn>=21.2.0
+
+# Data & Logic
 pandas>=2.0.0
 numpy>=1.24.0
-plotly>=5.18.0
-
-# Technical Analysis
-ta>=0.10.0
-
-# Machine Learning (optional - for ML features)
-scikit-learn>=1.3.0
-xgboost>=2.0.0
-
-# Data Loading
-openpyxl>=3.1.0
 requests>=2.31.0
+python-dateutil>=2.8.2
 
-# Logging
+# Logging & Utilities
 loguru>=0.7.0
-
-# YAML config
 pyyaml>=6.0
+
+# TA & ML
+ta>=0.11.0
+scikit-learn>=1.3.0
+
+# Yahoo Finance compatibility
+urllib3>=2.0.0

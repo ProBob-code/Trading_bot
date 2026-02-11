@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  godbot-trading-bot:
+    build: .
+    container_name: trading-bot
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./bot_configs.json:/app/bot_configs.json
+      - ./trading_bot.log:/app/trading_bot.log
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1

@@ -1,0 +1,29 @@
+{
+    "cash": 100016.09065618287,
+    "positions": {},
+    "short_positions": {
+        "ETHUSDT": {
+            "quantity": 0.01,
+            "entry_price": 2073.8625500000003
+        }
+    },
+    "closed_positions": [
+        {
+            "symbol": "ETHUSDT",
+            "quantity": 0.01,
+            "entry_price": 2075.19708,
+            "exit_price": 2073.132915,
+            "side": "LONG",
+            "realized_pnl": -0.020641649999997753,
+            "commission": 0.02073132915,
+            "closed_at": "2026-02-07T14:40:00Z"
+        },
+        {
+            "symbol": "BTCUSDT",
+            "quantity": 0.01,
+            "entry_price": 68075.06051999998,
+            "exit_price": 67950.70765,
+            "side": "LONG",
+            "realized_pnl": -1.243528699999879,
+            "commission": 0.6795070765,
+            "closed_at": 

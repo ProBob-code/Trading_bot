@@ -1,0 +1,15 @@
+{
+    "system_bot": {
+        "total_trades": 9,
+        "wins": 0,
+        "losses": 1,
+        "total_pnl": -23.21360000000027,
+        "total_value": 64019.45922710604,
+        "trade_count_by_symbol": {
+            "BNBUSDT": 5,
+            "SOLUSDT": 1,
+            "BTCUSDT": 2,
+            "ETHUSDT": 1
+        }
+    }
+}

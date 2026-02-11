@@ -11,11 +11,16 @@ Manages multiple parallel trading bots that:
 
 import threading
 import time
+import json
+from pathlib import Path
 from typing import Dict, Optional, List
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from loguru import logger
+
+# Path to persist bot configurations
+BOT_CONFIGS_FILE = Path(__file__).parent.parent.parent / "bot_configs.json"
 
 
 class TradingMode(Enum):
@@ -41,6 +46,7 @@ class BotConfig:
     stop_loss: float = 5.0
     take_profit: float = 10.0
     max_quantity: float = 1.0  # Maximum quantity per trade
+    auto_restart_enabled: bool = True  # Auto-restart on failure or server restart
 
 
 @dataclass
@@ -292,6 +298,53 @@ class BotManager:
         for bot_id in list(self.bots.keys()):
             self.stop_bot(bot_id)
         logger.info("🛑 All bots stopped")
+    
+    def save_configs(self):
+        """Save all bot configurations to disk for persistence."""
+        configs = []
+        for bot_id, bot in self.bots.items():
+            if bot.config.auto_restart_enabled:
+                configs.append({
+                    'bot_id': bot_id,
+                    'symbol': bot.config.symbol,
+                    'market': bot.config.market,
+                    'strategy': bot.config.strategy,
+                    'mode': bot.config.mode.value,
+                    'interval': bot.config.interval,
+                    'position_size': bot.config.position_size,
+                    'stop_loss': bot.config.stop_loss,
+                    'take_profit': bot.config.take_profit,
+                    'max_quantity': bot.config.max_quantity,
+                    'auto_restart_enabled': bot.config.auto_restart_enabled
+                })
+        
+        try:
+            with open(BOT_CONFIGS_FILE, 'w') as f:
+                json.dump(configs, f, indent=4)
+            logger.info(f"💾 Saved {len(configs)} bot configs to disk")
+        except Exception as e:
+            logger.error(f"Error saving bot configs: {e}")
+    
+    def load_configs(self) -> List[Dict]:
+        """Load saved bot configurations from disk."""
+        if not BOT_CONFIGS_FILE.exists():
+            logger.info("No saved bot configs found")
+            return []
+        
+        try:
+            with open(BOT_CONFIGS_FILE, 'r') as f:
+                configs = json.load(f)
+            logger.info(f"📂 Loaded {len(configs)} bot configs from disk")
+            return configs
+        except Exception as e:
+            logger.error(f"Error loading bot configs: {e}")
+            return []
+    
+    def clear_saved_configs(self):
+        """Clear saved bot configurations."""
+        if BOT_CONFIGS_FILE.exists():
+            BOT_CONFIGS_FILE.unlink()
+            logger.info("🗑️ Cleared saved bot configs")
 
 
 # Singleton instance
