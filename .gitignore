@@ -67,3 +67,4 @@ models/*.joblib
 # Temp
 tmp/
 temp/
+reports/*.json

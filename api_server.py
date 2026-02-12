@@ -9,6 +9,7 @@ Supports: Crypto (24/7) and Stocks (market hours)
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
+from src.services.trade_logger import get_trade_logger  # <--- TradeLogger import
 import threading
 import time
 import json
@@ -73,6 +74,9 @@ auto_trade_settings = {
     'stop_loss': 5,
     'take_profit': 10
 }
+# Initialize Logger
+trade_logger = get_trade_logger()
+
 auto_trade_stats = {
     'total_trades': 0,
     'buy_trades': 0,
@@ -160,68 +164,57 @@ REPORTS_DIR = Path(__file__).parent / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
 def update_daily_report(user, symbol, side, qty, price, pnl=0):
-    """Update user's daily summary in the reports directory."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    report_file = REPORTS_DIR / f"{today}.json"
-    
-    try:
-        if report_file.exists():
-            with open(report_file, 'r') as f:
-                data = json.load(f)
-        else:
-            data = {}
-            
-        if user not in data:
-            data[user] = {
-                'total_trades': 0,
-                'wins': 0,
-                'losses': 0,
-                'total_pnl': 0,
-                'total_value': 0,
-                'trade_count_by_symbol': {}
-            }
-            
-        u_data = data[user]
-        u_data['total_trades'] += 1
-        u_data['total_pnl'] += pnl
-        u_data['total_value'] += qty * price
-        
-        if pnl > 0: u_data['wins'] += 1
-        elif pnl < 0: u_data['losses'] += 1
-        
-        sym_count = u_data['trade_count_by_symbol'].get(symbol, 0)
-        u_data['trade_count_by_symbol'][symbol] = sym_count + 1
-        
-        with open(report_file, 'w') as f:
-            json.dump(data, f, indent=4)
-            
-    except Exception as e:
-        logger.error(f"Error updating daily report: {e}")
+    """Legacy function replaced by trade_logger.log_trade - kept briefly for safety but now redirects."""
+    # This is now a no-op or a redirect if any old code calls it
+    pass
 
 @app.route('/api/reports')
-def get_reports():
-    """Get all daily reports collected by the system."""
+def get_reports_legacy():
+    """Get all daily reports (Legacy Endpoint - redirects to new service)."""
+    # For backward compatibility, return format similar to old endpoint but from new service
     reports = []
+    today = datetime.now().strftime("%Y-%m-%d")
+    
     try:
-        for f in sorted(REPORTS_DIR.glob("*.json"), reverse=True):
-            date_str = f.stem
-            with open(f, 'r') as file:
-                daily_data = json.load(file)
-                for user, stats in daily_data.items():
-                    win_rate = (stats['wins'] / stats['total_trades'] * 100) if stats['total_trades'] > 0 else 0
-                    avg_profit = (stats['total_pnl'] / stats['total_trades']) if stats['total_trades'] > 0 else 0
-                    reports.append({
-                        'date': date_str,
-                        'user': user,
-                        'total_trades': stats['total_trades'],
-                        'win_loss': f"{stats['wins']}/{stats['losses']}",
-                        'win_rate': f"{win_rate:.1f}%",
-                        'total_pnl': round(stats['total_pnl'], 2),
-                        'avg_profit': round(avg_profit, 2)
-                    })
+        # Get today's summary
+        summary = trade_logger.get_daily_summary(today)
+        
+        # Convert to expected format
+        if summary['total_trades'] > 0:
+            win_rate = (summary['wins'] / summary['total_trades'] * 100)
+            avg_profit = (summary['total_pnl'] / summary['total_trades'])
+            
+            reports.append({
+                'date': today,
+                'user': 'system', # aggregated
+                'total_trades': summary['total_trades'],
+                'win_loss': f"{summary['wins']}/{summary['losses']}",
+                'win_rate': f"{win_rate:.1f}%",
+                'total_pnl': round(summary['total_pnl'], 2),
+                'avg_profit': round(avg_profit, 2)
+            })
+            
     except Exception as e:
-        logger.error(f"Error fetching reports: {e}")
-    return jsonify(reports[:50]) # Limit to last 50 entries
+        logger.error(f"Error fetching legacy reports: {e}")
+    return jsonify(reports)
+
+@app.route('/api/reports/trades')
+def get_all_trades():
+    """Get all trades with filters."""
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    symbol = request.args.get('symbol')
+    limit = int(request.args.get('limit', 100))
+    
+    trades = trade_logger.get_history(start_date=start_date, end_date=end_date, symbol=symbol, limit=limit)
+    return jsonify(trades)
+
+@app.route('/api/reports/summary')
+def get_daily_summary():
+    """Get summarized daily stats."""
+    date_str = request.args.get('date', datetime.now().strftime("%Y-%m-%d"))
+    summary = trade_logger.get_daily_summary(date_str)
+    return jsonify(summary)
 
 @app.route('/api/positions')
 def get_positions():
@@ -773,8 +766,19 @@ def execute_trade():
         }
         auto_trade_stats['trades_log'].append(trade_log)
         
-        # Update daily summary report
-        update_daily_report(user, symbol, side, quantity, price, pnl=0)
+        # Update daily summary report -> Log via TradeLogger
+        trade_logger.log_trade(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            price=price,
+            pnl=0, # Manual opening trade usually 0 PnL
+            strategy='manual',
+            bot_id='manual_control',
+            mode='paper', # Assuming paper for now
+            account_value=paper_trader.get_account_info()['total_value'],
+            notes=f"Manual {side} Trade"
+        )
         
         if side.upper() == 'BUY':
             auto_trade_stats['buy_trades'] += 1
@@ -816,6 +820,20 @@ def panic_sell():
             if order_manager.submit_order(order):
                 closed_count += 1
                 logger.warning(f"🚨 PANIC SELL: Closed {quantity} {symbol}")
+                
+                # Log the panic sell
+                trade_logger.log_trade(
+                    symbol=symbol,
+                    side=side,
+                    quantity=quantity,
+                    price=pos.get('current_price', 0),
+                    pnl=pos.get('unrealized_pnl', 0), # Realized effectively
+                    strategy='panic_sell',
+                    bot_id='panic_button',
+                    mode='paper',
+                    account_value=paper_trader.get_account_info()['total_value'],
+                    notes="Panic Sell Triggered"
+                )
         
         # Also handle shorts not in positions list
         for symbol, short in list(paper_trader.short_positions.items()):
@@ -828,6 +846,20 @@ def panic_sell():
              if order_manager.submit_order(order):
                 closed_count += 1
                 logger.warning(f"🚨 PANIC COVER: Closed short {symbol}")
+                
+                # Log the panic cover
+                trade_logger.log_trade(
+                    symbol=symbol,
+                    side='buy', # Cover is a buy
+                    quantity=short['quantity'],
+                    price=short.get('current_price', 0),
+                    pnl=short.get('unrealized_pnl', 0),
+                    strategy='panic_sell',
+                    bot_id='panic_button',
+                    mode='paper',
+                    account_value=paper_trader.get_account_info()['total_value'],
+                    notes="Panic Cover Triggered"
+                )
 
         return jsonify({
             'success': True,
@@ -1094,8 +1126,19 @@ def emit_trade_event(bot, side, quantity, price):
     # Persistent log for reports
     auto_trade_stats['trades_log'].append(trade_msg)
     
-    # Update Daily report
-    update_daily_report('system_bot', bot.config.symbol, side, quantity, price, pnl=pnl)
+    # Update Daily report -> Log via TradeLogger
+    trade_logger.log_trade(
+        symbol=bot.config.symbol,
+        side=side,
+        quantity=quantity,
+        price=price,
+        pnl=pnl,
+        strategy=bot.config.strategy,
+        bot_id=bot.bot_id,
+        mode=bot.config.mode if hasattr(bot.config, 'mode') else 'paper',
+        account_value=paper_trader.get_account_info()['total_value'],
+        notes=f"Auto Bot Trade {side}"
+    )
     
     socketio.emit('auto_trade_executed', trade_msg)
 
@@ -1138,6 +1181,8 @@ def start_auto_trade():
             'take_profit': settings.get('takeProfit', 10)
         })
     
+    # Reset stats
+    # Initialize Logger
     # Reset stats
     auto_trade_stats = {
         'total_trades': 0,
@@ -1388,6 +1433,18 @@ def stop_bot(bot_id):
                 side = 'sell' if qty > 0 else 'buy'
                 
                 # Log to journal BEFORE executing to ensure record exists
+                # Also log via TradeLogger
+                trade_logger.log_trade(
+                    symbol=symbol,
+                    side='CLOSE',
+                    quantity=abs(qty),
+                    price=symbol_pos.get('current_price', 0),
+                    strategy=bot.config.strategy,
+                    bot_id=bot.bot_id,
+                    mode=bot.config.mode if hasattr(bot.config, 'mode') else 'paper',
+                    notes="Stop Command Received - Auto Liquidating"
+                )
+                
                 auto_trade_stats['journal'].append({
                     'time': datetime.now().isoformat(),
                     'symbol': symbol,
