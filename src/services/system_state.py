@@ -1,65 +1,59 @@
 import json
 import threading
 import logging
-from pathlib import Path
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional
+from src.database.db_manager import db_manager
 
 logger = logging.getLogger(__name__)
 
 class SystemStateService:
     """
-    Manages global system state (Paused/Running) with persistence.
-    Singelton pattern to ensure unified state across threads.
+    Manages global system state (Paused/Running) with MySQL persistence.
     """
     
-    def __init__(self, data_dir: str = "data"):
-        self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.state_file = self.data_dir / "system_state.json"
-        
+    def __init__(self):
         self.lock = threading.Lock()
-        self.state = {
+        self.local_cache = {
             "is_paused": False,
             "last_updated": datetime.now().isoformat()
         }
-        
         self._load_state()
 
     def is_paused(self) -> bool:
         """Check if system is globally paused."""
+        # We could refresh from DB here, but for performance we use local cache
+        # and rely on set_paused updating it.
         with self.lock:
-            return self.state.get("is_paused", False)
+            return self.local_cache.get("is_paused", False)
 
     def set_paused(self, paused: bool):
-        """Update pause state and persist to disk."""
+        """Update pause state and persist to MySQL."""
         with self.lock:
-            self.state["is_paused"] = paused
-            self.state["last_updated"] = datetime.now().isoformat()
-            self._save_state()
+            self.local_cache["is_paused"] = paused
+            self.local_cache["last_updated"] = datetime.now().isoformat()
+            
+            # Persist to MySQL
+            db_manager.set_system_state_val("is_paused", "1" if paused else "0")
+            db_manager.set_system_state_val("last_updated", self.local_cache["last_updated"])
+            
             state_str = "PAUSED" if paused else "RESUMED"
             logger.info(f"🛑 SYSTEM GLOBAL STATE: {state_str}")
 
     def _load_state(self):
-        """Load state from JSON file."""
-        if self.state_file.exists():
-            try:
-                with open(self.state_file, "r") as f:
-                    data = json.load(f)
-                    self.state.update(data)
-                # Ensure boolean type
-                self.state["is_paused"] = bool(self.state.get("is_paused", False))
-                logger.info(f"Loaded system state: {'PAUSED' if self.state['is_paused'] else 'RUNNING'}")
-            except Exception as e:
-                logger.error(f"Failed to load system state: {e}")
-
-    def _save_state(self):
-        """Save state to JSON file."""
+        """Load state from MySQL."""
         try:
-            with open(self.state_file, "w") as f:
-                json.dump(self.state, f, indent=4)
+            paused_val = db_manager.get_system_state_val("is_paused")
+            if paused_val is not None:
+                self.local_cache["is_paused"] = paused_val == "1"
+            
+            updated_val = db_manager.get_system_state_val("last_updated")
+            if updated_val:
+                self.local_cache["last_updated"] = updated_val
+                
+            logger.info(f"Loaded system state from MySQL: {'PAUSED' if self.local_cache['is_paused'] else 'RUNNING'}")
         except Exception as e:
-            logger.error(f"Failed to save system state: {e}")
+            logger.error(f"Failed to load system state from MySQL: {e}")
 
 # Singleton Instance
 _instance = None
@@ -67,12 +61,7 @@ _instance = None
 def get_system_state(base_path: str = None):
     global _instance
     if _instance is None:
-        if base_path:
-             _instance = SystemStateService(base_path)
-        else:
-             # Default to project root/data
-             root = Path(__file__).parent.parent.parent / "data"
-             _instance = SystemStateService(str(root))
+        _instance = SystemStateService()
     return _instance
 
 if __name__ == "__main__":

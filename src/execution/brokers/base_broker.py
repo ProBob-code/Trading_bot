@@ -39,20 +39,26 @@ class BaseBroker(ABC):
         pass
     
     @abstractmethod
-    def get_account_info(self) -> Dict:
+    def get_account_info(self, user_id: Optional[int] = None) -> Dict:
         """
         Get account information.
         
+        Args:
+            user_id: Optional user ID for multi-account brokers.
+            
         Returns:
             Account details including balance, buying power, etc.
         """
         pass
     
     @abstractmethod
-    def get_positions(self) -> List[Dict]:
+    def get_positions(self, user_id: Optional[int] = None) -> List[Dict]:
         """
         Get current positions.
         
+        Args:
+            user_id: Optional user ID for multi-account brokers.
+            
         Returns:
             List of position dictionaries
         """

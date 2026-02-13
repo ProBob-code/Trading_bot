@@ -8,7 +8,11 @@ Supports: Crypto (24/7) and Stocks (market hours)
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+import random
+import string
+from src.database.db_manager import db_manager
 from src.services.trade_logger import get_trade_logger
 from src.services.system_state import get_system_state  # <--- SystemState import
 import threading
@@ -28,6 +32,31 @@ logger.add(
 )
 logger.add("trading_bot.log", rotation="10 MB", level="DEBUG")
 
+# MySQL Logging Handler
+def mysql_log_handler(message):
+    try:
+        record = message.record
+        # Avoid circular logging
+        if record["name"] == "mysql.connector":
+            return
+        
+        # Determine bot_id and user_id if present in extra
+        extra = record.get("extra", {})
+        bot_id = extra.get("bot_id")
+        user_id = extra.get("user_id")
+        
+        db_manager.add_log(
+            level=record["level"].name,
+            module=record["name"],
+            message=record["message"],
+            bot_id=bot_id,
+            user_id=user_id
+        )
+    except Exception:
+        pass
+
+logger.add(mysql_log_handler, level="INFO")
+
 # Import our modules
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
@@ -35,14 +64,37 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.data.crypto_provider import BinanceCryptoProvider
 from src.data.stock_provider import YahooFinanceProvider
 from src.execution.brokers.paper_trader import PaperTrader
-from src.execution.order_manager import OrderManager
+from src.execution.order_manager import OrderManager, Order, OrderSide, OrderType
 from src.strategies.strategy_engine import StrategyEngine, get_strategy_engine
-from src.engine.bot_manager import get_bot_manager, BotManager
+from src.engine.bot_manager import get_bot_manager, BotManager, BotStats
 
 # Initialize Flask
 app = Flask(__name__, static_folder='web', static_url_path='')
+app.config['SECRET_KEY'] = 'god-bot-trade-secret-2026'  # PRO-CODER: Use environment variable in production
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# --- Flask-Login Setup ---
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login_page'
+
+class User(UserMixin):
+    def __init__(self, user_info):
+        self.id = user_info['id']
+        self.username = user_info.get('username', 'Anonymous')
+        self.mobile = user_info.get('mobile')
+        self.is_verified = user_info.get('is_verified', 0)
+
+@login_manager.user_loader
+def load_user(user_id):
+    # In a real app, query database
+    # For now, we'll implement the db query
+    user_data = db_manager.get_user_by_id(int(user_id))
+    return User(user_data) if user_data else None
+
+def generate_otp():
+    return ''.join(random.choices(string.digits, k=6))
 
 # Initialize trading components
 INITIAL_CAPITAL = 100000  # $100k paper trading
@@ -127,15 +179,22 @@ def resume_system():
     return jsonify({'success': True, 'paused': False})
 
 @app.route('/api/auto-trade/status')
+@login_required
 def get_auto_trade_status():
-    """Get current auto-trading status and trade counts."""
+    """Get current auto-trading status and trade counts for the user."""
+    user_bots = bot_manager.get_all_bots(current_user.id)
+    running_bots = [b for b in user_bots if bot_manager.is_running(b.bot_id)]
+    
+    # Get summary from trade_logger
+    summary = trade_logger.get_daily_summary(current_user.id, datetime.now().strftime("%Y-%m-%d"))
+    
     return jsonify({
-        'total_trades': auto_trade_stats['total_trades'],
-        'buy_trades': auto_trade_stats['buy_trades'],
-        'sell_trades': auto_trade_stats['sell_trades'],
-        'total_pnl': auto_trade_stats['total_pnl'],
-        'start_time': auto_trade_stats['start_time'],
-        'active_bots': len(bot_manager.get_running_bots())
+        'total_trades': summary['total_trades'],
+        'buy_trades': summary['wins'] + summary['losses'], # simplification
+        'sell_trades': 0, # trade_logger doesn't track this yet
+        'total_pnl': summary['total_pnl'],
+        'start_time': datetime.now().isoformat(), # Mock
+        'active_bots': len(running_bots)
     })
 
 @app.route('/')
@@ -145,7 +204,7 @@ def index():
 
 
 @app.route('/login.html')
-def login():
+def login_page():
     """Serve the login page."""
     return send_from_directory('web', 'login.html')
 
@@ -193,24 +252,24 @@ def update_daily_report(user, symbol, side, qty, price, pnl=0):
     pass
 
 @app.route('/api/reports')
+@login_required
 def get_reports_legacy():
     """Get all daily reports (Legacy Endpoint - redirects to new service)."""
-    # For backward compatibility, return format similar to old endpoint but from new service
     reports = []
     today = datetime.now().strftime("%Y-%m-%d")
     
     try:
-        # Get today's summary
-        summary = trade_logger.get_daily_summary(today)
+        # Get user's today's summary
+        summary = trade_logger.get_daily_summary(current_user.id, today)
         
         # Convert to expected format
         if summary['total_trades'] > 0:
-            win_rate = (summary['wins'] / summary['total_trades'] * 100)
-            avg_profit = (summary['total_pnl'] / summary['total_trades'])
+            win_rate = (summary['wins'] / summary['total_trades'] * 100) if summary['total_trades'] > 0 else 0
+            avg_profit = (summary['total_pnl'] / summary['total_trades']) if summary['total_trades'] > 0 else 0
             
             reports.append({
                 'date': today,
-                'user': 'system', # aggregated
+                'user': current_user.username,
                 'total_trades': summary['total_trades'],
                 'win_loss': f"{summary['wins']}/{summary['losses']}",
                 'win_rate': f"{win_rate:.1f}%",
@@ -223,8 +282,9 @@ def get_reports_legacy():
     return jsonify(reports)
 
 @app.route('/api/reports/trades')
+@login_required
 def get_all_trades():
-    """Get all trades with filters."""
+    """Get all trades with filters for the current user."""
     # Accept 'date' as alias for start_date+end_date (used by report.html)
     date_filter = request.args.get('date')
     start_date = request.args.get('start_date', date_filter)
@@ -232,20 +292,22 @@ def get_all_trades():
     symbol = request.args.get('symbol')
     limit = int(request.args.get('limit', 100))
     
-    trades = trade_logger.get_history(start_date=start_date, end_date=end_date, symbol=symbol, limit=limit)
+    trades = trade_logger.get_history(user_id=current_user.id, start_date=start_date, end_date=end_date, symbol=symbol, limit=limit)
     return jsonify(trades)
 
 @app.route('/api/reports/summary')
+@login_required
 def get_daily_summary():
-    """Get summarized daily stats."""
+    """Get summarized daily stats for the current user."""
     date_str = request.args.get('date', datetime.now().strftime("%Y-%m-%d"))
-    summary = trade_logger.get_daily_summary(date_str)
+    summary = trade_logger.get_daily_summary(current_user.id, date_str)
     return jsonify(summary)
 
 @app.route('/api/positions')
+@login_required
 def get_positions():
-    """Get all positions and trade history."""
-    positions = paper_trader.get_positions()
+    """Get all positions and trade history for the user."""
+    positions = paper_trader.get_positions(current_user.id)
     
     # Build open positions with current prices
     open_positions = []
@@ -255,37 +317,23 @@ def get_positions():
         
         open_positions.append({
             'symbol': symbol,
-            'side': 'LONG' if pos['quantity'] > 0 else 'SHORT',
+            'side': pos['side'],
             'qty': abs(pos['quantity']),
             'avg_price': pos['avg_price'],
             'current_price': current_price,
             'net_pnl': pos.get('unrealized_pnl', 0),
-            'open_interest': 0  # Placeholder
-        })
-    
-    # Add short positions
-    for symbol, short in paper_trader.short_positions.items():
-        open_positions.append({
-            'symbol': symbol,
-            'side': 'SHORT',
-            'qty': short['quantity'],
-            'avg_price': short['entry_price'],
-            'current_price': short.get('current_price', short['entry_price']),
-            'net_pnl': short.get('unrealized_pnl', 0),
-            'open_interest': 0
+            'open_interest': 0 
         })
     
     # Filter closed positions: Only show if the bot that opened/closed them is STOPPED
-    all_closed = paper_trader.get_closed_positions()
+    all_closed = paper_trader.get_closed_positions(current_user.id)
     filtered_closed = []
     
     for pos in all_closed:
-        # Assuming pos has bot_id or we check if a bot for this symbol is running
         symbol = pos['symbol']
-        bot_id = f"{current_market}_{symbol}".lower()
+        user_bot_id = f"user_{current_user.id}_{current_market}_{symbol}".lower()
         
-        # If bot is not running, show it in closed
-        if not bot_manager.is_running(bot_id):
+        if not bot_manager.is_running(user_bot_id):
             filtered_closed.append({
                 'symbol': pos['symbol'],
                 'side': pos['side'],
@@ -300,28 +348,28 @@ def get_positions():
         'success': True,
         'open_positions': open_positions,
         'closed_positions': filtered_closed,
-        'trade_history': auto_trade_stats.get('trades_log', []),
-        'journal': auto_trade_stats.get('journal', []),
-        'pending_orders': []
+        'trade_history': [], # Redirect to /api/reports/trades
+        'journal': [],
+        'pending_orders': paper_trader.get_pending_orders(current_user.id)
     })
 
 
 @app.route('/api/balance', methods=['POST'])
+@login_required
 def update_balance():
-    """Update paper trading balance."""
+    """Update paper trading balance for user."""
     data = request.json
-    # Accept either 'cash' or 'balance' key for compatibility
     new_balance = data.get('cash') or data.get('balance', 100000)
     
     try:
-        # Update paper trader's cash and initial_capital
-        paper_trader.cash = float(new_balance)
-        paper_trader.initial_capital = float(new_balance)
-        logger.info(f"💰 Paper trading balance reset to: ${new_balance:,.2f}")
+        acc = paper_trader._get_account(current_user.id)
+        acc.cash = float(new_balance)
+        acc.initial_capital = float(new_balance)
+        logger.info(f"💰 Balance reset for user {current_user.id} to: ${new_balance:,.2f}")
         
         return jsonify({
             'success': True,
-            'balance': paper_trader.cash,
+            'balance': acc.cash,
             'message': f'Balance updated to ${new_balance:,.2f}'
         })
     except Exception as e:
@@ -330,33 +378,22 @@ def update_balance():
 
 
 @app.route('/api/paper/reset', methods=['POST'])
+@login_required
 def reset_paper_trading():
-    """Reset all paper trading state."""
-    global auto_trade_stats
+    """Reset paper trading state for the user."""
     try:
-        # 1. Reset Broker state
-        paper_trader.reset()
+        # 1. Reset Broker state for this user
+        paper_trader.reset(current_user.id)
         
-        # 2. Reset Bot Manager stats for all bots
-        for bot in bot_manager.bots.values():
+        # 2. Reset Bot Manager stats for all bots of this user
+        user_bots = bot_manager.get_all_bots(current_user.id)
+        for bot in user_bots:
             bot.stats = BotStats()
             
-        # 3. Reset Global session stats (Use update to preserve object references if shared)
-        auto_trade_stats.update({
-            'total_trades': 0,
-            'buy_trades': 0,
-            'sell_trades': 0,
-            'total_pnl': 0.0,
-            'trades_log': [],
-            'signals': [],
-            'journal': [],
-            'start_time': datetime.now().isoformat()
-        })
-        
-        logger.info("🔥 Full Paper Trading Reset executed")
-        return jsonify({'success': True, 'message': 'Paper trading state reset successfully'})
+        logger.info(f"🔥 Paper Trading Reset for user {current_user.id}")
+        return jsonify({'success': True, 'message': 'Account reset successfully'})
     except Exception as e:
-        logger.error(f"Error resetting paper trading: {e}")
+        logger.error(f"Error resetting paper trading for user {current_user.id}: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
@@ -506,6 +543,88 @@ def get_crypto_klines(symbol):
     
     return jsonify(candles)
 
+
+# ============================================================
+# AUTHENTICATION ENDPOINTS
+# ============================================================
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    data = request.json
+    mobile = data.get('mobile')
+    
+    if not mobile:
+        return jsonify({'success': False, 'error': 'Mobile number is required'})
+    
+    user = db_manager.get_user_by_mobile(mobile)
+    if not user:
+        if not db_manager.create_user(mobile):
+            return jsonify({'success': False, 'error': 'Database error'})
+        user = db_manager.get_user_by_mobile(mobile)
+    
+    otp = generate_otp()
+    db_manager.update_user_otp(user['id'], otp)
+    
+    # MOCK OTP Log
+    logger.info(f"🔑 [MOCK OTP] For {mobile}: {otp}")
+    
+    return jsonify({
+        'success': True, 
+        'message': 'OTP sent to mobile',
+        'otp_sent': True # In demo/mock, we tell them it's sent
+    })
+
+@app.route('/api/auth/verify', methods=['POST'])
+def verify():
+    data = request.json
+    mobile = data.get('mobile')
+    otp = data.get('otp')
+    username = data.get('username')
+    password = data.get('password') # In real app, hash it
+    
+    user = db_manager.get_user_by_mobile(mobile)
+    if not user or user['otp'] != otp:
+        return jsonify({'success': False, 'error': 'Invalid OTP'})
+    
+    # Store user (verification)
+    db_manager.verify_user(user['id'], username, password)
+    
+    # Log them in
+    login_user(User(db_manager.get_user_by_mobile(mobile)))
+    
+    return jsonify({'success': True, 'message': 'Account verified and logged in'})
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    
+    user = db_manager.get_user_by_username(username)
+    if user and user['password_hash'] == password: # Crude password check for demo
+        login_user(User(user))
+        return jsonify({'success': True, 'message': 'Logged in successfully'})
+    
+    return jsonify({'success': False, 'error': 'Invalid credentials'})
+
+@app.route('/api/auth/logout', methods=['POST'])
+@login_required
+def logout():
+    logout_user()
+    return jsonify({'success': True, 'message': 'Logged out'})
+
+@app.route('/api/auth/status')
+def auth_status():
+    if current_user.is_authenticated:
+        return jsonify({
+            'authenticated': True,
+            'user': {
+                'id': current_user.id,
+                'username': current_user.username,
+                'is_verified': current_user.is_verified
+            }
+        })
+    return jsonify({'authenticated': False})
 
 # ============================================================
 # STOCK API ENDPOINTS
@@ -766,10 +885,9 @@ def get_account():
 
 
 @app.route('/api/trade', methods=['POST'])
+@login_required
 def execute_trade():
-    """Execute a trade."""
-    global auto_trade_stats
-    
+    """Execute a manual trade for the user."""
     data = request.json
     symbol = data.get('symbol', current_symbol)
     side = data.get('side', 'buy')
@@ -780,11 +898,7 @@ def execute_trade():
         return jsonify({'success': False, 'error': 'Invalid quantity'})
     
     # Get current price
-    if market == 'crypto':
-        price_data = crypto_provider.get_current_price(symbol)
-    else:
-        price_data = stock_provider.get_current_quote(symbol)
-    
+    price_data = crypto_provider.get_current_price(symbol) if market == 'crypto' else stock_provider.get_current_quote(symbol)
     price = price_data.get('price', 0)
     
     if price <= 0:
@@ -794,53 +908,31 @@ def execute_trade():
     paper_trader.set_prices({symbol: price})
     
     # Create and execute order
-    order = order_manager.create_order(
+    order = Order(
+        user_id=current_user.id,
         symbol=symbol,
-        side=side,
+        side=OrderSide.BUY if side.lower() == 'buy' else OrderSide.SELL,
         quantity=quantity,
-        order_type='market'
+        order_type=OrderType.MARKET
     )
     
-    success = order_manager.submit_order(order)
+    success = paper_trader.submit_order(order)
     
     if success:
-        # Update trade counter
-        user = data.get('user', 'GodBot')
-        auto_trade_stats['total_trades'] += 1
-        
-        # Log trade with standardized fields
-        trade_log = {
-            'timestamp': datetime.now().isoformat(),
-            'symbol': symbol,
-            'side': side.upper(),
-            'quantity': quantity,
-            'price': price,
-            'pnl': 0, # Manual trades start with 0 P&L until closed (simplified)
-            'value': quantity * price,
-            'strategy': 'manual',
-            'user': user,
-            'market': market
-        }
-        auto_trade_stats['trades_log'].append(trade_log)
-        
-        # Update daily summary report -> Log via TradeLogger
+        # Log via TradeLogger
         trade_logger.log_trade(
             symbol=symbol,
             side=side,
             quantity=quantity,
             price=price,
-            pnl=0, # Manual opening trade usually 0 PnL
+            user_id=current_user.id,
+            pnl=0,
             strategy='manual',
             bot_id='manual_control',
-            mode='paper', # Assuming paper for now
-            account_value=paper_trader.get_account_info()['total_value'],
+            mode='paper',
+            account_value=paper_trader.get_account_info(current_user.id)['total_value'],
             notes=f"Manual {side} Trade"
         )
-        
-        if side.upper() == 'BUY':
-            auto_trade_stats['buy_trades'] += 1
-        else:
-            auto_trade_stats['sell_trades'] += 1
         
         return jsonify({
             'success': True,
@@ -848,74 +940,39 @@ def execute_trade():
             'symbol': symbol,
             'side': side.upper(),
             'quantity': quantity,
-            'price': price,
-            'value': quantity * price,
-            'total_trades': auto_trade_stats['total_trades']
+            'price': price
         })
-    else:
-        return jsonify({'success': False, 'error': 'Order failed'})
+    return jsonify({'success': False, 'error': 'Order failed'})
 
 
 @app.route('/api/panic-sell', methods=['POST'])
+@login_required
 def panic_sell():
-    """Close all open positions immediately."""
+    """Close all open positions immediately for the user."""
     try:
-        positions = paper_trader.get_positions()
+        positions = paper_trader.get_positions(current_user.id)
         closed_count = 0
         
         for pos in positions:
             symbol = pos['symbol']
-            quantity = abs(pos['quantity'])
-            side = 'sell' if pos['quantity'] > 0 else 'buy'
+            qty = pos['quantity']
+            side = OrderSide.SELL if qty > 0 else OrderSide.BUY
             
-            order = order_manager.create_order(
-                symbol=symbol,
-                side=side,
-                quantity=quantity,
-                order_type='market'
-            )
-            if order_manager.submit_order(order):
+            order = Order(user_id=current_user.id, symbol=symbol, side=side, quantity=abs(qty), order_type=OrderType.MARKET)
+            if paper_trader.submit_order(order):
                 closed_count += 1
-                logger.warning(f"🚨 PANIC SELL: Closed {quantity} {symbol}")
-                
-                # Log the panic sell
                 trade_logger.log_trade(
                     symbol=symbol,
-                    side=side,
-                    quantity=quantity,
+                    side='PANIC_CLOSE',
+                    quantity=abs(qty),
                     price=pos.get('current_price', 0),
-                    pnl=pos.get('unrealized_pnl', 0), # Realized effectively
+                    user_id=current_user.id,
+                    pnl=pos.get('unrealized_pnl', 0),
                     strategy='panic_sell',
                     bot_id='panic_button',
                     mode='paper',
-                    account_value=paper_trader.get_account_info()['total_value'],
+                    account_value=paper_trader.get_account_info(current_user.id)['total_value'],
                     notes="Panic Sell Triggered"
-                )
-        
-        # Also handle shorts not in positions list
-        for symbol, short in list(paper_trader.short_positions.items()):
-             order = order_manager.create_order(
-                symbol=symbol,
-                side='buy',
-                quantity=short['quantity'],
-                order_type='market'
-            )
-             if order_manager.submit_order(order):
-                closed_count += 1
-                logger.warning(f"🚨 PANIC COVER: Closed short {symbol}")
-                
-                # Log the panic cover
-                trade_logger.log_trade(
-                    symbol=symbol,
-                    side='buy', # Cover is a buy
-                    quantity=short['quantity'],
-                    price=short.get('current_price', 0),
-                    pnl=short.get('unrealized_pnl', 0),
-                    strategy='panic_sell',
-                    bot_id='panic_button',
-                    mode='paper',
-                    account_value=paper_trader.get_account_info()['total_value'],
-                    notes="Panic Cover Triggered"
                 )
 
         return jsonify({
@@ -924,7 +981,7 @@ def panic_sell():
             'closed_count': closed_count
         })
     except Exception as e:
-        logger.error(f"Panic sell failed: {e}")
+        logger.error(f"Panic sell failed for user {current_user.id}: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
@@ -996,10 +1053,19 @@ def bot_execution_loop(bot_id):
             
             bot.stats.total_pnl = bot.stats.realized_pnl + bot.stats.unrealized_pnl
 
+            # Update Shared Paper Trader Prices
+            user_id = bot.config.user_id
+            paper_trader.set_prices({symbol: current_price})
+            
+            # Calculate Unrealized P&L for this bot
+            positions = paper_trader.get_positions(user_id)
+            symbol_pos = next((p for p in positions if p['symbol'] == symbol), None)
+            
+            bot.stats.unrealized_pnl = symbol_pos.get('unrealized_pnl', 0) if symbol_pos else 0
+            bot.stats.total_pnl = bot.stats.realized_pnl + bot.stats.unrealized_pnl
+
             # Analyze with selected strategy
-            # Lower confluence for more active trading (2 instead of 3)
-            strategy_engine.min_confluence = 2  # More active: 2 indicators needed vs 3
-            # Check if bot still exists (it might have been removed during reset/stop)
+            strategy_engine.min_confluence = 2
             if bot_id not in bot_manager.bots:
                 logger.warning(f"⚠️ Bot {bot_id} no longer in manager. Exiting loop.")
                 break
@@ -1024,45 +1090,27 @@ def bot_execution_loop(bot_id):
                 'symbol': symbol
             }
             
-            # Emit signal to frontend
-            socketio.emit('auto_trade_signal', signal_data)
-            
-            # 3. Log to Audit Journal (only for BUY/SELL actions or significant signals)
-            if signal.signal in ['BUY', 'SELL']:
-                auto_trade_stats['journal'].append({
-                    'time': signal_data['time'],
-                    'symbol': signal_data['symbol'],
-                    'side': signal_data['signal'],
-                    'price': signal_data['price'],
-                    'qty': bot.config.position_size, # Log target Qty
-                    'strategy': signal_data['strategy'],
-                    'reasons': signal_data['reasons']
-                })
-                # Keep journal at reasonable size
-                if len(auto_trade_stats['journal']) > 100:
-                    auto_trade_stats['journal'] = auto_trade_stats['journal'][-100:]
+            # Emit signal to user room
+            socketio.emit('auto_trade_signal', signal_data, room=f"user_{user_id}")
             
             # 1. Check for TP/SL Exit Conditions (Proactive Exit)
-            symbol_pos = next((p for p in paper_trader.get_positions() if p['symbol'] == symbol), None)
+            symbol_pos = next((p for p in paper_trader.get_positions(user_id) if p['symbol'] == symbol), None)
             if symbol_pos:
                 pnl_pct = symbol_pos.get('unrealized_pnl_pct', 0)
                 tp_pct = bot.config.take_profit
                 sl_pct = bot.config.stop_loss
                 
                 if pnl_pct >= tp_pct:
-                    logger.info(f"🎯 TAKE PROFIT Triggered: {symbol} at {pnl_pct:.2f}%")
-                    # Send special "CLOSE" signal
+                    logger.info(f"🎯 TAKE PROFIT Triggered: {symbol} at {pnl_pct:.2f}% for user {user_id}")
                     close_signal = type('Signal', (), {'signal': 'SELL' if symbol_pos['quantity'] > 0 else 'BUY', 'strength': 1.0, 'reasons': ['Take Profit Hit']})
                     execute_bot_trade(bot, close_signal, current_price)
                 elif pnl_pct <= -sl_pct:
-                    logger.info(f"🛑 STOP LOSS Triggered: {symbol} at {pnl_pct:.2f}%")
+                    logger.info(f"🛑 STOP LOSS Triggered: {symbol} at {pnl_pct:.2f}% for user {user_id}")
                     close_signal = type('Signal', (), {'signal': 'SELL' if symbol_pos['quantity'] > 0 else 'BUY', 'strength': 1.0, 'reasons': ['Stop Loss Hit']})
                     execute_bot_trade(bot, close_signal, current_price)
                 else:
-                    # 2. Normal Strategy Execution
                     execute_bot_trade(bot, signal, current_price)
             else:
-                # 2. Normal Strategy Execution
                 execute_bot_trade(bot, signal, current_price)
             
             # Sleep (check every 5 seconds)
@@ -1076,74 +1124,59 @@ def bot_execution_loop(bot_id):
 
 def execute_bot_trade(bot, signal, current_price):
     """Execute trades for a specific bot."""
-    global auto_trade_stats
     symbol = bot.config.symbol
+    user_id = bot.config.user_id
     
-    # Check current positions in shared paper trader
-    positions = paper_trader.get_positions()
+    # Check current positions for this user
+    positions = paper_trader.get_positions(user_id)
     has_long = symbol in [p['symbol'] for p in positions if p['side'] == 'LONG' and p['quantity'] > 0]
-    has_short = symbol in paper_trader.short_positions
+    has_short = symbol in [p['symbol'] for p in positions if p['side'] == 'SHORT']
     
     # Debug logging for every signal
-    logger.info(f"📊 Trade Decision for {symbol}: Signal={signal.signal}, HasLong={has_long}, HasShort={has_short}")
+    logger.info(f"📊 Trade Decision for user {user_id} | {symbol}: Signal={signal.signal}, HasLong={has_long}, HasShort={has_short}")
     
     # SAFETY: If both LONG and SHORT exist (illegal state), close both immediately
     if has_long and has_short:
-        logger.warning(f"⚠️ ILLEGAL STATE: {symbol} has BOTH LONG and SHORT. Closing both.")
+        logger.warning(f"⚠️ ILLEGAL STATE: user {user_id} | {symbol} has BOTH LONG and SHORT. Closing both.")
         # Close the LONG
         long_pos = next((p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG'), None)
         if long_pos:
-            sell_order = order_manager.create_order(symbol=symbol, side='sell', quantity=long_pos['quantity'], order_type='market')
-            if order_manager.submit_order(sell_order):
-                # USE 'avg_price' for calculation as paper trader returns it for LONG
+            order = Order(user_id=user_id, symbol=symbol, side=OrderSide.SELL, quantity=long_pos['quantity'], order_type=OrderType.MARKET)
+            if paper_trader.submit_order(order):
                 entry_price = long_pos.get('avg_price', current_price)
                 pnl = (current_price - entry_price) * long_pos['quantity']
                 bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
-                auto_trade_stats['total_trades'] += 1
                 emit_trade_event(bot, 'CLOSE LONG', long_pos['quantity'], current_price, pnl)
         
         # Cover the SHORT
-        short_pos = paper_trader.short_positions.get(symbol)
+        short_pos = next((p for p in positions if p['symbol'] == symbol and p['side'] == 'SHORT'), None)
         if short_pos:
-            cover_order = order_manager.create_order(symbol=symbol, side='buy', quantity=short_pos['quantity'], order_type='market')
-            if order_manager.submit_order(cover_order):
-                pnl = (short_pos['entry_price'] - current_price) * short_pos['quantity']
+            order = Order(user_id=user_id, symbol=symbol, side=OrderSide.BUY, quantity=short_pos['quantity'], order_type=OrderType.MARKET)
+            if paper_trader.submit_order(order):
+                pnl = (short_pos['avg_price'] - current_price) * short_pos['quantity']
                 bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
-            auto_trade_stats['total_trades'] += 1
-            emit_trade_event(bot, 'COVER SHORT', short_pos['quantity'], current_price, pnl)
+                emit_trade_event(bot, 'COVER SHORT', short_pos['quantity'], current_price, pnl)
         return  # Exit to let state settle
     
-    # STRICT EXCLUSIVITY: If we hold BOTH (bug state), or the WRONG side, close it first.
     if signal.signal == 'BUY' and has_short:
         logger.warning(f"⚠️ {symbol} has SHORT while processing BUY. Closing SHORT first.")
-        short_pos = paper_trader.short_positions[symbol]
-        short_qty = short_pos['quantity']
-        # SAFETY: Fallback to current_price if entry_price is missing
-        entry_price = short_pos.get('entry_price', current_price)
-        pnl = (entry_price - current_price) * short_qty
-        cover_order = order_manager.create_order(symbol=symbol, side='buy', quantity=short_qty, order_type='market')
-        if order_manager.submit_order(cover_order):
+        short_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'SHORT')
+        order = Order(user_id=user_id, symbol=symbol, side=OrderSide.BUY, quantity=short_pos['quantity'], order_type=OrderType.MARKET)
+        if paper_trader.submit_order(order):
+            pnl = (short_pos['avg_price'] - current_price) * short_pos['quantity']
             bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
-            auto_trade_stats['total_trades'] += 1
-            auto_trade_stats['buy_trades'] += 1
-            logger.info(f"✅ Covered SHORT for {symbol} P&L: ${pnl:.2f}")
-            emit_trade_event(bot, 'COVER SHORT', short_qty, current_price, pnl)
-        return # Exit to let state settle
+            emit_trade_event(bot, 'COVER SHORT', short_pos['quantity'], current_price, pnl)
+        return 
 
     if signal.signal == 'SELL' and has_long:
         logger.warning(f"⚠️ {symbol} has LONG while processing SELL. Closing LONG first.")
         long_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG' and p['quantity'] > 0)
-        # PAPER TRADER returns 'avg_price' for Long positions
-        entry_price = long_pos.get('avg_price', long_pos.get('entry_price', current_price))
-        pnl = (current_price - entry_price) * long_pos['quantity']
-        sell_order = order_manager.create_order(symbol=symbol, side='sell', quantity=long_pos['quantity'], order_type='market')
-        if order_manager.submit_order(sell_order):
+        pnl = (current_price - long_pos['avg_price']) * long_pos['quantity']
+        order = Order(user_id=user_id, symbol=symbol, side=OrderSide.SELL, quantity=long_pos['quantity'], order_type=OrderType.MARKET)
+        if paper_trader.submit_order(order):
             bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
-            auto_trade_stats['total_trades'] += 1
-            auto_trade_stats['sell_trades'] += 1
-            logger.info(f"✅ Closed LONG for {symbol} P&L: ${pnl:.2f}")
             emit_trade_event(bot, 'CLOSE LONG', long_pos['quantity'], current_price, pnl)
-        return # Exit to let state settle
+        return 
 
     if signal.signal == 'BUY':
         if has_long:
@@ -1151,94 +1184,37 @@ def execute_bot_trade(bot, signal, current_price):
         else:
             # Open new LONG
             logger.info(f"🚀 {bot.bot_id} executing LONG for {symbol} @ {current_price}")
-            account = paper_trader.get_account_info()
-            # Use buying_power (cash minus short margin) to prevent exponential sizing
-            equity = max(0, account['buying_power'])
-            # Safety cap: never size beyond initial capital
-            equity = min(equity, paper_trader.initial_capital)
-            trade_value = equity * (bot.config.position_size / 100)
-            quantity = trade_value / current_price
-            
-            # Apply max quantity limit
-            max_qty = getattr(bot.config, 'max_quantity', 1.0)
-            quantity = min(quantity, max_qty)
+            account = paper_trader.get_account_info(user_id)
+            trade_value = account['buying_power'] * (bot.config.position_size / 100)
+            quantity = min(trade_value / current_price, bot.config.max_quantity)
             
             if quantity > 0:
-                order = order_manager.create_order(symbol=symbol, side='buy', quantity=quantity, order_type='market')
-                if order_manager.submit_order(order):
-                    # Calculate realized P&L if covering a short
-                    pnl = 0
-                    if has_short:
-                        short_pos = paper_trader.short_positions.get(symbol)
-                        if short_pos:
-                            entry_price = short_pos.get('entry_price', current_price)
-                            pnl = (entry_price - current_price) * short_pos['quantity']
-                    
-                    bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
-                    auto_trade_stats['total_trades'] += 1
-                    auto_trade_stats['buy_trades'] += 1
-                    logger.info(f"✅ EXECUTED: LONG BUY {quantity:.6f} {symbol} @ ${current_price:.2f}")
-                    emit_trade_event(bot, 'LONG BUY', quantity, current_price, pnl)
+                order = Order(user_id=user_id, symbol=symbol, side=OrderSide.BUY, quantity=quantity, order_type=OrderType.MARKET)
+                if paper_trader.submit_order(order):
+                    bot_manager.increment_trades(bot.bot_id, 'buy', 0)
+                    emit_trade_event(bot, 'LONG BUY', quantity, current_price, 0)
 
     elif signal.signal == 'SELL':
         if has_short:
             logger.debug(f"⏸️ SELL skipped - already have short position for {symbol}")
         elif has_long:
-            # FORCE SELL LONG before going SHORT
-            logger.info(f"🔄 Symbol {symbol} has LONG. Closing LONG before opening SHORT.")
-            long_pos = next(p for p in positions if p['symbol'] == symbol and p['quantity'] > 0)
-            sell_order = order_manager.create_order(symbol=symbol, side='sell', quantity=long_pos['quantity'], order_type='market')
-            if order_manager.submit_order(sell_order):
-                # Calculate realized P&L for closure
-                entry_price = long_pos.get('avg_price', long_pos.get('entry_price', current_price))
-                pnl = (current_price - entry_price) * long_pos['quantity']
-                bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
-                auto_trade_stats['total_trades'] += 1
-                logger.info(f"✅ Closed LONG for {symbol} with P&L: ${pnl:.2f}")
-            
-            # Wait for next loop for cleaner state transition
+            # handled above, but just in case
             return
         else:
             # Open new SHORT
             logger.info(f"🚀 {bot.bot_id} executing SHORT for {symbol} @ {current_price}")
-            account = paper_trader.get_account_info()
-            # Use buying_power (cash minus short margin) to prevent exponential sizing
-            equity = max(0, account['buying_power'])
-            # Safety cap: never size beyond initial capital
-            equity = min(equity, paper_trader.initial_capital)
-            trade_value = equity * (bot.config.position_size / 100)
-            quantity = trade_value / current_price
-            
-            # Apply max quantity limit
-            max_qty = getattr(bot.config, 'max_quantity', 1.0)
-            quantity = min(quantity, max_qty)
+            account = paper_trader.get_account_info(user_id)
+            trade_value = account['buying_power'] * (bot.config.position_size / 100)
+            quantity = min(trade_value / current_price, bot.config.max_quantity)
             
             if quantity > 0:
-                order = order_manager.create_order(symbol=symbol, side='sell', quantity=quantity, order_type='market')
-                if order_manager.submit_order(order):
-                    # Calculate realized P&L if closing a long
-                    pnl = 0
-                    if has_long:
-                        long_pos = next((p for p in positions if p['symbol'] == symbol and p['quantity'] > 0), None)
-                        if long_pos:
-                            entry_price = long_pos.get('avg_price', long_pos.get('entry_price', current_price))
-                            pnl = (current_price - entry_price) * long_pos['quantity']
-                    
-                    bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
-                    auto_trade_stats['total_trades'] += 1
-                    auto_trade_stats['sell_trades'] += 1
-                    logger.info(f"✅ EXECUTED: SHORT SELL {quantity:.6f} {symbol} @ ${current_price:.2f}")
-                    emit_trade_event(bot, 'SHORT SELL', quantity, current_price, pnl)
+                order = Order(user_id=user_id, symbol=symbol, side=OrderSide.SELL, quantity=quantity, order_type=OrderType.MARKET)
+                if paper_trader.submit_order(order):
+                    bot_manager.increment_trades(bot.bot_id, 'sell', 0)
+                    emit_trade_event(bot, 'SHORT SELL', quantity, current_price, 0)
 
 def emit_trade_event(bot, side, quantity, price, pnl=0):
-    # Calculate realized P&L if closing a position and pnl not provided
-    if pnl == 0:
-        if ('SELL' in side and 'LONG' in side) or ('BUY' in side and 'COVER' in side):
-            if paper_trader.closed_positions:
-                last_closed = paper_trader.closed_positions[-1]
-                if last_closed['symbol'] == bot.config.symbol:
-                    pnl = last_closed['realized_pnl']
-
+    user_id = bot.config.user_id
     trade_msg = {
         'type': 'trade',
         'side': side,
@@ -1252,27 +1228,22 @@ def emit_trade_event(bot, side, quantity, price, pnl=0):
         'bot_id': bot.bot_id
     }
     
-    # Persistent log for reports
-    auto_trade_stats['trades_log'].append(trade_msg)
-    
     # Update Daily report -> Log via TradeLogger
     trade_logger.log_trade(
         symbol=bot.config.symbol,
         side=side,
         quantity=quantity,
         price=price,
+        user_id=user_id,
         pnl=pnl,
         strategy=bot.config.strategy,
         bot_id=bot.bot_id,
         mode=bot.config.mode.value if hasattr(bot.config, 'mode') and hasattr(bot.config.mode, 'value') else 'paper',
-        account_value=paper_trader.get_account_info()['total_value'],
+        account_value=paper_trader.get_account_info(user_id)['total_value'],
         notes=f"Auto Bot Trade {side}"
     )
     
-    # Update session P&L
-    auto_trade_stats['total_pnl'] += pnl
-    
-    socketio.emit('auto_trade_executed', trade_msg)
+    socketio.emit('auto_trade_executed', trade_msg, room=f"user_{user_id}")
 
 def start_bot_thread(bot_id):
     """Helper to start a bot thread."""
@@ -1368,47 +1339,73 @@ def stop_auto_trade():
     return jsonify({'success': True, 'report': report})
 
 
-@app.route('/api/auto-trade/status')
-def auto_trade_status():
-    """Get live auto-trade status."""
-    account = paper_trader.get_account_info()
+@app.route('/api/auto-trade/report')
+@login_required
+def auto_trade_report():
+    """Generate trading report for the current session for the user."""
+    acc = paper_trader.get_account_info(current_user.id)
+    summary = trade_logger.get_daily_summary(current_user.id, datetime.now().strftime("%Y-%m-%d"))
     
-    return jsonify({
-        'running': live_auto_trading,
+    report = {
+        'total_trades': summary['total_trades'],
+        'buy_trades': summary.get('buy_trades', 0),
+        'sell_trades': summary.get('sell_trades', 0),
+        'total_pnl': acc['pnl'],
+        'roi_percent': acc['pnl_pct'],
+        'final_balance': acc['total_value'],
+        'signals_generated': 0, # signals are transient
+        'duration_seconds': 0, 
         'market': current_market,
         'symbol': current_symbol,
         'strategy': current_strategy,
-        'total_trades': auto_trade_stats['total_trades'],
-        'buy_trades': auto_trade_stats['buy_trades'],
-        'sell_trades': auto_trade_stats['sell_trades'],
-        'current_pnl': account['pnl'],
-        'signals': auto_trade_stats['signals'][-10:]
+        'trades_log': trade_logger.get_history(current_user.id, limit=20)
+    }
+    
+    return jsonify({'success': True, 'report': report})
+
+
+@app.route('/api/auto-trade/status')
+@login_required
+def auto_trade_status():
+    """Get live auto-trade status for the user."""
+    acc = paper_trader.get_account_info(current_user.id)
+    summary = trade_logger.get_daily_summary(current_user.id, datetime.now().strftime("%Y-%m-%d"))
+    
+    # Check if user has any active bots
+    user_bots = bot_manager.get_all_bots(current_user.id)
+    any_running = any(bot_manager.is_running(b.bot_id) for b in user_bots)
+    
+    return jsonify({
+        'running': any_running,
+        'market': current_market,
+        'symbol': current_symbol,
+        'strategy': current_strategy,
+        'total_trades': summary['total_trades'],
+        'buy_trades': summary.get('buy_trades', 0),
+        'sell_trades': summary.get('sell_trades', 0),
+        'current_pnl': acc['pnl'],
+        'signals': [] # Signals are now streamed via Socket.io
     })
 
 
 @app.route('/api/report/download')
+@login_required
 def download_report():
-    """Generate downloadable trading report."""
-    account = paper_trader.get_account_info()
+    """Generate downloadable trading report for user."""
+    account = paper_trader.get_account_info(current_user.id)
+    summary = trade_logger.get_daily_summary(current_user.id, datetime.now().strftime("%Y-%m-%d"))
     
     report = {
         'generated_at': datetime.now().isoformat(),
+        'user': current_user.username,
         'account': {
-            'initial_capital': INITIAL_CAPITAL,
+            'initial_capital': account.get('initial_capital', 100000),
             'current_balance': account['total_value'],
             'total_pnl': account['pnl'],
             'roi_percent': account['pnl_pct']
         },
-        'trading_session': {
-            'market': current_market,
-            'symbol': current_symbol,
-            'strategy': current_strategy,
-            'total_trades': auto_trade_stats['total_trades'],
-            'buy_trades': auto_trade_stats['buy_trades'],
-            'sell_trades': auto_trade_stats['sell_trades']
-        },
-        'trades_log': auto_trade_stats['trades_log'],
-        'signals_log': auto_trade_stats['signals'][-50:]
+        'stats': summary,
+        'trades_log': trade_logger.get_history(current_user.id, limit=100)
     }
     
     return jsonify(report)
@@ -1419,20 +1416,13 @@ def download_report():
 # ============================================================
 
 def price_stream():
-    """Background thread to stream prices."""
+    """Background thread to stream prices and per-user account updates."""
     global is_streaming, current_symbol, current_market
     
-    count = 0
     while is_streaming:
         try:
-            count += 1
-            if count % 10 == 0:
-                logger.debug(f"📡 Price stream heartbeat ({current_symbol})")
-            
-            # Determine which provider to use. 
-            # We are robustness-first: if the symbol is in the known stock list, use stock_provider.
+            # 1. Fetch Price
             symbol_is_stock = current_symbol in ['AAPL', 'TSLA', 'GOOGL', 'MSFT', 'AMZN']
-            
             if current_market == 'crypto' and not symbol_is_stock:
                 price_data = crypto_provider.get_current_price(current_symbol)
                 ticker = crypto_provider.get_ticker_24h(current_symbol)
@@ -1446,55 +1436,55 @@ def price_stream():
                     'volume_24h': price_data.get('volume', 0)
                 }
             
-            # Update paper trader for MAIN focus symbol
-            if price_data.get('price', 0) > 0 and not system_state.is_paused():
-                paper_trader.set_prices({current_symbol: price_data['price']})
+            price = price_data.get('price', 0)
+            if price > 0 and not system_state.is_paused():
+                paper_trader.set_prices({current_symbol: price})
             
-            # Update prices for ALL ACTIVE BOTS (so their P&L updates on cards)
-            active_bots = bot_manager.get_running_bots()
+            # 2. Update all active symbols
+            active_symbols = set()
+            for bot in bot_manager.bots.values():
+                if bot_manager.is_running(bot.bot_id):
+                    active_symbols.add(bot.config.symbol)
+            
             if not system_state.is_paused():
-                other_symbols = set(bot['symbol'] for bot in active_bots if bot['symbol'] != current_symbol)
-                
-                for s in other_symbols:
-                    bot_item = next(b for b in active_bots if b['symbol'] == s)
-                    if bot_item['market'] == 'crypto':
-                        p = crypto_provider.get_current_price(s)
-                    else:
-                        p = stock_provider.get_current_quote(s)
-                    
+                for s in active_symbols:
+                    if s == current_symbol: continue
+                    # Simple heuristic for market
+                    is_crypto = s.endswith('USDT') or len(s) > 5
+                    p = crypto_provider.get_current_price(s) if is_crypto else stock_provider.get_current_quote(s)
                     if p.get('price', 0) > 0:
                         paper_trader.set_prices({s: p['price']})
-            
-            # Get account
-            account = paper_trader.get_account_info()
-            
-            # Emit to all clients
+
+            # 3. Global price update
             socketio.emit('price_update', {
                 'symbol': current_symbol,
                 'market': current_market,
-                'price': price_data.get('price', 0),
-                'change_24h': ticker.get('price_change', 0),
+                'price': price,
                 'change_pct': ticker.get('price_change_pct', 0),
-                'high_24h': ticker.get('high_24h', 0),
-                'low_24h': ticker.get('low_24h', 0),
-                'volume_24h': ticker.get('volume_24h', 0),
-                'timestamp': datetime.now().isoformat(),
-                'account': {
-                    'cash': account['cash'],
-                    'total_value': account['total_value'],
-                    'buying_power': account['buying_power'],
-                    'unrealized_pnl': sum(p.get('unrealized_pnl', 0) for p in paper_trader.get_positions()),
-                    'pnl': account['pnl'],
-                    'pnl_pct': account['pnl_pct'],
-                    'total_trades': auto_trade_stats.get('total_trades', 0)
-                }
+                'timestamp': datetime.now().isoformat()
             })
             
-            time.sleep(1)  # Update every second
+            # 4. Per-user account updates (Only for users with active accounts in PaperTrader)
+            for user_id in list(paper_trader.accounts.keys()):
+                acc = paper_trader.get_account_info(user_id)
+                positions = paper_trader.get_positions(user_id)
+                summary = trade_logger.get_daily_summary(user_id, datetime.now().strftime("%Y-%m-%d"))
+                
+                socketio.emit('account_update', {
+                    'cash': acc['cash'],
+                    'total_value': acc['total_value'],
+                    'buying_power': acc['buying_power'],
+                    'pnl': acc['pnl'],
+                    'pnl_pct': acc['pnl_pct'],
+                    'total_trades': summary['total_trades'],
+                    'positions': positions
+                }, room=f"user_{user_id}")
+            
+            time.sleep(1)
             
         except Exception as e:
-            print(f"Stream error: {e}")
-            time.sleep(1)
+            logger.error(f"Stream error: {e}")
+            time.sleep(2)
 
 
 # ============================================================
@@ -1502,19 +1492,22 @@ def price_stream():
 # ============================================================
 
 @app.route('/api/bots', methods=['GET'])
+@login_required
 def list_bots():
-    """List all active bots."""
-    bots = bot_manager.get_running_bots()
-    logger.info(f"📊 Active bots query: {len(bots)} running, total stored: {len(bot_manager.bots)}")
+    """List all active bots for the current user."""
+    bots = bot_manager.get_all_bots(current_user.id)
+    running_bots = [b.to_dict() for b in bots if bot_manager.is_running(b.bot_id)]
+    logger.info(f"📊 User {current_user.id} active bots: {len(running_bots)}")
     return jsonify({
         'success': True,
-        'bots': bots,
-        'running_count': len(bots)
+        'bots': running_bots,
+        'running_count': len(running_bots)
     })
 
 @app.route('/api/bots/start', methods=['POST'])
+@login_required
 def start_bot():
-    """Start a new trading bot."""
+    """Start a new trading bot for the user."""
     data = request.json
     try:
         # Extract settings from nested object
@@ -1522,6 +1515,7 @@ def start_bot():
         
         # Call bot_manager.start_bot with keyword arguments (not BotConfig)
         result = bot_manager.start_bot(
+            user_id=current_user.id,
             symbol=data.get('symbol', 'BTCUSDT'),
             market=data.get('market', 'crypto'),
             strategy=data.get('strategy', 'Ichimoku Cloud'),
@@ -1540,80 +1534,58 @@ def start_bot():
             # Persist bot configurations to disk
             bot_manager.save_configs()
             
-            logger.info(f"✅ Bot started: {result['bot_id']}")
+            logger.info(f"✅ Bot started for user {current_user.id}: {result['bot_id']}")
             return jsonify({'success': True, 'bot_id': result['bot_id']})
         else:
             return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
+        logger.error(f"Failed to start bot for user {current_user.id}: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/bots/<bot_id>/stop', methods=['POST'])
+@login_required
 def stop_bot(bot_id):
-    """Stop a specific bot and auto-close its positions."""
+    """Stop a specific bot and auto-close its positions for the current user."""
     try:
-        # 1. Identify bot symbol before stopping
         bot = bot_manager.bots.get(bot_id)
         if bot:
+            # Security check: Ensure bot belongs to current user
+            if bot.config.user_id != current_user.id:
+                return jsonify({'success': False, 'error': 'Unauthorized'})
+                
             symbol = bot.config.symbol
-            
-            # 2. Check for open positions for this symbol
-            positions = paper_trader.get_positions()
+            positions = paper_trader.get_positions(current_user.id)
             symbol_pos = next((p for p in positions if p['symbol'] == symbol), None)
             
             if symbol_pos:
-                logger.info(f"🛑 Bot {bot_id} stop requested. Auto-closing position for {symbol}")
-                
-                # Create a cover order
+                logger.info(f"🛑 Bot {bot_id} stop requested by user {current_user.id}. Auto-closing position.")
                 qty = symbol_pos['quantity']
                 side = 'sell' if qty > 0 else 'buy'
+                pnl = symbol_pos.get('unrealized_pnl', 0)
                 
-                # Log to journal BEFORE executing to ensure record exists
-                # Also log via TradeLogger
-                pnl = symbol_pos.get('realized_pnl', 0)
                 trade_logger.log_trade(
                     symbol=symbol,
                     side='CLOSE',
                     quantity=abs(qty),
                     price=symbol_pos.get('current_price', 0),
+                    user_id=current_user.id,
                     pnl=pnl,
                     strategy=bot.config.strategy,
                     bot_id=bot.bot_id,
-                    mode=bot.config.mode if hasattr(bot.config, 'mode') else 'paper',
+                    mode=bot.config.mode.value if hasattr(bot.config.mode, 'value') else 'paper',
                     notes="Stop Command Received - Auto Liquidating"
                 )
                 
-                # Sync counters
-                bot_manager.increment_trades(bot.bot_id, side, pnl)
-                
-                auto_trade_stats['journal'].append({
-                    'time': datetime.now().isoformat(),
-                    'symbol': symbol,
-                    'side': 'CLOSE',
-                    'price': symbol_pos.get('current_price', 0),
-                    'qty': abs(qty),
-                    'strategy': bot.config.strategy,
-                    'reasons': ['Stop Command Received - Auto Liquidating']
-                })
-                
-                # Execute closure via order manager
-                from src.execution.order_manager import Order
-                order = Order(symbol=symbol, side=side, quantity=abs(qty), order_type='market')
+                # Execute closure
+                order = Order(user_id=current_user.id, symbol=symbol, side=OrderSide.SELL if qty > 0 else OrderSide.BUY, quantity=abs(qty), order_type=OrderType.MARKET)
                 paper_trader.submit_order(order)
-                
-                # Update total trades count precisely
-                auto_trade_stats['total_trades'] = auto_trade_stats.get('total_trades', 0) + 1
 
-        # 3. Stop the bot
         result = bot_manager.stop_bot(bot_id)
-        
-        # Persist updated bot configs to disk
         bot_manager.save_configs()
-        
         return jsonify(result)
     except Exception as e:
-        logger.error(f"Error during bot stop/closure: {e}")
+        logger.error(f"Error during bot stop: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/bots/stop-all', methods=['POST'])
@@ -1635,19 +1607,26 @@ def update_bot_strategy(bot_id):
 
 @socketio.on('connect')
 def handle_connect():
-    """Handle client connection."""
+    """Handle client connection with user rooms."""
     global is_streaming, stream_thread
     
-    print(f"Client connected to GodBotTrade. Stream active: {is_streaming}")
+    if not current_user.is_authenticated:
+        return False  # Reject unauthenticated connections
+        
+    # Join user room
+    user_room = f"user_{current_user.id}"
+    join_room(user_room)
+    logger.info(f"👤 User {current_user.username} (ID: {current_user.id}) joined room {user_room}")
     
     if not is_streaming or stream_thread is None or not stream_thread.is_alive():
-        logger.info("📡 Starting/Restarting price stream...")
+        logger.info("📡 Starting price stream...")
         is_streaming = True
         stream_thread = threading.Thread(target=price_stream, daemon=True)
         stream_thread.start()
     
     emit('connected', {
         'status': 'ok', 
+        'user_id': current_user.id,
         'symbol': current_symbol,
         'market': current_market
     })
@@ -1656,7 +1635,12 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnection."""
-    print("Client disconnected")
+    if current_user.is_authenticated:
+        user_room = f"user_{current_user.id}"
+        leave_room(user_room)
+        print(f"User {current_user.id} disconnected. Left room {user_room}")
+    else:
+        print("Unauthenticated client disconnected")
 
 
 @socketio.on('change_symbol')
@@ -1713,18 +1697,23 @@ def bot_watchdog_loop():
 
 
 def restore_bots_on_startup():
-    """Restore bots from saved configuration on server startup."""
+    """Load and start bots that were previously running or enabled for auto-restart."""
     configs = bot_manager.load_configs()
-    
     if not configs:
-        logger.info("No saved bot configurations to restore")
         return
     
+    logger.info(f"🔄 Restoring {len(configs)} bots from MySQL...")
     for cfg in configs:
-        if cfg.get('auto_restart_enabled', True):
-            logger.info(f"🚀 Auto-restoring bot: {cfg.get('bot_id')}")
+        user_id = cfg.get('user_id', 1)
+        bot_id = cfg.get('id')
+        
+        # Check if bot should be running (status was 'running' or auto_restart is true)
+        if cfg.get('status') == 'running' or cfg.get('auto_restart_enabled', 0):
+            logger.info(f"🚀 Auto-restoring bot: {bot_id}")
             
+            # Start the bot using bot_manager.start_bot
             result = bot_manager.start_bot(
+                user_id=user_id,
                 symbol=cfg['symbol'],
                 market=cfg['market'],
                 strategy=cfg['strategy'],
@@ -1737,8 +1726,9 @@ def restore_bots_on_startup():
             )
             
             if result.get('success'):
-                # Start the execution thread
-                start_bot_thread(result['bot_id'])
+                logger.info(f"✅ Restored bot {bot_id} (Thread started)")
+            else:
+                logger.error(f"❌ Failed to restore bot {bot_id}: {result.get('error')}")
 
 
 if __name__ == '__main__':
@@ -1754,4 +1744,6 @@ if __name__ == '__main__':
     watchdog_thread = threading.Thread(target=bot_watchdog_loop, daemon=True)
     watchdog_thread.start()
     
-    socketio.run(app, host='0.0.0.0', port=5050, debug=True, allow_unsafe_werkzeug=True)
+    # Get port from environment variable for cloud deployment (Railway/Heroku/etc)
+    port = int(os.getenv('PORT', 5050))
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)

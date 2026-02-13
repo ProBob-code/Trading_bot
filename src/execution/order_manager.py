@@ -43,6 +43,7 @@ class Order:
     """
     Represents a trading order.
     """
+    user_id: int
     symbol: str
     side: OrderSide
     order_type: OrderType
@@ -81,6 +82,7 @@ class Order:
     
     def to_dict(self) -> Dict:
         return {
+            'user_id': self.user_id,
             'order_id': self.order_id,
             'symbol': self.symbol,
             'side': self.side.value,

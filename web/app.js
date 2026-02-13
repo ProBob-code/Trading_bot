@@ -58,30 +58,53 @@ function getStrategyName(slug) {
 // INITIALIZATION
 // ============================================================
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // 🛡️ FRONTEND AUTH GATE
+    try {
+        const authRes = await fetch('/api/auth/status');
+        const authData = await authRes.json();
+
+        if (!authData.authenticated || !authData.user.is_verified) {
+            window.location.href = 'login.html';
+            return;
+        }
+
+        // Update Profile UI
+        updateProfileUI(authData.user);
+    } catch (err) {
+        console.error('Auth Check Failed', err);
+        window.location.href = 'login.html';
+        return;
+    }
+
     initChart();
     initSocket();
     initEventListeners();
     loadInitialData();
     updateUI();
-    loadNews();  // Load news on startup
+    loadNews();
 
-    // Auto-refresh data every 3 seconds
+    // ... rest of the setup
     setInterval(() => {
         loadPositions();
         loadBots();
     }, 3000);
 
-    // Refresh news every 60 seconds
-    setInterval(() => {
-        loadNews();
-    }, 60000);
-
+    setInterval(() => loadNews(), 60000);
     initClock();
-    // Check server status periodically
     setInterval(checkServerStatus, 10000);
-    checkSystemStatus(); // Check system pause status on load
+    checkSystemStatus();
 });
+
+function updateProfileUI(user) {
+    const profileName = document.getElementById('profileName');
+    const dropdownBrand = document.querySelector('.dropdown-brand');
+    const dropdownSub = document.querySelector('.dropdown-sub');
+
+    if (profileName) profileName.textContent = user.username;
+    if (dropdownBrand) dropdownBrand.textContent = user.username;
+    if (dropdownSub) dropdownSub.textContent = 'Pro Trader';
+}
 
 function initClock() {
     setInterval(() => {
@@ -896,6 +919,21 @@ function initEventListeners() {
     document.getElementById('settingInterval').addEventListener('input', (e) => {
         document.getElementById('intervalValue').textContent = e.target.value + 's';
     });
+
+    // Logout button
+    const btnLogout = document.getElementById('btnLogout');
+    if (btnLogout) {
+        btnLogout.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/auth/logout', { method: 'POST' });
+                if (res.ok) {
+                    window.location.href = 'login.html';
+                }
+            } catch (err) {
+                console.error('Logout failed', err);
+            }
+        });
+    }
 
     // Clear feed
     document.getElementById('btnClearFeed').addEventListener('click', () => {

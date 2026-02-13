@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from loguru import logger
+from src.database.db_manager import db_manager
 
 
 @dataclass
@@ -173,14 +174,25 @@ class NewsSentimentAnalyzer:
                             # Determine source
                             source = self._extract_source(url)
                             
-                            news_items.append(NewsItem(
+                            news_item = NewsItem(
                                 url=url,
                                 title=title,
                                 timestamp=timestamp,
                                 sentiment_score=sentiment,
                                 related_symbols=symbols,
                                 source=source
-                            ))
+                            )
+                            # Persist to MySQL
+                            db_manager.save_news({
+                                'url': url,
+                                'title': title,
+                                'source': source,
+                                'sentiment': sentiment,
+                                'sentiment_label': 'BULLISH' if sentiment > 0.2 else ('BEARISH' if sentiment < -0.2 else 'NEUTRAL'),
+                                'symbols': symbols,
+                                'timestamp': timestamp
+                            })
+                            news_items.append(news_item)
             except Exception as e:
                 logger.error(f"Error loading news from {perplexity_file}: {e}")
         
@@ -450,14 +462,25 @@ class NewsSentimentAnalyzer:
                             symbols = self._find_related_symbols(title)
                             source = self._extract_source(url)
                             
-                            news_items.append(NewsItem(
+                            news_item = NewsItem(
                                 url=url,
                                 title=title,
                                 timestamp=timestamp,
                                 sentiment_score=sentiment,
                                 related_symbols=symbols,
                                 source=source
-                            ))
+                            )
+                            # Persist to MySQL
+                            db_manager.save_news({
+                                'url': url,
+                                'title': title,
+                                'source': source,
+                                'sentiment': sentiment,
+                                'sentiment_label': 'BULLISH' if sentiment > 0.2 else ('BEARISH' if sentiment < -0.2 else 'NEUTRAL'),
+                                'symbols': symbols,
+                                'timestamp': timestamp
+                            })
+                            news_items.append(news_item)
                             
             except Exception as e:
                 logger.warning(f"Failed to fetch RSS from {feed_url}: {e}")

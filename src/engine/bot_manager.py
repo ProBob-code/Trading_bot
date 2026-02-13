@@ -11,15 +11,15 @@ Manages multiple parallel trading bots that:
 
 import threading
 import time
-import json
 from pathlib import Path
 from typing import Dict, Optional, List
+from src.database.db_manager import db_manager
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from loguru import logger
 
-# Path to persist bot configurations
+# Path to persist bot configurations (Legacy - kept for migration check)
 BOT_CONFIGS_FILE = Path(__file__).parent.parent.parent / "bot_configs.json"
 
 
@@ -37,6 +37,7 @@ class BotStatus(Enum):
 @dataclass
 class BotConfig:
     """Configuration for a trading bot."""
+    user_id: int
     symbol: str
     market: str  # 'crypto' or 'stocks'
     strategy: str
@@ -66,6 +67,7 @@ class BotStats:
 @dataclass
 class TradingBot:
     """Individual trading bot instance."""
+    user_id: int
     bot_id: str
     config: BotConfig
     status: BotStatus = BotStatus.STOPPED
@@ -77,6 +79,7 @@ class TradingBot:
     def to_dict(self) -> Dict:
         """Convert to dictionary for API response."""
         return {
+            'user_id': self.user_id,
             'bot_id': self.bot_id,
             'symbol': self.config.symbol,
             'market': self.config.market,
@@ -128,13 +131,16 @@ class BotManager:
         self.lock = threading.Lock()
         self._initialized = True
         logger.info("🤖 BotManager initialized")
+        # Optional: Auto-migrate legacy configs on first startup
+        self._migrate_legacy_configs()
     
-    def generate_bot_id(self, market: str, symbol: str) -> str:
-        """Generate unique bot ID."""
-        return f"{market}_{symbol}".lower()
+    def generate_bot_id(self, user_id: int, market: str, symbol: str) -> str:
+        """Generate unique bot ID including user_id."""
+        return f"u{user_id}_{market}_{symbol}".lower()
     
     def start_bot(
         self,
+        user_id: int,
         symbol: str,
         market: str,
         strategy: str,
@@ -149,7 +155,7 @@ class BotManager:
         Returns:
             Dict with bot_id and status
         """
-        bot_id = self.generate_bot_id(market, symbol)
+        bot_id = self.generate_bot_id(user_id, market, symbol)
         
         with self.lock:
             # Check if bot already exists
@@ -158,6 +164,7 @@ class BotManager:
             
             # Create bot config
             config = BotConfig(
+                user_id=user_id,
                 symbol=symbol,
                 market=market,
                 strategy=strategy,
@@ -171,6 +178,7 @@ class BotManager:
             
             # Create or update bot
             bot = TradingBot(
+                user_id=user_id,
                 bot_id=bot_id,
                 config=config,
                 status=BotStatus.RUNNING,
@@ -258,16 +266,18 @@ class BotManager:
             return None
         return self.bots[bot_id].to_dict()
     
-    def get_all_bots(self) -> List[Dict]:
-        """Get all bots status."""
+    def get_all_bots(self, user_id: Optional[int] = None) -> List[Dict]:
+        """Get all bots status, optionally filtered by user."""
+        if user_id is not None:
+            return [bot.to_dict() for bot in self.bots.values() if bot.user_id == user_id]
         return [bot.to_dict() for bot in self.bots.values()]
     
-    def get_running_bots(self) -> List[Dict]:
-        """Get only running bots."""
+    def get_running_bots(self, user_id: Optional[int] = None) -> List[Dict]:
+        """Get only running bots, optionally filtered by user."""
         return [
             bot.to_dict() 
             for bot in self.bots.values() 
-            if bot.status == BotStatus.RUNNING
+            if bot.status == BotStatus.RUNNING and (user_id is None or bot.user_id == user_id)
         ]
     
     def update_bot_stats(self, bot_id: str, **kwargs):
@@ -298,56 +308,65 @@ class BotManager:
     
     def stop_all(self):
         """Stop all running bots."""
-        for bot_id in list(self.bots.keys()):
-            self.stop_bot(bot_id)
+        with self.lock:
+            for bot_id in list(self.bots.keys()):
+                self.stop_bot(bot_id)
         logger.info("🛑 All bots stopped")
-    
+
+    def _migrate_legacy_configs(self):
+        """Migrate legacy JSON configs to MySQL if they exist."""
+        if BOT_CONFIGS_FILE.exists():
+            try:
+                import json
+                with open(BOT_CONFIGS_FILE, 'r') as f:
+                    configs = json.load(f)
+                for cfg in configs:
+                    # Map interval to interval_str if needed
+                    db_manager.save_bot_config(cfg)
+                logger.info(f"🚚 Migrated {len(configs)} legacy bot configs to MySQL")
+                # Backup and remove
+                BOT_CONFIGS_FILE.rename(BOT_CONFIGS_FILE.with_suffix(".json.bak"))
+            except Exception as e:
+                logger.error(f"Error migrating legacy configs: {e}")
+
     def save_configs(self):
-        """Save all bot configurations to disk for persistence."""
-        configs = []
-        for bot_id, bot in self.bots.items():
-            if bot.config.auto_restart_enabled:
-                configs.append({
-                    'bot_id': bot_id,
-                    'symbol': bot.config.symbol,
-                    'market': bot.config.market,
-                    'strategy': bot.config.strategy,
-                    'mode': bot.config.mode.value,
-                    'interval': bot.config.interval,
-                    'position_size': bot.config.position_size,
-                    'stop_loss': bot.config.stop_loss,
-                    'take_profit': bot.config.take_profit,
-                    'max_quantity': bot.config.max_quantity,
-                    'auto_restart_enabled': bot.config.auto_restart_enabled
-                })
-        
-        try:
-            with open(BOT_CONFIGS_FILE, 'w') as f:
-                json.dump(configs, f, indent=4)
-            logger.info(f"💾 Saved {len(configs)} bot configs to disk")
-        except Exception as e:
-            logger.error(f"Error saving bot configs: {e}")
+        """Save all bot configurations to MySQL for persistence."""
+        with self.lock:
+            for bot_id, bot in self.bots.items():
+                if bot.config.auto_restart_enabled:
+                    config_dict = {
+                        'user_id': bot.config.user_id,
+                        'id': bot_id,
+                        'symbol': bot.config.symbol,
+                        'market': bot.config.market,
+                        'strategy': bot.config.strategy,
+                        'mode': bot.config.mode.value,
+                        'interval_str': bot.config.interval,
+                        'position_size': bot.config.position_size,
+                        'stop_loss': bot.config.stop_loss,
+                        'take_profit': bot.config.take_profit,
+                        'max_quantity': bot.config.max_quantity,
+                        'auto_restart_enabled': bot.config.auto_restart_enabled,
+                        'status': bot.status.value
+                    }
+                    db_manager.save_bot_config(config_dict)
+            logger.info(f"💾 Saved active bot configs to MySQL")
     
     def load_configs(self) -> List[Dict]:
-        """Load saved bot configurations from disk."""
-        if not BOT_CONFIGS_FILE.exists():
-            logger.info("No saved bot configs found")
-            return []
-        
+        """Load saved bot configurations from MySQL."""
         try:
-            with open(BOT_CONFIGS_FILE, 'r') as f:
-                configs = json.load(f)
-            logger.info(f"📂 Loaded {len(configs)} bot configs from disk")
+            configs = db_manager.get_all_bots()
+            logger.info(f"📂 Loaded {len(configs)} bot configs from MySQL")
             return configs
         except Exception as e:
-            logger.error(f"Error loading bot configs: {e}")
+            logger.error(f"Error loading bot configs from MySQL: {e}")
             return []
     
     def clear_saved_configs(self):
-        """Clear saved bot configurations."""
-        if BOT_CONFIGS_FILE.exists():
-            BOT_CONFIGS_FILE.unlink()
-            logger.info("🗑️ Cleared saved bot configs")
+        """Clear saved bot configurations in MySQL (Warning: Destructive)."""
+        # This is a dangerous operation, so we might want to just set status to 'deleted'
+        # For now, let's just log that this should be done carefully
+        logger.warning("🗑️ clear_saved_configs called - MySQL table 'bots' not cleared for safety")
 
 
 # Singleton instance
