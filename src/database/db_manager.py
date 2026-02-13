@@ -8,21 +8,21 @@ from typing import Dict, List, Optional, Any
 class DatabaseManager:
     def __init__(self):
         # Support both custom DB_* and Railway default MYSQL* environment variables
-        self.host = os.getenv('DB_HOST', os.getenv('MYSQLHOST', 'localhost'))
+        # Priority: MYSQL* variables (Railway default) -> DB_* variables -> Defaults
+        # We check MYSQL* first because if DB_* is set to "" (empty string) it might override valid MYSQL* values
+        
+        self.host = os.getenv('MYSQLHOST') or os.getenv('DB_HOST') or 'localhost'
         
         # Handle port parsing safely
-        port_str = os.getenv('DB_PORT', os.getenv('MYSQLPORT', '3306'))
-        if not port_str:
+        port_str = os.getenv('MYSQLPORT') or os.getenv('DB_PORT') or '3306'
+        try:
+            self.port = int(port_str)
+        except ValueError:
             self.port = 3306
-        else:
-            try:
-                self.port = int(port_str)
-            except ValueError:
-                self.port = 3306
                 
-        self.user = os.getenv('DB_USER', os.getenv('MYSQLUSER', 'root'))
-        self.password = os.getenv('DB_PASSWORD', os.getenv('MYSQLPASSWORD', ''))
-        self.database = os.getenv('DB_NAME', os.getenv('MYSQLDATABASE', 'trading_bot'))
+        self.user = os.getenv('MYSQLUSER') or os.getenv('DB_USER') or 'root'
+        self.password = os.getenv('MYSQLPASSWORD') or os.getenv('DB_PASSWORD') or ''
+        self.database = os.getenv('MYSQLDATABASE') or os.getenv('DB_NAME') or 'trading_bot'
         
         logger.info(f"🔌 database_manager: Connecting to {self.host}:{self.port} as {self.user} (DB: {self.database})")
         
