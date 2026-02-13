@@ -229,13 +229,52 @@ async function loadChartData() {
                 open: d.open * rate,
                 high: d.high * rate,
                 low: d.low * rate,
-                close: d.close * rate
             }));
-            state.candleSeries.setData(convertedData);
-            state.chart.timeScale().fitContent();
+            if (state.candleSeries) {
+                state.candleSeries.setData(convertedData);
+                state.chart.timeScale().fitContent();
+            }
         }
     } catch (error) {
         console.error('Error loading chart data:', error);
+    }
+}
+
+// Reset Paper Trading
+async function resetPaperTrading() {
+    if (!confirm('Are you sure you want to reset all paper trading data? This will reset your balance to $100,000 and clear all active positions and P&L.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/paper/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showNotification('♻️ Paper trading reset successfully', 'success');
+
+            // Refresh everything immediately
+            loadInitialData();
+            loadPositions();
+            loadBots();
+            updateTradeCount();
+
+            // Reset local state if needed
+            state.paperBalance = 100000;
+            state.tradeCount = 0;
+            state.buyCount = 0;
+            state.sellCount = 0;
+
+        } else {
+            showNotification('Failed to reset: ' + data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error resetting paper trading:', error);
+        showNotification('Network error occurred during reset', 'error');
     }
 }
 
@@ -850,6 +889,7 @@ function initEventListeners() {
     });
 
     document.getElementById('btnReport').addEventListener('click', showReportModal);
+    document.getElementById('btnResetPaper').addEventListener('click', resetPaperTrading);
 
     // Settings modal
     document.getElementById('btnSettings').addEventListener('click', openSettings);

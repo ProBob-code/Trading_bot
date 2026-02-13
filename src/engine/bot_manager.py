@@ -278,6 +278,13 @@ class BotManager:
                 if hasattr(stats, key):
                     setattr(stats, key, value)
     
+    def reset_all_bot_stats(self):
+        """Reset statistics for all bots."""
+        for bot in self.bots.values():
+            bot.stats = BotStats()
+            bot.start_time = datetime.now()
+        logger.info("All bot stats reset")
+    
     def increment_trades(self, bot_id: str, side: str, pnl: float = 0):
         """Increment trade counters and track realized P&L."""
         if bot_id in self.bots:

@@ -98,11 +98,43 @@ auto_trade_stats = {
 @app.route('/api/stats')
 def get_server_stats():
     """Simple health check endpoint for the frontend."""
-    return jsonify({
-        'success': True,
-        'status': 'Online',
-        'timestamp': datetime.now().isoformat()
-    })
+    """Get global auto-trading statistics."""
+    stats = auto_trade_stats.copy()
+    # Don't send full journal/logs in summary stats
+    stats.pop('trades_log', None)
+    stats.pop('journal', None)
+    stats['is_paused'] = system_state.is_paused()
+    stats['server_time'] = datetime.now().isoformat()
+    return jsonify(stats)
+
+@app.route('/api/paper/reset', methods=['POST'])
+def reset_paper_trading():
+    """Reset all paper trading data and statistics."""
+    try:
+        # 1. Reset Broker state
+        paper_trader.reset()
+        
+        # 2. Reset Individual Bot stats
+        bot_manager.reset_all_bot_stats()
+        
+        # 3. Reset Global Stats
+        global auto_trade_stats
+        auto_trade_stats = {
+            'total_trades': 0,
+            'buy_trades': 0,
+            'sell_trades': 0,
+            'total_pnl': 0,
+            'signals': [],
+            'start_time': datetime.now().isoformat(),
+            'trades_log': [],
+            'journal': []
+        }
+        
+        logger.info("♻️ Paper trading system reset complete")
+        return jsonify({'success': True, 'message': 'Paper trading reset successfully'})
+    except Exception as e:
+        logger.error(f"Failed to reset paper trading: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/system/status')
 def get_system_status():
@@ -961,10 +993,7 @@ def bot_execution_loop(bot_id):
             positions = paper_trader.get_positions()
             symbol_pos = next((p for p in positions if p['symbol'] == symbol), None)
             
-            if symbol_pos:
-                bot.stats.unrealized_pnl = symbol_pos.get('net_pnl', 0)
-            else:
-                bot.stats.unrealized_pnl = 0
+            bot.stats.unrealized_pnl = symbol_pos.get('unrealized_pnl', 0) if symbol_pos else 0
             
             bot.stats.total_pnl = bot.stats.realized_pnl + bot.stats.unrealized_pnl
 
@@ -1012,7 +1041,7 @@ def bot_execution_loop(bot_id):
             
             # 1. Check for TP/SL Exit Conditions (Proactive Exit)
             if symbol_pos:
-                pnl_pct = symbol_pos.get('pnl_pct', 0)
+                pnl_pct = symbol_pos.get('unrealized_pnl_pct', 0)
                 tp_pct = bot.config.take_profit
                 sl_pct = bot.config.stop_loss
                 
