@@ -1,7 +1,7 @@
 [
     {
-        "bot_id": "crypto_bnbusdt",
-        "symbol": "BNBUSDT",
+        "bot_id": "crypto_btcusdt",
+        "symbol": "BTCUSDT",
         "market": "crypto",
         "strategy": "ichimoku",
         "mode": "paper",
@@ -13,10 +13,36 @@
         "auto_restart_enabled": true
     },
     {
-        "bot_id": "crypto_btcusdt",
-        "symbol": "BTCUSDT",
+        "bot_id": "crypto_ethusdt",
+        "symbol": "ETHUSDT",
         "market": "crypto",
         "strategy": "ichimoku",
+        "mode": "paper",
+        "interval": "1m",
+        "position_size": 10.0,
+        "stop_loss": 5.0,
+        "take_profit": 10.0,
+        "max_quantity": 10.0,
+        "auto_restart_enabled": true
+    },
+    {
+        "bot_id": "crypto_bnbusdt",
+        "symbol": "BNBUSDT",
+        "market": "crypto",
+        "strategy": "combined",
+        "mode": "paper",
+        "interval": "1m",
+        "position_size": 10.0,
+        "stop_loss": 5.0,
+        "take_profit": 10.0,
+        "max_quantity": 10.0,
+        "auto_restart_enabled": true
+    },
+    {
+        "bot_id": "crypto_solusdt",
+        "symbol": "SOLUSDT",
+        "market": "crypto",
+        "strategy": "ml_forecast",
         "mode": "paper",
         "interval": "1m",
         "position_size": 10.0,

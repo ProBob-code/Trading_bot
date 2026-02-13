@@ -98,43 +98,11 @@ auto_trade_stats = {
 @app.route('/api/stats')
 def get_server_stats():
     """Simple health check endpoint for the frontend."""
-    """Get global auto-trading statistics."""
-    stats = auto_trade_stats.copy()
-    # Don't send full journal/logs in summary stats
-    stats.pop('trades_log', None)
-    stats.pop('journal', None)
-    stats['is_paused'] = system_state.is_paused()
-    stats['server_time'] = datetime.now().isoformat()
-    return jsonify(stats)
-
-@app.route('/api/paper/reset', methods=['POST'])
-def reset_paper_trading():
-    """Reset all paper trading data and statistics."""
-    try:
-        # 1. Reset Broker state
-        paper_trader.reset()
-        
-        # 2. Reset Individual Bot stats
-        bot_manager.reset_all_bot_stats()
-        
-        # 3. Reset Global Stats
-        global auto_trade_stats
-        auto_trade_stats = {
-            'total_trades': 0,
-            'buy_trades': 0,
-            'sell_trades': 0,
-            'total_pnl': 0,
-            'signals': [],
-            'start_time': datetime.now().isoformat(),
-            'trades_log': [],
-            'journal': []
-        }
-        
-        logger.info("♻️ Paper trading system reset complete")
-        return jsonify({'success': True, 'message': 'Paper trading reset successfully'})
-    except Exception as e:
-        logger.error(f"Failed to reset paper trading: {e}")
-        return jsonify({'success': False, 'error': str(e)})
+    return jsonify({
+        'success': True,
+        'status': 'Online',
+        'timestamp': datetime.now().isoformat()
+    })
 
 @app.route('/api/system/status')
 def get_system_status():
@@ -346,7 +314,7 @@ def update_balance():
     new_balance = data.get('cash') or data.get('balance', 100000)
     
     try:
-        # Update paper trader's cash and initial_capital to reset P&L relative to new balance
+        # Update paper trader's cash and initial_capital
         paper_trader.cash = float(new_balance)
         paper_trader.initial_capital = float(new_balance)
         logger.info(f"💰 Paper trading balance reset to: ${new_balance:,.2f}")
@@ -358,6 +326,37 @@ def update_balance():
         })
     except Exception as e:
         logger.error(f"Error updating balance: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/paper/reset', methods=['POST'])
+def reset_paper_trading():
+    """Reset all paper trading state."""
+    global auto_trade_stats
+    try:
+        # 1. Reset Broker state
+        paper_trader.reset()
+        
+        # 2. Reset Bot Manager stats for all bots
+        for bot in bot_manager.bots.values():
+            bot.stats = BotStats()
+            
+        # 3. Reset Global session stats (Use update to preserve object references if shared)
+        auto_trade_stats.update({
+            'total_trades': 0,
+            'buy_trades': 0,
+            'sell_trades': 0,
+            'total_pnl': 0.0,
+            'trades_log': [],
+            'signals': [],
+            'journal': [],
+            'start_time': datetime.now().isoformat()
+        })
+        
+        logger.info("🔥 Full Paper Trading Reset executed")
+        return jsonify({'success': True, 'message': 'Paper trading state reset successfully'})
+    except Exception as e:
+        logger.error(f"Error resetting paper trading: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
@@ -1000,7 +999,11 @@ def bot_execution_loop(bot_id):
             # Analyze with selected strategy
             # Lower confluence for more active trading (2 instead of 3)
             strategy_engine.min_confluence = 2  # More active: 2 indicators needed vs 3
-            # Note: We use the strategy from bot.config which can be hot-swapped
+            # Check if bot still exists (it might have been removed during reset/stop)
+            if bot_id not in bot_manager.bots:
+                logger.warning(f"⚠️ Bot {bot_id} no longer in manager. Exiting loop.")
+                break
+                
             current_strat = bot.config.strategy
             signal = strategy_engine.analyze(df, strategy=current_strat)
             
@@ -1040,6 +1043,7 @@ def bot_execution_loop(bot_id):
                     auto_trade_stats['journal'] = auto_trade_stats['journal'][-100:]
             
             # 1. Check for TP/SL Exit Conditions (Proactive Exit)
+            symbol_pos = next((p for p in paper_trader.get_positions() if p['symbol'] == symbol), None)
             if symbol_pos:
                 pnl_pct = symbol_pos.get('unrealized_pnl_pct', 0)
                 tp_pct = bot.config.take_profit
@@ -1087,19 +1091,24 @@ def execute_bot_trade(bot, signal, current_price):
     if has_long and has_short:
         logger.warning(f"⚠️ ILLEGAL STATE: {symbol} has BOTH LONG and SHORT. Closing both.")
         # Close the LONG
-        long_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG')
-        sell_order = order_manager.create_order(symbol=symbol, side='sell', quantity=long_pos['quantity'], order_type='market')
-        if order_manager.submit_order(sell_order):
-            pnl = (current_price - long_pos['entry_price']) * long_pos['quantity']
-            bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
-            auto_trade_stats['total_trades'] += 1
-            emit_trade_event(bot, 'CLOSE LONG', long_pos['quantity'], current_price, pnl)
+        long_pos = next((p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG'), None)
+        if long_pos:
+            sell_order = order_manager.create_order(symbol=symbol, side='sell', quantity=long_pos['quantity'], order_type='market')
+            if order_manager.submit_order(sell_order):
+                # USE 'avg_price' for calculation as paper trader returns it for LONG
+                entry_price = long_pos.get('avg_price', current_price)
+                pnl = (current_price - entry_price) * long_pos['quantity']
+                bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
+                auto_trade_stats['total_trades'] += 1
+                emit_trade_event(bot, 'CLOSE LONG', long_pos['quantity'], current_price, pnl)
+        
         # Cover the SHORT
-        short_pos = paper_trader.short_positions[symbol]
-        cover_order = order_manager.create_order(symbol=symbol, side='buy', quantity=short_pos['quantity'], order_type='market')
-        if order_manager.submit_order(cover_order):
-            pnl = (short_pos['entry_price'] - current_price) * short_pos['quantity']
-            bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
+        short_pos = paper_trader.short_positions.get(symbol)
+        if short_pos:
+            cover_order = order_manager.create_order(symbol=symbol, side='buy', quantity=short_pos['quantity'], order_type='market')
+            if order_manager.submit_order(cover_order):
+                pnl = (short_pos['entry_price'] - current_price) * short_pos['quantity']
+                bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
             auto_trade_stats['total_trades'] += 1
             emit_trade_event(bot, 'COVER SHORT', short_pos['quantity'], current_price, pnl)
         return  # Exit to let state settle
@@ -1109,7 +1118,9 @@ def execute_bot_trade(bot, signal, current_price):
         logger.warning(f"⚠️ {symbol} has SHORT while processing BUY. Closing SHORT first.")
         short_pos = paper_trader.short_positions[symbol]
         short_qty = short_pos['quantity']
-        pnl = (short_pos['entry_price'] - current_price) * short_qty
+        # SAFETY: Fallback to current_price if entry_price is missing
+        entry_price = short_pos.get('entry_price', current_price)
+        pnl = (entry_price - current_price) * short_qty
         cover_order = order_manager.create_order(symbol=symbol, side='buy', quantity=short_qty, order_type='market')
         if order_manager.submit_order(cover_order):
             bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
@@ -1122,7 +1133,9 @@ def execute_bot_trade(bot, signal, current_price):
     if signal.signal == 'SELL' and has_long:
         logger.warning(f"⚠️ {symbol} has LONG while processing SELL. Closing LONG first.")
         long_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG' and p['quantity'] > 0)
-        pnl = (current_price - long_pos['entry_price']) * long_pos['quantity']
+        # PAPER TRADER returns 'avg_price' for Long positions
+        entry_price = long_pos.get('avg_price', long_pos.get('entry_price', current_price))
+        pnl = (current_price - entry_price) * long_pos['quantity']
         sell_order = order_manager.create_order(symbol=symbol, side='sell', quantity=long_pos['quantity'], order_type='market')
         if order_manager.submit_order(sell_order):
             bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
@@ -1158,7 +1171,8 @@ def execute_bot_trade(bot, signal, current_price):
                     if has_short:
                         short_pos = paper_trader.short_positions.get(symbol)
                         if short_pos:
-                            pnl = (short_pos['entry_price'] - current_price) * short_pos['quantity']
+                            entry_price = short_pos.get('entry_price', current_price)
+                            pnl = (entry_price - current_price) * short_pos['quantity']
                     
                     bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
                     auto_trade_stats['total_trades'] += 1
@@ -1175,8 +1189,9 @@ def execute_bot_trade(bot, signal, current_price):
             long_pos = next(p for p in positions if p['symbol'] == symbol and p['quantity'] > 0)
             sell_order = order_manager.create_order(symbol=symbol, side='sell', quantity=long_pos['quantity'], order_type='market')
             if order_manager.submit_order(sell_order):
-                # Calculate realized P&L for closure (manual P&L calculation as fallback)
-                pnl = (current_price - long_pos['entry_price']) * long_pos['quantity']
+                # Calculate realized P&L for closure
+                entry_price = long_pos.get('avg_price', long_pos.get('entry_price', current_price))
+                pnl = (current_price - entry_price) * long_pos['quantity']
                 bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
                 auto_trade_stats['total_trades'] += 1
                 logger.info(f"✅ Closed LONG for {symbol} with P&L: ${pnl:.2f}")
@@ -1206,7 +1221,8 @@ def execute_bot_trade(bot, signal, current_price):
                     if has_long:
                         long_pos = next((p for p in positions if p['symbol'] == symbol and p['quantity'] > 0), None)
                         if long_pos:
-                            pnl = (current_price - long_pos['entry_price']) * long_pos['quantity']
+                            entry_price = long_pos.get('avg_price', long_pos.get('entry_price', current_price))
+                            pnl = (current_price - entry_price) * long_pos['quantity']
                     
                     bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
                     auto_trade_stats['total_trades'] += 1
@@ -1431,22 +1447,23 @@ def price_stream():
                 }
             
             # Update paper trader for MAIN focus symbol
-            if price_data.get('price', 0) > 0:
+            if price_data.get('price', 0) > 0 and not system_state.is_paused():
                 paper_trader.set_prices({current_symbol: price_data['price']})
             
             # Update prices for ALL ACTIVE BOTS (so their P&L updates on cards)
             active_bots = bot_manager.get_running_bots()
-            other_symbols = set(bot['symbol'] for bot in active_bots if bot['symbol'] != current_symbol)
-            
-            for s in other_symbols:
-                bot_item = next(b for b in active_bots if b['symbol'] == s)
-                if bot_item['market'] == 'crypto':
-                    p = crypto_provider.get_current_price(s)
-                else:
-                    p = stock_provider.get_current_quote(s)
+            if not system_state.is_paused():
+                other_symbols = set(bot['symbol'] for bot in active_bots if bot['symbol'] != current_symbol)
                 
-                if p.get('price', 0) > 0:
-                    paper_trader.set_prices({s: p['price']})
+                for s in other_symbols:
+                    bot_item = next(b for b in active_bots if b['symbol'] == s)
+                    if bot_item['market'] == 'crypto':
+                        p = crypto_provider.get_current_price(s)
+                    else:
+                        p = stock_provider.get_current_quote(s)
+                    
+                    if p.get('price', 0) > 0:
+                        paper_trader.set_prices({s: p['price']})
             
             # Get account
             account = paper_trader.get_account_info()
@@ -1465,7 +1482,11 @@ def price_stream():
                 'account': {
                     'cash': account['cash'],
                     'total_value': account['total_value'],
-                    'pnl': account['pnl']
+                    'buying_power': account['buying_power'],
+                    'unrealized_pnl': sum(p.get('unrealized_pnl', 0) for p in paper_trader.get_positions()),
+                    'pnl': account['pnl'],
+                    'pnl_pct': account['pnl_pct'],
+                    'total_trades': auto_trade_stats.get('total_trades', 0)
                 }
             })
             

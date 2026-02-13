@@ -154,7 +154,7 @@
                     </div>
                     <div class="stat">
                         <span class="stat-label">Strategy</span>
-                        <span class="stat-value" id="activeStrategy">Ichimoku</span>
+                        <span class="stat-value" id="activeStrategy">Strategy 1</span>
                     </div>
                 </div>
             </section>
@@ -241,8 +241,8 @@
                             Analysis</button>
                         <button class="btn btn-secondary btn-compact" id="btnBacktest">📈 Backtest</button>
                         <button class="btn btn-report btn-compact" id="btnReport">📊 Report</button>
-                        <button class="btn btn-secondary btn-compact" id="btnResetPaper" title="Reset Balance & P&L">♻️
-                            Reset Paper</button>
+                        <button class="btn btn-reset btn-compact" id="btnResetPaper" style="background: #e11d48;">🔄
+                            Reset</button>
                     </div>
                 </div>
             </div>
@@ -628,16 +628,17 @@
 
         <!-- Tips Modal -->
         <div class="modal" id="tipsModal">
-            <div class="modal-content" style="max-width: 700px; max-height: 85vh; overflow-y: auto;">
-                <div class="modal-header">
+            <div class="modal-content"
+                style="max-width: 700px; max-height: 85vh; display: flex; flex-direction: column;">
+                <div class="modal-header" style="flex-shrink: 0; position: relative;">
                     <h2>💡 Strategy Tips & Success Rates</h2>
                     <button class="modal-close" id="tipsModalClose">&times;</button>
                 </div>
-                <div class="modal-body" style="font-size: 13px; line-height: 1.6;">
+                <div class="modal-body" style="font-size: 13px; line-height: 1.6; overflow-y: auto; padding: 20px;">
 
                     <div class="tip-strategy"
                         style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #7c3aed;">
-                        <h3 style="color: #7c3aed; margin-bottom: 10px;">🌩️ Ichimoku Cloud</h3>
+                        <h3 style="color: #7c3aed; margin-bottom: 10px;">🌩️ Strategy 1</h3>
                         <p><strong>Success Rate:</strong> 50-75% (varies by market)</p>
                         <p><strong>Best Timeframe:</strong> 1H, 4H, 1D (higher = more reliable)</p>
                         <p><strong>Recommended Settings:</strong></p>
@@ -651,7 +652,7 @@
 
                     <div class="tip-strategy"
                         style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #3b82f6;">
-                        <h3 style="color: #3b82f6; margin-bottom: 10px;">📊 Bollinger Bands</h3>
+                        <h3 style="color: #3b82f6; margin-bottom: 10px;">📊 Strategy 2</h3>
                         <p><strong>Success Rate:</strong> 55-65% (higher with squeeze detection)</p>
                         <p><strong>Best Timeframe:</strong> 15m, 1H, 4H</p>
                         <p><strong>Recommended Settings:</strong></p>
@@ -665,7 +666,7 @@
 
                     <div class="tip-strategy"
                         style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #10b981;">
-                        <h3 style="color: #10b981; margin-bottom: 10px;">📈 MACD + RSI</h3>
+                        <h3 style="color: #10b981; margin-bottom: 10px;">📈 Strategy 3</h3>
                         <p><strong>Success Rate:</strong> 73-77% (highest when combined!)</p>
                         <p><strong>Best Timeframe:</strong> 1H, 4H, 1D</p>
                         <p><strong>Recommended Settings:</strong></p>
@@ -679,7 +680,7 @@
 
                     <div class="tip-strategy"
                         style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #f59e0b;">
-                        <h3 style="color: #f59e0b; margin-bottom: 10px;">🤖 ML Forecast</h3>
+                        <h3 style="color: #f59e0b; margin-bottom: 10px;">🤖 Strategy 4</h3>
                         <p><strong>Success Rate:</strong> 50-60% (trend detection)</p>
                         <p><strong>Best Timeframe:</strong> 1H, 4H, 1D</p>
                         <p><strong>Recommended Settings:</strong></p>
@@ -693,7 +694,7 @@
 
                     <div class="tip-strategy"
                         style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #ec4899;">
-                        <h3 style="color: #ec4899; margin-bottom: 10px;">⚡ Combined (All)</h3>
+                        <h3 style="color: #ec4899; margin-bottom: 10px;">⚡ Strategy 5 (Combined)</h3>
                         <p><strong>Success Rate:</strong> 65-80% (consensus voting)</p>
                         <p><strong>Best Timeframe:</strong> 1H, 4H</p>
                         <p><strong>Recommended Settings:</strong></p>
@@ -713,9 +714,9 @@
                             <li><strong>Crypto:</strong> Use 15m-1H for day trading, 4H for swing</li>
                             <li><strong>Stocks:</strong> Use 1H-1D timeframes (market hours only)</li>
                             <li><strong>Start conservative:</strong> Low position size (5%), high confluence (3+)</li>
-                            <li><strong>Trending market:</strong> Use Ichimoku, MACD+RSI</li>
-                            <li><strong>Ranging market:</strong> Use Bollinger Bands</li>
-                            <li><strong>Unsure:</strong> Use Combined for consensus</li>
+                            <li><strong>Trending market:</strong> Use Strategy 1, Strategy 3</li>
+                            <li><strong>Ranging market:</strong> Use Strategy 2</li>
+                            <li><strong>Unsure:</strong> Use Strategy 5 for consensus</li>
                         </ol>
                     </div>
 

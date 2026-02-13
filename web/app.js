@@ -229,52 +229,13 @@ async function loadChartData() {
                 open: d.open * rate,
                 high: d.high * rate,
                 low: d.low * rate,
+                close: d.close * rate
             }));
-            if (state.candleSeries) {
-                state.candleSeries.setData(convertedData);
-                state.chart.timeScale().fitContent();
-            }
+            state.candleSeries.setData(convertedData);
+            state.chart.timeScale().fitContent();
         }
     } catch (error) {
         console.error('Error loading chart data:', error);
-    }
-}
-
-// Reset Paper Trading
-async function resetPaperTrading() {
-    if (!confirm('Are you sure you want to reset all paper trading data? This will reset your balance to $100,000 and clear all active positions and P&L.')) {
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/paper/reset', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            showNotification('♻️ Paper trading reset successfully', 'success');
-
-            // Refresh everything immediately
-            loadInitialData();
-            loadPositions();
-            loadBots();
-            updateTradeCount();
-
-            // Reset local state if needed
-            state.paperBalance = 100000;
-            state.tradeCount = 0;
-            state.buyCount = 0;
-            state.sellCount = 0;
-
-        } else {
-            showNotification('Failed to reset: ' + data.error, 'error');
-        }
-    } catch (error) {
-        console.error('Error resetting paper trading:', error);
-        showNotification('Network error occurred during reset', 'error');
     }
 }
 
@@ -425,12 +386,22 @@ function updateAccount(account) {
 
     const balanceEl = document.getElementById('accountBalance');
     const pnlEl = document.getElementById('accountPnl');
+    const tradeCountEl = document.getElementById('tradeCount');
 
-    balanceEl.textContent = formatCurrencyValue(account.total_value);
+    if (balanceEl) balanceEl.textContent = formatCurrencyValue(account.total_value);
 
     const pnl = account.pnl;
-    pnlEl.textContent = (pnl >= 0 ? '+' : '') + formatCurrencyValue(pnl);
-    pnlEl.className = `account-value pnl ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}`;
+    if (pnlEl) {
+        pnlEl.textContent = (pnl >= 0 ? '+' : '') + formatCurrencyValue(pnl);
+        pnlEl.className = `account-value pnl ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}`;
+    }
+
+    // Pro-Coder Tip: Update trade count in real-time from socket data
+    if (account.total_trades !== undefined && tradeCountEl) {
+        tradeCountEl.textContent = account.total_trades;
+        // Keep internal state in sync
+        state.tradeCount = account.total_trades;
+    }
 }
 
 function updateTradeCount() {
@@ -778,7 +749,10 @@ function initEventListeners() {
         const oldStrategy = state.currentStrategy;
         state.currentStrategy = e.target.value;
         const strategyName = getStrategyName(state.currentStrategy);
-        document.getElementById('activeStrategy').textContent = strategyName;
+        const activeStrategyEl = document.getElementById('activeStrategy');
+        if (activeStrategyEl) {
+            activeStrategyEl.textContent = strategyName;
+        }
 
         // Check if there's a bot running for this symbol/market to hot-swap strategy
         const botId = `${state.currentMarket}_${state.currentSymbol}`.toLowerCase();
@@ -889,7 +863,7 @@ function initEventListeners() {
     });
 
     document.getElementById('btnReport').addEventListener('click', showReportModal);
-    document.getElementById('btnResetPaper').addEventListener('click', resetPaperTrading);
+    document.getElementById('btnResetPaper')?.addEventListener('click', resetPaperTrading);
 
     // Settings modal
     document.getElementById('btnSettings').addEventListener('click', openSettings);
@@ -934,7 +908,7 @@ function initEventListeners() {
 // ============================================================
 
 function updateUI() {
-    document.getElementById('activeStrategy').textContent = 'Ichimoku';
+    document.getElementById('activeStrategy').textContent = 'Strategy 1';
 }
 
 async function loadInitialData() {
@@ -2010,4 +1984,26 @@ function renderAIInsights(data) {
             clearInterval(aiTypeInterval);
         }
     }, 40);
+}
+
+// Reset paper trading state
+async function resetPaperTrading() {
+    if (!confirm('🚨 Are you sure you want to reset all Paper Trading state? This will clear balance, P&L, and trade counters.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/paper/reset', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            showNotification('✅ Paper trading state reset successfully!', 'success');
+            // Refresh data
+            location.reload(); // Refreshing page is safest to clear all state
+        } else {
+            showNotification(`❌ Reset failed: ${data.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error resetting paper trading:', error);
+        showNotification('❌ Error resetting paper trading', 'error');
+    }
 }

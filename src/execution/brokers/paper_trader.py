@@ -8,6 +8,7 @@ Simulated broker for paper trading and backtesting.
 from datetime import datetime
 from typing import Dict, List, Optional
 import random
+import threading
 from loguru import logger
 
 from .base_broker import BaseBroker
@@ -45,6 +46,7 @@ class PaperTrader(BaseBroker):
         self.slippage_pct = slippage_pct / 100
         self.commission_pct = commission_pct / 100
         self.simulate_latency = simulate_latency
+        self.lock = threading.Lock()
         
         # State
         self.positions: Dict[str, Dict] = {}  # LONG positions
@@ -72,10 +74,10 @@ class PaperTrader(BaseBroker):
         
         Call this with real-time prices to simulate order fills.
         """
-        self.current_prices = prices
-        
-        # Check pending orders
-        self._check_pending_orders()
+        with self.lock:
+            self.current_prices = prices
+            # Check pending orders
+            self._check_pending_orders()
     
     def connect(self) -> bool:
         """Connect (always succeeds for paper trading)."""
@@ -87,82 +89,82 @@ class PaperTrader(BaseBroker):
         """Disconnect."""
         self.is_connected = False
         logger.info("Paper trader disconnected")
-    
+
     def get_account_info(self) -> Dict:
         """Get account information."""
-        # Calculate LONG positions value
-        long_value = sum(
-            pos['quantity'] * self.current_prices.get(symbol, pos['avg_price'])
-            for symbol, pos in self.positions.items()
-        )
-        
-        # Calculate SHORT positions P&L (profit when price drops)
-        short_pnl = 0
-        for symbol, pos in self.short_positions.items():
-            current_price = self.current_prices.get(symbol, pos['entry_price'])
-            # Profit = (entry - current) * quantity
-            short_pnl += (pos['entry_price'] - current_price) * pos['quantity']
-        
-        total_value = self.cash + long_value + short_pnl
-        
-        # Buying power = cash minus short margin obligations
-        # When we short, cash goes UP (proceeds), but we owe the shares back.
-        # True buying power is cash minus the current cost to cover all shorts.
-        short_margin = sum(
-            pos['quantity'] * self.current_prices.get(symbol, pos['entry_price'])
-            for symbol, pos in self.short_positions.items()
-        )
-        buying_power = self.cash - short_margin
-        
-        return {
-            'account_id': 'PAPER_ACCOUNT',
-            'cash': self.cash,
-            'long_value': long_value,
-            'short_pnl': short_pnl,
-            'total_value': total_value,
-            'buying_power': buying_power,
-            'initial_capital': self.initial_capital,
-            'pnl': total_value - self.initial_capital,
-            'pnl_pct': ((total_value - self.initial_capital) / self.initial_capital) * 100
-        }
+        with self.lock:
+            # Calculate LONG positions value
+            long_value = sum(
+                pos['quantity'] * self.current_prices.get(symbol, pos['avg_price'])
+                for symbol, pos in self.positions.items()
+            )
+            
+            # Calculate SHORT positions P&L (profit when price drops)
+            short_pnl = 0
+            for symbol, pos in self.short_positions.items():
+                current_price = self.current_prices.get(symbol, pos['entry_price'])
+                # Profit = (entry - current) * quantity
+                short_pnl += (pos['entry_price'] - current_price) * pos['quantity']
+            
+            total_value = self.cash + long_value + short_pnl
+            
+            # Buying power = cash minus short margin obligations
+            short_margin = sum(
+                pos['quantity'] * self.current_prices.get(symbol, pos['entry_price'])
+                for symbol, pos in self.short_positions.items()
+            )
+            buying_power = self.cash - short_margin
+            
+            return {
+                'account_id': 'PAPER_ACCOUNT',
+                'cash': self.cash,
+                'long_value': long_value,
+                'short_pnl': short_pnl,
+                'total_value': total_value,
+                'buying_power': buying_power,
+                'initial_capital': self.initial_capital,
+                'pnl': total_value - self.initial_capital,
+                'pnl_pct': ((total_value - self.initial_capital) / self.initial_capital) * 100 if self.initial_capital > 0 else 0
+            }
     
     def get_positions(self) -> List[Dict]:
         """Get current positions."""
-        positions = []
-        
-        for symbol, pos in self.positions.items():
-            current_price = self.current_prices.get(symbol, pos['avg_price'])
-            market_value = pos['quantity'] * current_price
-            unrealized_pnl = (current_price - pos['avg_price']) * pos['quantity']
+        with self.lock:
+            positions = []
             
-            positions.append({
-                'symbol': symbol,
-                'side': 'LONG',
-                'quantity': pos['quantity'],
-                'avg_price': pos['avg_price'],
-                'current_price': current_price,
-                'market_value': market_value,
-                'unrealized_pnl': unrealized_pnl,
-                'unrealized_pnl_pct': (unrealized_pnl / (pos['avg_price'] * pos['quantity'])) * 100 if pos['avg_price'] > 0 else 0
-            })
+            for symbol, pos in self.positions.items():
+                current_price = self.current_prices.get(symbol, pos['avg_price'])
+                market_value = pos['quantity'] * current_price
+                unrealized_pnl = (current_price - pos['avg_price']) * pos['quantity']
+                
+                positions.append({
+                    'symbol': symbol,
+                    'side': 'LONG',
+                    'quantity': pos['quantity'],
+                    'avg_price': pos['avg_price'],
+                    'current_price': current_price,
+                    'market_value': market_value,
+                    'unrealized_pnl': unrealized_pnl,
+                    'unrealized_pnl_pct': (unrealized_pnl / (pos['avg_price'] * pos['quantity'])) * 100 if pos['avg_price'] > 0 else 0
+                })
 
-        for symbol, pos in self.short_positions.items():
-            current_price = self.current_prices.get(symbol, pos['entry_price'])
-            # Pnl = (entry - current) * quantity
-            unrealized_pnl = (pos['entry_price'] - current_price) * pos['quantity']
+            for symbol, pos in self.short_positions.items():
+                current_price = self.current_prices.get(symbol, pos['entry_price'])
+                # Pnl = (entry - current) * quantity
+                unrealized_pnl = (pos['entry_price'] - current_price) * pos['quantity']
+                
+                positions.append({
+                    'symbol': symbol,
+                    'side': 'SHORT',
+                    'quantity': pos['quantity'],
+                    'avg_price': pos['entry_price'],
+                    'current_price': current_price,
+                    'market_value': pos['quantity'] * current_price,
+                    'unrealized_pnl': unrealized_pnl,
+                    'unrealized_pnl_pct': (unrealized_pnl / (pos['entry_price'] * pos['quantity'])) * 100 if pos['entry_price'] > 0 else 0
+                })
             
-            positions.append({
-                'symbol': symbol,
-                'side': 'SHORT',
-                'quantity': pos['quantity'],
-                'avg_price': pos['entry_price'],
-                'current_price': current_price,
-                'market_value': pos['quantity'] * current_price,
-                'unrealized_pnl': unrealized_pnl,
-                'unrealized_pnl_pct': (unrealized_pnl / (pos['entry_price'] * pos['quantity'])) * 100 if pos['entry_price'] > 0 else 0
-            })
-        
-        return positions
+            return positions
     
     def submit_order(self, order: Order) -> bool:
         """
@@ -172,42 +174,31 @@ class PaperTrader(BaseBroker):
         - BUY: Open LONG position or cover SHORT
         - SELL: Close LONG position or open SHORT
         """
-        price = self.current_prices.get(order.symbol, 100)
-        
-        if order.side == OrderSide.BUY:
-            # BUY can be: opening LONG or covering SHORT
-            if order.symbol in self.short_positions:
-                # Covering a SHORT position - no cash needed upfront
-                pass
-            else:
-                # Opening LONG - need cash
-                if order.order_type == OrderType.MARKET:
-                    required = price * order.quantity * (1 + self.slippage_pct + self.commission_pct)
-                    if required > self.cash:
-                        logger.warning(f"Insufficient funds: need ${required:.2f}, have ${self.cash:.2f}")
+        with self.lock:
+            price = self.current_prices.get(order.symbol, 100)
+            
+            if order.side == OrderSide.BUY:
+                if order.symbol not in self.short_positions:
+                    if order.order_type == OrderType.MARKET:
+                        required = price * order.quantity * (1 + self.slippage_pct + self.commission_pct)
+                        if required > self.cash:
+                            logger.warning(f"Insufficient funds: need ${required:.2f}, have ${self.cash:.2f}")
+                            return False
+            else:  # SELL
+                if order.symbol in self.positions:
+                    if self.positions[order.symbol]['quantity'] < order.quantity:
+                        logger.warning(f"Insufficient quantity to sell")
                         return False
-        else:  # SELL
-            # SELL can be: closing LONG or opening SHORT
-            if order.symbol in self.positions:
-                # Closing LONG - check we have enough
-                if self.positions[order.symbol]['quantity'] < order.quantity:
-                    logger.warning(f"Insufficient quantity to sell")
-                    return False
+            
+            # Handle order based on type
+            if order.order_type == OrderType.MARKET:
+                self._execute_market_order(order)
             else:
-                # Opening SHORT - allowed (paper trading lets us short anything)
-                # In real trading, this would need margin check
-                pass
-        
-        # Handle order based on type
-        if order.order_type == OrderType.MARKET:
-            self._execute_market_order(order)
-        else:
-            # Limit/Stop orders go to pending
-            self.pending_orders[order.order_id] = order
-            logger.info(f"Order {order.order_id} pending: {order.order_type.value} @ {order.price or order.stop_price}")
-        
-        self.order_history.append(order)
-        return True
+                self.pending_orders[order.order_id] = order
+                logger.info(f"Order {order.order_id} pending: {order.order_type.value} @ {order.price or order.stop_price}")
+            
+            self.order_history.append(order)
+            return True
     
     def cancel_order(self, order: Order) -> bool:
         """Cancel a pending order."""
@@ -477,11 +468,12 @@ class PaperTrader(BaseBroker):
     
     def reset(self):
         """Reset paper trader to initial state."""
-        self.cash = self.initial_capital
-        self.positions.clear()
-        self.short_positions.clear()  # Clear shorts too
-        self.closed_positions.clear()
-        self.pending_orders.clear()
-        self.order_history.clear()
-        self.trade_history.clear()
-        logger.info("Paper trader reset")
+        with self.lock:
+            self.cash = self.initial_capital
+            self.positions.clear()
+            self.short_positions.clear()
+            self.closed_positions.clear()
+            self.pending_orders.clear()
+            self.order_history.clear()
+            self.trade_history.clear()
+            logger.info("Paper trader reset")
