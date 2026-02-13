@@ -89,6 +89,8 @@ class TradingBot:
                 'buy_trades': self.stats.buy_trades,
                 'sell_trades': self.stats.sell_trades,
                 'total_pnl': self.stats.total_pnl,
+                'realized_pnl': self.stats.realized_pnl,
+                'unrealized_pnl': self.stats.unrealized_pnl,
                 'signals_generated': self.stats.signals_generated,
                 'last_signal': self.stats.last_signal,
                 'last_price': self.stats.last_price
@@ -286,6 +288,7 @@ class BotManager:
             else:
                 stats.sell_trades += 1
             stats.realized_pnl += pnl
+            stats.total_pnl = stats.realized_pnl + stats.unrealized_pnl
     
     def is_running(self, bot_id: str) -> bool:
         """Check if bot is running."""
