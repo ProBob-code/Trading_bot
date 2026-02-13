@@ -277,7 +277,7 @@ class BotManager:
                     setattr(stats, key, value)
     
     def increment_trades(self, bot_id: str, side: str, pnl: float = 0):
-        """Increment trade counters."""
+        """Increment trade counters and track realized P&L."""
         if bot_id in self.bots:
             stats = self.bots[bot_id].stats
             stats.total_trades += 1
@@ -285,7 +285,7 @@ class BotManager:
                 stats.buy_trades += 1
             else:
                 stats.sell_trades += 1
-            stats.total_pnl += pnl
+            stats.realized_pnl += pnl
     
     def is_running(self, bot_id: str) -> bool:
         """Check if bot is running."""

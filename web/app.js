@@ -80,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initClock();
     // Check server status periodically
     setInterval(checkServerStatus, 10000);
+    checkSystemStatus(); // Check system pause status on load
 });
 
 function initClock() {
@@ -108,6 +109,58 @@ async function checkServerStatus() {
             statusEl.textContent = 'Offline';
             statusEl.style.color = 'var(--red)';
         }
+    }
+}
+
+// ============================================================
+// SYSTEM CONTROLS
+// ============================================================
+
+let isSystemPaused = false;
+
+async function checkSystemStatus() {
+    try {
+        const res = await fetch('/api/system/status');
+        const data = await res.json();
+        updateSystemStatusUI(data.paused);
+    } catch (e) {
+        console.error('Failed to fetch system status:', e);
+    }
+}
+
+async function toggleSystemPause() {
+    const endpoint = isSystemPaused ? '/api/system/resume' : '/api/system/pause';
+    try {
+        const res = await fetch(endpoint, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            updateSystemStatusUI(data.paused);
+            showNotification(data.paused ? '⏸️ System PAUSED' : '▶️ System RESUMED', data.paused ? 'warning' : 'success');
+        }
+    } catch (e) {
+        alert('Failed to toggle system status');
+    }
+}
+
+function updateSystemStatusUI(paused) {
+    isSystemPaused = paused;
+    const btn = document.getElementById('btnSystemPause');
+    const icon = btn.querySelector('.pause-icon');
+    const text = btn.querySelector('.pause-text');
+
+    if (paused) {
+        btn.classList.add('paused');
+        icon.textContent = '▶️';
+        text.textContent = 'Paused';
+        btn.title = "System is PAUSED. Click to Resume.";
+        // Pulse red animation handled by CSS
+        document.body.classList.add('system-paused-mode'); // Optional visual cue
+    } else {
+        btn.classList.remove('paused');
+        icon.textContent = '⏸️';
+        text.textContent = 'Running';
+        btn.title = "System is RUNNING. Click to Pause.";
+        document.body.classList.remove('system-paused-mode');
     }
 }
 
@@ -232,6 +285,11 @@ function initSocket() {
         renderPulseGauge(data);
         renderAIInsights(data);
     });
+
+    // System Status Update
+    state.socket.on('system_status', (data) => {
+        updateSystemStatusUI(data.paused);
+    });
 }
 
 function updateConnectionStatus(connected) {
@@ -346,6 +404,9 @@ function updateTradeCount() {
             // Also update total trades in summary if it exists
             const totalTradesEl = document.getElementById('totalTrades');
             if (totalTradesEl) totalTradesEl.textContent = data.total_trades || 0;
+
+            // Sync state
+            state.tradeCount = data.total_trades || 0;
         });
 }
 
@@ -838,6 +899,7 @@ function updateUI() {
 
 async function loadInitialData() {
     await loadChartData();
+    updateTradeCount();  // Sync trade counter on page load
 }
 
 // ============================================================
@@ -917,18 +979,23 @@ function renderBots(bots) {
     }
 
     container.innerHTML = bots.map(bot => {
-        const pnl = bot.stats.total_pnl || 0;
-        const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
-        const pnlSign = pnl >= 0 ? '+' : '';
+        const realizedPnl = bot.stats.realized_pnl || 0;
+        const unrealizedPnl = bot.stats.unrealized_pnl || 0;
+        const totalPnl = realizedPnl + unrealizedPnl;
+
+        const pnlClass = totalPnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+        const pnlSign = totalPnl >= 0 ? '+' : '';
 
         return `
             <div class="bot-card ${bot.mode}">
                 <div class="bot-info">
                     <span class="bot-symbol">${bot.symbol}</span>
-                    <span class="bot-strategy">${getStrategyName(bot.strategy)} • ${bot.market}</span>
+                    <span class="bot-strategy">${getStrategyName(bot.strategy)} • ${bot.market.toUpperCase()}</span>
                 </div>
                 <div class="bot-stats-row">
-                     <span class="bot-pnl ${pnlClass}">${pnlSign}${formatCurrencyValue(pnl)}</span>
+                     <span class="bot-pnl ${pnlClass}" title="Total (Realized: ${formatCurrencyValue(realizedPnl)})">
+                        ${pnlSign}${formatCurrencyValue(totalPnl)}
+                     </span>
                      <span class="bot-trade-count">${bot.stats.total_trades || 0} trades</span>
                 </div>
                 <button class="btn-stop-bot" onclick="stopBot('${bot.bot_id}')">STOP</button>

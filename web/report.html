@@ -42,6 +42,8 @@
             align-items: center;
         }
 
+        /* Reusing btn-system-pause styles from styles.css */
+
         .date-picker {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
@@ -259,6 +261,12 @@
                     </div>
                 </div>
                 <div class="report-controls">
+                    <!-- Global System Pause -->
+                    <button id="btnSystemPause" class="btn-system-pause" onclick="toggleSystemPause()"
+                        title="Pause/Resume All Trading">
+                        <span class="pause-icon">⏸️</span>
+                        <span class="pause-text">Running</span>
+                    </button>
                     <input type="date" id="reportDate" class="date-picker">
                     <button class="btn-refresh" onclick="loadData()">🔄 Refresh</button>
                     <button class="btn-export" onclick="exportCSV()">📥 Export CSV</button>
@@ -582,6 +590,57 @@
             a.download = `trading_report_${new Date().toISOString().split('T')[0]}.csv`;
             a.click();
         }
+
+        // ============================================
+        // SYSTEM PAUSE LOGIC
+        // ============================================
+        let isSystemPaused = false;
+
+        async function checkSystemStatus() {
+            try {
+                const res = await fetch('/api/system/status');
+                const data = await res.json();
+                updateSystemStatusUI(data.paused);
+            } catch (e) {
+                console.error('Failed to fetch system status:', e);
+            }
+        }
+
+        async function toggleSystemPause() {
+            const endpoint = isSystemPaused ? '/api/system/resume' : '/api/system/pause';
+            try {
+                const res = await fetch(endpoint, { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    updateSystemStatusUI(data.paused);
+                }
+            } catch (e) {
+                alert('Failed to toggle system status');
+            }
+        }
+
+        function updateSystemStatusUI(paused) {
+            isSystemPaused = paused;
+            const btn = document.getElementById('btnSystemPause');
+            const icon = btn.querySelector('.pause-icon');
+            const text = btn.querySelector('.pause-text');
+
+            if (paused) {
+                btn.classList.add('paused');
+                icon.textContent = '▶️';
+                text.textContent = 'Paused';
+                btn.title = "System is PAUSED. Click to Resume.";
+            } else {
+                btn.classList.remove('paused');
+                icon.textContent = '⏸️';
+                text.textContent = 'Running';
+                btn.title = "System is RUNNING. Click to Pause.";
+            }
+        }
+
+        // Check on load
+        checkSystemStatus();
+        setInterval(checkSystemStatus, 10000);
     </script>
 </body>
 

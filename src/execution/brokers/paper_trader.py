@@ -105,13 +105,22 @@ class PaperTrader(BaseBroker):
         
         total_value = self.cash + long_value + short_pnl
         
+        # Buying power = cash minus short margin obligations
+        # When we short, cash goes UP (proceeds), but we owe the shares back.
+        # True buying power is cash minus the current cost to cover all shorts.
+        short_margin = sum(
+            pos['quantity'] * self.current_prices.get(symbol, pos['entry_price'])
+            for symbol, pos in self.short_positions.items()
+        )
+        buying_power = self.cash - short_margin
+        
         return {
             'account_id': 'PAPER_ACCOUNT',
             'cash': self.cash,
             'long_value': long_value,
             'short_pnl': short_pnl,
             'total_value': total_value,
-            'buying_power': self.cash,
+            'buying_power': buying_power,
             'initial_capital': self.initial_capital,
             'pnl': total_value - self.initial_capital,
             'pnl_pct': ((total_value - self.initial_capital) / self.initial_capital) * 100

@@ -29,6 +29,13 @@
 
             <!-- Profile & Connection -->
             <div class="header-right">
+                <!-- Global System Pause -->
+                <button id="btnSystemPause" class="btn-system-pause" onclick="toggleSystemPause()"
+                    title="Pause/Resume All Trading">
+                    <span class="pause-icon">⏸️</span>
+                    <span class="pause-text">Running</span>
+                </button>
+
                 <div class="connection-status" id="connectionStatus">
                     <span class="status-dot"></span>
                     <span class="status-text">Connecting...</span>
