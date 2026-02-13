@@ -9,10 +9,23 @@ class DatabaseManager:
     def __init__(self):
         # Support both custom DB_* and Railway default MYSQL* environment variables
         self.host = os.getenv('DB_HOST', os.getenv('MYSQLHOST', 'localhost'))
-        self.port = int(os.getenv('DB_PORT', os.getenv('MYSQLPORT', 3306)))
+        
+        # Handle port parsing safely
+        port_str = os.getenv('DB_PORT', os.getenv('MYSQLPORT', '3306'))
+        if not port_str:
+            self.port = 3306
+        else:
+            try:
+                self.port = int(port_str)
+            except ValueError:
+                self.port = 3306
+                
         self.user = os.getenv('DB_USER', os.getenv('MYSQLUSER', 'root'))
         self.password = os.getenv('DB_PASSWORD', os.getenv('MYSQLPASSWORD', ''))
         self.database = os.getenv('DB_NAME', os.getenv('MYSQLDATABASE', 'trading_bot'))
+        
+        logger.info(f"🔌 database_manager: Connecting to {self.host}:{self.port} as {self.user} (DB: {self.database})")
+        
         self._init_db()
 
     def _get_connection(self):
