@@ -1048,11 +1048,32 @@ def execute_bot_trade(bot, signal, current_price):
     
     # Check current positions in shared paper trader
     positions = paper_trader.get_positions()
-    has_long = symbol in [p['symbol'] for p in positions if p['quantity'] > 0]
+    has_long = symbol in [p['symbol'] for p in positions if p['side'] == 'LONG' and p['quantity'] > 0]
     has_short = symbol in paper_trader.short_positions
     
     # Debug logging for every signal
     logger.info(f"📊 Trade Decision for {symbol}: Signal={signal.signal}, HasLong={has_long}, HasShort={has_short}")
+    
+    # SAFETY: If both LONG and SHORT exist (illegal state), close both immediately
+    if has_long and has_short:
+        logger.warning(f"⚠️ ILLEGAL STATE: {symbol} has BOTH LONG and SHORT. Closing both.")
+        # Close the LONG
+        long_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG')
+        sell_order = order_manager.create_order(symbol=symbol, side='sell', quantity=long_pos['quantity'], order_type='market')
+        if order_manager.submit_order(sell_order):
+            pnl = (current_price - long_pos['entry_price']) * long_pos['quantity']
+            bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
+            auto_trade_stats['total_trades'] += 1
+            emit_trade_event(bot, 'CLOSE LONG', long_pos['quantity'], current_price, pnl)
+        # Cover the SHORT
+        short_pos = paper_trader.short_positions[symbol]
+        cover_order = order_manager.create_order(symbol=symbol, side='buy', quantity=short_pos['quantity'], order_type='market')
+        if order_manager.submit_order(cover_order):
+            pnl = (short_pos['entry_price'] - current_price) * short_pos['quantity']
+            bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
+            auto_trade_stats['total_trades'] += 1
+            emit_trade_event(bot, 'COVER SHORT', short_pos['quantity'], current_price, pnl)
+        return  # Exit to let state settle
     
     # STRICT EXCLUSIVITY: If we hold BOTH (bug state), or the WRONG side, close it first.
     if signal.signal == 'BUY' and has_short:
@@ -1071,7 +1092,7 @@ def execute_bot_trade(bot, signal, current_price):
 
     if signal.signal == 'SELL' and has_long:
         logger.warning(f"⚠️ {symbol} has LONG while processing SELL. Closing LONG first.")
-        long_pos = next(p for p in positions if p['symbol'] == symbol and p['quantity'] > 0)
+        long_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG' and p['quantity'] > 0)
         pnl = (current_price - long_pos['entry_price']) * long_pos['quantity']
         sell_order = order_manager.create_order(symbol=symbol, side='sell', quantity=long_pos['quantity'], order_type='market')
         if order_manager.submit_order(sell_order):
@@ -1198,7 +1219,7 @@ def emit_trade_event(bot, side, quantity, price, pnl=0):
         pnl=pnl,
         strategy=bot.config.strategy,
         bot_id=bot.bot_id,
-        mode=bot.config.mode if hasattr(bot.config, 'mode') else 'paper',
+        mode=bot.config.mode.value if hasattr(bot.config, 'mode') and hasattr(bot.config.mode, 'value') else 'paper',
         account_value=paper_trader.get_account_info()['total_value'],
         notes=f"Auto Bot Trade {side}"
     )
