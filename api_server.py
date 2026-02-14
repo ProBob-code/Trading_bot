@@ -101,8 +101,11 @@ def generate_otp():
 
 def clean_nan(val):
     """Convert NaN/Inf to None (JSON null) for browser compatibility."""
-    if isinstance(val, (float, int)) and (pd.isna(val) or val == float('inf') or val == float('-inf')):
-        return None
+    try:
+        if pd.isna(val) or not np.isfinite(val):
+            return None
+    except:
+        pass
     return val
 
 # Initialize trading components
