@@ -329,6 +329,20 @@ class BotManager:
                     # Ensure user_id exists
                     if 'user_id' not in cfg:
                         cfg['user_id'] = 1
+                    
+                    # Ensure the user exists in DB to satisfy Foreign Key
+                    if not db_manager.get_user_by_id(cfg['user_id']):
+                        # Create dummy user 1 if not exists
+                        # We use a direct insert because create_user expects mobile
+                        conn = db_manager._get_connection()
+                        try:
+                            cursor = conn.cursor()
+                            cursor.execute("INSERT IGNORE INTO users (id, mobile, username) VALUES (1, '0000000000', 'admin')")
+                            conn.commit()
+                        finally:
+                            if conn.is_connected():
+                                cursor.close()
+                                conn.close()
                         
                     db_manager.save_bot_config(cfg)
                 logger.info(f"🚚 Migrated {len(configs)} legacy bot configs to MySQL")

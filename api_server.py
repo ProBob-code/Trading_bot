@@ -15,6 +15,8 @@ import string
 from src.database.db_manager import db_manager
 from src.services.trade_logger import get_trade_logger
 from src.services.system_state import get_system_state  # <--- SystemState import
+import sys
+import os
 import threading
 import time
 import json
