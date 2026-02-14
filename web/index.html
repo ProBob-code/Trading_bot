@@ -741,40 +741,36 @@
     </div>
 
     <script>
-        // Session check - redirect to login if not authenticated
-        const SESSION_KEY = 'godbottrade_session';
-        const USERS_KEY = 'godbottrade_users';
-        const session = localStorage.getItem(SESSION_KEY);
+        // Server-side Session Check
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('/api/auth/status');
+                const data = await response.json();
 
-        if (!session) {
-            window.location.href = 'login.html';
-        } else {
-            // Load profile data
-            const sessionData = JSON.parse(session);
-            const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
-            const user = users[sessionData.username];
-
-            document.addEventListener('DOMContentLoaded', () => {
-                // Display username
-                document.getElementById('profileName').textContent = sessionData.username;
-                document.getElementById('dropdownUsername').textContent = sessionData.username;
-
-                // Role
-                if (user && user.isAdmin) {
-                    document.getElementById('dropdownRole').textContent = '👑 Admin - Paper Trader';
+                if (!data.authenticated) {
+                    window.location.href = 'login.html';
                 } else {
-                    document.getElementById('dropdownRole').textContent = '📝 Paper Trader';
+                    // Update UI with user info
+                    const username = data.user.username;
+                    document.getElementById('profileName').textContent = username;
+                    document.getElementById('dropdownBrand').textContent = username;
+                    document.getElementById('dropdownSub').textContent = data.user.is_verified ? 'Verified Trader' : 'Unverified';
+
+                    // Set login time if not set
+                    if (!localStorage.getItem('loginTime')) {
+                        localStorage.setItem('loginTime', new Date().toISOString());
+                    }
+
+                    const loginTime = new Date(localStorage.getItem('loginTime'));
+                    document.getElementById('loginTime').textContent = loginTime.toLocaleTimeString();
+                    document.getElementById('sessionId').textContent = btoa(loginTime.getTime().toString()).substring(0, 8).toUpperCase();
                 }
-
-                // Login time
-                const loginDate = new Date(sessionData.loginTime);
-                document.getElementById('loginTime').textContent = loginDate.toLocaleTimeString();
-
-                // Session ID (short hash)
-                const sessionId = btoa(sessionData.loginTime.toString()).substring(0, 8).toUpperCase();
-                document.getElementById('sessionId').textContent = sessionId;
-            });
-        }
+            } catch (error) {
+                console.error('Auth check failed:', error);
+                // Fallback to login on error
+                // window.location.href = 'login.html';
+            }
+        });
 
         // Toggle profile dropdown
         function toggleProfileMenu() {
@@ -786,15 +782,21 @@
         document.addEventListener('click', (e) => {
             const profileSection = document.getElementById('profileSection');
             const dropdown = document.getElementById('profileDropdown');
-            if (profileSection && !profileSection.contains(e.target)) {
+            if (profileSection && !profileSection.contains(e.target) && !dropdown.contains(e.target)) {
                 dropdown.classList.remove('open');
             }
         });
 
         // Logout function
-        function logout() {
-            localStorage.removeItem(SESSION_KEY);
-            window.location.href = 'login.html';
+        async function logout() {
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                localStorage.removeItem('loginTime');
+                window.location.href = 'login.html';
+            } catch (error) {
+                console.error('Logout failed:', error);
+                window.location.href = 'login.html';
+            }
         }
     </script>
     <script src="app.js"></script>

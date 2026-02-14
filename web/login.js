@@ -122,12 +122,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
 
             if (data.success) {
-                window.location.href = 'index.html';
+                // Use replace to prevent back button from returning to login
+                window.location.replace('index.html');
             } else {
-                showError(data.error);
+                showError(data.error || 'Login failed');
             }
         } catch (err) {
-            showError('Login failed');
+            console.error(err);
         }
     });
 
