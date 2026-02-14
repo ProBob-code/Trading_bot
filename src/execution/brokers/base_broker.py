@@ -115,6 +115,18 @@ class BaseBroker(ABC):
             Quote dictionary with bid, ask, last, etc.
         """
         pass
+
+    def get_pending_orders(self, user_id: Optional[int] = None) -> List[Dict]:
+        """
+        Get all pending orders.
+        
+        Args:
+            user_id: Optional user ID for multi-account brokers.
+            
+        Returns:
+            List of order status dictionaries
+        """
+        return []
     
     def get_multiple_quotes(self, symbols: List[str]) -> Dict[str, Dict]:
         """

@@ -11,7 +11,9 @@ from datetime import datetime
 from loguru import logger
 
 
-class BinanceBroker:
+from .base_broker import BaseBroker
+
+class BinanceBroker(BaseBroker):
     """
     Binance broker for live crypto trading.
     
@@ -23,7 +25,7 @@ class BinanceBroker:
     TESTNET_URL = "https://testnet.binance.vision"
     LIVE_URL = "https://api.binance.com"
     
-    def __init__(self, api_key: str, api_secret: str, testnet: bool = True):
+    def __init__(self, api_key: str, api_secret: str, testnet: bool = True, **kwargs):
         """
         Initialize Binance broker.
         
@@ -32,11 +34,9 @@ class BinanceBroker:
             api_secret: Binance API secret
             testnet: Use testnet (True) or live (False)
         """
-        self.api_key = api_key
-        self.api_secret = api_secret
+        super().__init__(api_key, api_secret, **kwargs)
         self.testnet = testnet
         self.base_url = self.TESTNET_URL if testnet else self.LIVE_URL
-        self._connected = False
         
         mode = "TESTNET" if testnet else "🔴 LIVE"
         logger.info(f"🪙 BinanceBroker initialized ({mode})")
@@ -50,138 +50,89 @@ class BinanceBroker:
         """
         try:
             # Would use python-binance or ccxt
-            # from binance.client import Client
-            # self.client = Client(self.api_key, self.api_secret, testnet=self.testnet)
-            # self.client.get_account()  # Verify connection
-            
             logger.info("✅ Connected to Binance")
-            self._connected = True
+            self.is_connected = True
             return True
             
         except Exception as e:
             logger.error(f"❌ Binance connection failed: {e}")
             return False
     
-    def is_connected(self) -> bool:
-        """Check if connected to Binance."""
-        return self._connected
-    
-    def get_account_info(self) -> Dict:
+    def disconnect(self):
+        """Disconnect from Binance."""
+        self.is_connected = False
+        logger.info("Binance broker disconnected")
+
+    def get_account_info(self, user_id: Optional[int] = None) -> Dict:
         """Get account balance and info."""
-        if not self._connected:
+        if not self.is_connected:
             return {'error': 'Not connected'}
         
-        # Would call: self.client.get_account()
         return {
-            'balances': [],
-            'total_btc': 0,
-            'total_usdt': 0
+            'account_id': f'BINANCE_USER_{user_id if user_id is not None else 0}',
+            'cash': 0,
+            'total_value': 0,
+            'pnl': 0,
+            'pnl_pct': 0
         }
     
-    def get_balance(self, asset: str = 'USDT') -> float:
-        """Get balance for specific asset."""
-        if not self._connected:
-            return 0
-        
-        # Would call: self.client.get_asset_balance(asset=asset)
-        return 0
-    
-    def get_positions(self) -> List[Dict]:
-        """Get current positions (non-zero balances)."""
-        if not self._connected:
+    def get_positions(self, user_id: Optional[int] = None) -> List[Dict]:
+        """Get current positions."""
+        if not self.is_connected:
             return []
         
-        # Filter balances with non-zero amounts
         return []
     
-    def place_order(
-        self,
-        symbol: str,
-        side: str,  # BUY, SELL
-        quantity: float,
-        order_type: str = 'MARKET',
-        price: float = None
-    ) -> Optional[Dict]:
+    def submit_order(self, order) -> bool:
         """
-        Place an order on Binance.
-        
-        Args:
-            symbol: Trading pair (e.g., BTCUSDT)
-            side: BUY or SELL
-            quantity: Amount to trade
-            order_type: MARKET or LIMIT
-            price: Limit price (for LIMIT orders)
-            
-        Returns:
-            Order response dict if successful
+        Submit an order to Binance.
         """
-        if not self._connected:
-            logger.error("Cannot place order: Not connected to Binance")
-            return None
+        if not self.is_connected:
+            logger.error("Cannot submit order: Not connected to Binance")
+            return False
         
         try:
-            # Would call:
-            # if order_type == 'MARKET':
-            #     order = self.client.create_order(
-            #         symbol=symbol,
-            #         side=side,
-            #         type=ORDER_TYPE_MARKET,
-            #         quantity=quantity
-            #     )
-            # else:
-            #     order = self.client.create_order(
-            #         symbol=symbol,
-            #         side=side,
-            #         type=ORDER_TYPE_LIMIT,
-            #         timeInForce=TIME_IN_FORCE_GTC,
-            #         quantity=quantity,
-            #         price=str(price)
-            #     )
-            
-            logger.info(f"🪙 Order placed: {side} {quantity} {symbol}")
-            return {
-                'orderId': 'MOCK_ORDER_ID',
-                'symbol': symbol,
-                'side': side,
-                'quantity': quantity,
-                'status': 'FILLED'
-            }
+            logger.info(f"🪙 Order submitted: {order.side.value} {order.quantity} {order.symbol}")
+            # Mock success
+            from ..order_manager import OrderStatus
+            order.status = OrderStatus.FILLED
+            order.filled_quantity = order.quantity
+            order.filled_price = self.get_quote(order.symbol).get('last', 0)
+            return True
             
         except Exception as e:
             logger.error(f"Order failed: {e}")
-            return None
+            return False
     
-    def get_order_status(self, symbol: str, order_id: str) -> Dict:
-        """Get order status."""
-        if not self._connected:
-            return {'error': 'Not connected'}
-        
-        # Would call: self.client.get_order(symbol=symbol, orderId=order_id)
-        return {}
-    
-    def cancel_order(self, symbol: str, order_id: str) -> bool:
+    def cancel_order(self, order) -> bool:
         """Cancel a pending order."""
-        if not self._connected:
+        if not self.is_connected:
             return False
         
-        # Would call: self.client.cancel_order(symbol=symbol, orderId=order_id)
+        logger.info(f"Cancelled order: {order.order_id}")
         return True
     
-    def get_ticker_price(self, symbol: str) -> float:
-        """Get current price for symbol."""
-        if not self._connected:
-            return 0
+    def get_order_status(self, order_id: str) -> Dict:
+        """Get order status."""
+        if not self.is_connected:
+            return {'error': 'Not connected'}
         
-        # Would call: self.client.get_symbol_ticker(symbol=symbol)
-        return 0
+        return {}
     
-    def get_all_tickers(self) -> List[Dict]:
-        """Get all ticker prices."""
-        if not self._connected:
-            return []
-        
-        # Would call: self.client.get_all_tickers()
+    def get_pending_orders(self, user_id: Optional[int] = None) -> List[Dict]:
+        """Get all pending orders."""
         return []
+    
+    def get_quote(self, symbol: str) -> Dict:
+        """Get current price for symbol."""
+        if not self.is_connected:
+            return {}
+        
+        return {
+            'symbol': symbol,
+            'last': 0,
+            'timestamp': datetime.now().isoformat()
+        }
 
 
 def create_binance_broker(api_key: str, api_secret: str, testnet: bool = True) -> BinanceBroker:
