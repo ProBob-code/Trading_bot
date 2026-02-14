@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 import pandas as pd
+import numpy as np
 from loguru import logger
 
 # Configure logging for maximum visibility
