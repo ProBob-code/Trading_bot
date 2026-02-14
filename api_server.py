@@ -99,6 +99,12 @@ def load_user(user_id):
 def generate_otp():
     return ''.join(random.choices(string.digits, k=6))
 
+def clean_nan(val):
+    """Convert NaN/Inf to None (JSON null) for browser compatibility."""
+    if isinstance(val, (float, int)) and (pd.isna(val) or val == float('inf') or val == float('-inf')):
+        return None
+    return val
+
 # Initialize trading components
 INITIAL_CAPITAL = 100000  # $100k paper trading
 paper_trader = PaperTrader(initial_capital=INITIAL_CAPITAL)
@@ -541,23 +547,12 @@ def get_crypto_klines(symbol):
     for idx, row in df_with_indicators.iterrows():
         candles.append({
             'time': int(idx.timestamp()),
-            'open': row['open'],
-            'high': row['high'],
-            'low': row['low'],
-            'close': row['close'],
-            'volume': row['volume'],
-            'indicators': {
-                'tenkan': row.get('tenkan'),
-                'kijun': row.get('kijun'),
-                'span_a': row.get('span_a') if not pd.isna(row.get('span_a')) else None,
-                'span_b': row.get('span_b') if not pd.isna(row.get('span_b')) else None,
-                'upper_band': row.get('upper_band'),
-                'lower_band': row.get('lower_band'),
-                'sma20': row.get('sma20'),
-                'rsi': row.get('rsi'),
-                'macd': row.get('macd'),
-                'macd_hist': row.get('macd_hist')
-            }
+            'open': clean_nan(row['open']),
+            'high': clean_nan(row['high']),
+            'low': clean_nan(row['low']),
+            'close': clean_nan(row['close']),
+            'volume': clean_nan(row['volume']),
+            'indicators': {k: clean_nan(v) for k, v in row.items() if k not in ['open', 'high', 'low', 'close', 'volume']}
         })
     
     return jsonify(candles)
@@ -680,19 +675,12 @@ def get_stock_klines(symbol):
     for idx, row in df_with_indicators.iterrows():
         candles.append({
             'time': int(idx.timestamp()),
-            'open': row['open'],
-            'high': row['high'],
-            'low': row['low'],
-            'close': row['close'],
-            'volume': row['volume'],
-            'indicators': {
-                'upper_band': row.get('upper_band'),
-                'lower_band': row.get('lower_band'),
-                'sma20': row.get('sma20'),
-                'rsi': row.get('rsi'),
-                'macd': row.get('macd'),
-                'macd_hist': row.get('macd_hist')
-            }
+            'open': clean_nan(row['open']),
+            'high': clean_nan(row['high']),
+            'low': clean_nan(row['low']),
+            'close': clean_nan(row['close']),
+            'volume': clean_nan(row['volume']),
+            'indicators': {k: clean_nan(v) for k, v in row.items() if k not in ['open', 'high', 'low', 'close', 'volume']}
         })
     
     return jsonify(candles)
