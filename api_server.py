@@ -984,10 +984,15 @@ def panic_sell():
         for pos in positions:
             symbol = pos['symbol']
             qty = pos['quantity']
-            side = OrderSide.SELL if qty > 0 else OrderSide.BUY
-            
-            order = Order(user_id=current_user.id, symbol=symbol, side=side, quantity=abs(qty), order_type=OrderType.MARKET)
-            if paper_trader.submit_order(order):
+            side_str = 'sell' if qty > 0 else 'buy'
+            order = order_manager.create_order(
+                user_id=current_user.id,
+                symbol=symbol,
+                side=side_str,
+                quantity=abs(qty),
+                order_type='market'
+            )
+            if order_manager.submit_order(order):
                 closed_count += 1
                 trade_logger.log_trade(
                     symbol=symbol,
@@ -1070,22 +1075,11 @@ def bot_execution_loop(bot_id):
                 time.sleep(5)
                 continue
             
-            # Update Shared Paper Trader Prices
-            paper_trader.set_prices({symbol: current_price})
-            
-            # Calculate Unrealized P&L for this bot
-            positions = paper_trader.get_positions()
-            symbol_pos = next((p for p in positions if p['symbol'] == symbol), None)
-            
-            bot.stats.unrealized_pnl = symbol_pos.get('unrealized_pnl', 0) if symbol_pos else 0
-            
-            bot.stats.total_pnl = bot.stats.realized_pnl + bot.stats.unrealized_pnl
-
-            # Update Shared Paper Trader Prices
+            # Update Shared Paper Trader Prices & Account State
             user_id = bot.config.user_id
             paper_trader.set_prices({symbol: current_price})
             
-            # Calculate Unrealized P&L for this bot
+            # Calculate Unrealized P&L for this bot specifically
             positions = paper_trader.get_positions(user_id)
             symbol_pos = next((p for p in positions if p['symbol'] == symbol), None)
             
@@ -1169,8 +1163,13 @@ def execute_bot_trade(bot, signal, current_price):
         # Close the LONG
         long_pos = next((p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG'), None)
         if long_pos:
-            order = Order(user_id=user_id, symbol=symbol, side=OrderSide.SELL, quantity=long_pos['quantity'], order_type=OrderType.MARKET)
-            if paper_trader.submit_order(order):
+            order = order_manager.create_order(
+                user_id=user_id,
+                symbol=symbol,
+                side='sell',
+                quantity=long_pos['quantity']
+            )
+            if order_manager.submit_order(order):
                 entry_price = long_pos.get('avg_price', current_price)
                 pnl = (current_price - entry_price) * long_pos['quantity']
                 bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
@@ -1179,8 +1178,13 @@ def execute_bot_trade(bot, signal, current_price):
         # Cover the SHORT
         short_pos = next((p for p in positions if p['symbol'] == symbol and p['side'] == 'SHORT'), None)
         if short_pos:
-            order = Order(user_id=user_id, symbol=symbol, side=OrderSide.BUY, quantity=short_pos['quantity'], order_type=OrderType.MARKET)
-            if paper_trader.submit_order(order):
+            order = order_manager.create_order(
+                user_id=user_id,
+                symbol=symbol,
+                side='buy',
+                quantity=short_pos['quantity']
+            )
+            if order_manager.submit_order(order):
                 pnl = (short_pos['avg_price'] - current_price) * short_pos['quantity']
                 bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
                 emit_trade_event(bot, 'COVER SHORT', short_pos['quantity'], current_price, pnl)
@@ -1189,8 +1193,13 @@ def execute_bot_trade(bot, signal, current_price):
     if signal.signal == 'BUY' and has_short:
         logger.warning(f"⚠️ {symbol} has SHORT while processing BUY. Closing SHORT first.")
         short_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'SHORT')
-        order = Order(user_id=user_id, symbol=symbol, side=OrderSide.BUY, quantity=short_pos['quantity'], order_type=OrderType.MARKET)
-        if paper_trader.submit_order(order):
+        order = order_manager.create_order(
+            user_id=user_id,
+            symbol=symbol,
+            side='buy',
+            quantity=short_pos['quantity']
+        )
+        if order_manager.submit_order(order):
             pnl = (short_pos['avg_price'] - current_price) * short_pos['quantity']
             bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
             emit_trade_event(bot, 'COVER SHORT', short_pos['quantity'], current_price, pnl)
@@ -1200,8 +1209,13 @@ def execute_bot_trade(bot, signal, current_price):
         logger.warning(f"⚠️ {symbol} has LONG while processing SELL. Closing LONG first.")
         long_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG' and p['quantity'] > 0)
         pnl = (current_price - long_pos['avg_price']) * long_pos['quantity']
-        order = Order(user_id=user_id, symbol=symbol, side=OrderSide.SELL, quantity=long_pos['quantity'], order_type=OrderType.MARKET)
-        if paper_trader.submit_order(order):
+        order = order_manager.create_order(
+            user_id=user_id,
+            symbol=symbol,
+            side='sell',
+            quantity=long_pos['quantity']
+        )
+        if order_manager.submit_order(order):
             bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
             emit_trade_event(bot, 'CLOSE LONG', long_pos['quantity'], current_price, pnl)
         return 
@@ -1217,8 +1231,13 @@ def execute_bot_trade(bot, signal, current_price):
             quantity = min(trade_value / current_price, bot.config.max_quantity)
             
             if quantity > 0:
-                order = Order(user_id=user_id, symbol=symbol, side=OrderSide.BUY, quantity=quantity, order_type=OrderType.MARKET)
-                if paper_trader.submit_order(order):
+                order = order_manager.create_order(
+                    user_id=user_id,
+                    symbol=symbol,
+                    side='buy',
+                    quantity=quantity
+                )
+                if order_manager.submit_order(order):
                     bot_manager.increment_trades(bot.bot_id, 'buy', 0)
                     emit_trade_event(bot, 'LONG BUY', quantity, current_price, 0)
 
@@ -1236,8 +1255,13 @@ def execute_bot_trade(bot, signal, current_price):
             quantity = min(trade_value / current_price, bot.config.max_quantity)
             
             if quantity > 0:
-                order = Order(user_id=user_id, symbol=symbol, side=OrderSide.SELL, quantity=quantity, order_type=OrderType.MARKET)
-                if paper_trader.submit_order(order):
+                order = order_manager.create_order(
+                    user_id=user_id,
+                    symbol=symbol,
+                    side='sell',
+                    quantity=quantity
+                )
+                if order_manager.submit_order(order):
                     bot_manager.increment_trades(bot.bot_id, 'sell', 0)
                     emit_trade_event(bot, 'SHORT SELL', quantity, current_price, 0)
 
@@ -1274,11 +1298,18 @@ def emit_trade_event(bot, side, quantity, price, pnl=0):
     socketio.emit('auto_trade_executed', trade_msg, room=f"user_{user_id}")
 
 def start_bot_thread(bot_id):
-    """Helper to start a bot thread."""
-    thread = threading.Thread(target=bot_execution_loop, args=(bot_id,), daemon=True)
-    thread.start()
+    """Helper to start a bot thread with existence check."""
     if bot_id in bot_manager.bots:
-        bot_manager.bots[bot_id].thread = thread
+        bot = bot_manager.bots[bot_id]
+        # Check if thread is already running
+        if bot.thread and bot.thread.is_alive():
+            logger.info(f"ℹ️ Bot thread {bot_id} already running. Skipping startup.")
+            return
+            
+        thread = threading.Thread(target=bot_execution_loop, args=(bot_id,), daemon=True)
+        bot.thread = thread
+        thread.start()
+        logger.info(f"🧵 Started new thread for bot: {bot_id}")
 
 # ============================================================
 # LEGACY COMPATIBILITY (REDIRECTS TO NEW BOT SYSTEM)

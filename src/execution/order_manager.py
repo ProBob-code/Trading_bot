@@ -135,6 +135,7 @@ class OrderManager:
         
     def create_order(
         self,
+        user_id: int,
         symbol: str,
         side: str,
         quantity: float,
@@ -149,6 +150,7 @@ class OrderManager:
         Create a new order.
         
         Args:
+            user_id: ID of the user
             symbol: Trading symbol
             side: 'buy' or 'sell'
             quantity: Number of units
@@ -162,6 +164,7 @@ class OrderManager:
             Created Order object
         """
         order = Order(
+            user_id=user_id,
             symbol=symbol,
             side=OrderSide(side.lower()),
             order_type=OrderType(order_type.lower()),
