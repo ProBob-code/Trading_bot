@@ -11,6 +11,13 @@ class DatabaseManager:
         # Priority: MYSQL* variables (Railway default) -> DB_* variables -> Defaults
         # We check MYSQL* first because if DB_* is set to "" (empty string) it might override valid MYSQL* values
         
+        logger.info("ENVIRONMENT VARIABLES DUMP:")
+        for k, v in os.environ.items():
+            if 'USER' in k or 'PASS' in k:
+                logger.info(f"{k}: ***")
+            else:
+                logger.info(f"{k}: {v}")
+
         self.host = os.getenv('MYSQLHOST') or os.getenv('DB_HOST') or 'localhost'
         
         # Handle port parsing safely
