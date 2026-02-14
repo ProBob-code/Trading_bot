@@ -446,15 +446,30 @@ function updateAutoQuantityBadge(currentPrice) {
     badge.title = `Auto quantity: ${formattedQty} (${positionSizePct}% of $${balance.toLocaleString()} = $${tradeValue.toFixed(2)} ÷ $${currentPrice.toFixed(2)}, max: ${maxQty})`;
 }
 
+function getIntervalSeconds(interval) {
+    const unit = interval.slice(-1).toLowerCase();
+    const val = parseInt(interval.slice(0, -1));
+    if (isNaN(val)) return 60;
+    switch (unit) {
+        case 'm': return val * 60;
+        case 'h': return val * 3600;
+        case 'd': return val * 86400;
+        default: return 60;
+    }
+}
+
 function updateChart(data) {
     if (!state.candleSeries || !data.price) return;
 
+    const intervalSecs = getIntervalSeconds(state.currentInterval);
     const now = Math.floor(Date.now() / 1000);
+    const alignedTime = Math.floor(now / intervalSecs) * intervalSecs;
+
     const rate = state.currencyRates[state.currency] || 1;
     const price = data.price * rate;
 
     state.candleSeries.update({
-        time: now,
+        time: alignedTime,
         open: price,
         high: price,
         low: price,

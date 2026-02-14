@@ -11,25 +11,18 @@ class DatabaseManager:
         # Priority: MYSQL* variables (Railway default) -> DB_* variables -> Defaults
         # We check MYSQL* first because if DB_* is set to "" (empty string) it might override valid MYSQL* values
         
-        logger.info("ENVIRONMENT VARIABLES DUMP:")
-        for k, v in os.environ.items():
-            if 'USER' in k or 'PASS' in k:
-                logger.info(f"{k}: ***")
-            else:
-                logger.info(f"{k}: {v}")
-
-        self.host = os.getenv('MYSQLHOST') or os.getenv('DB_HOST') or 'localhost'
+        self.host = (os.getenv('MYSQLHOST') or os.getenv('DB_HOST') or 'localhost').strip()
         
         # Handle port parsing safely
-        port_str = os.getenv('MYSQLPORT') or os.getenv('DB_PORT') or '3306'
+        port_str = (os.getenv('MYSQLPORT') or os.getenv('DB_PORT') or '3306').strip()
         try:
             self.port = int(port_str)
         except ValueError:
             self.port = 3306
                 
-        self.user = os.getenv('MYSQLUSER') or os.getenv('DB_USER') or 'root'
-        self.password = os.getenv('MYSQLPASSWORD') or os.getenv('DB_PASSWORD') or ''
-        self.database = os.getenv('MYSQLDATABASE') or os.getenv('DB_NAME') or 'trading_bot'
+        self.user = (os.getenv('MYSQLUSER') or os.getenv('DB_USER') or 'root').strip()
+        self.password = (os.getenv('MYSQLPASSWORD') or os.getenv('DB_PASSWORD') or '').strip()
+        self.database = (os.getenv('MYSQLDATABASE') or os.getenv('DB_NAME') or 'trading_bot').strip()
         
         logger.info(f"🔌 database_manager: Connecting to {self.host}:{self.port} as {self.user} (DB: {self.database})")
         
