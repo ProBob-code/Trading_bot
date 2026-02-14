@@ -23,6 +23,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 import sys
+import pandas as pd
 from loguru import logger
 
 # Configure logging for maximum visibility
