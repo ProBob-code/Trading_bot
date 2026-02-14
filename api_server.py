@@ -544,19 +544,18 @@ def get_crypto_klines(symbol):
         logger.warning(f"⚠️ No klines found for {symbol}")
         return jsonify([])
     
-    # Calculate indicators
-    df_with_indicators = strategy_engine.get_indicators(df)
+    # Calculate indicators (Disabled for simplification)
+    # df_with_indicators = strategy_engine.get_indicators(df)
     
     candles = []
-    for idx, row in df_with_indicators.iterrows():
+    for idx, row in df.iterrows():
         candles.append({
             'time': int(idx.timestamp()),
             'open': clean_nan(row['open']),
             'high': clean_nan(row['high']),
             'low': clean_nan(row['low']),
             'close': clean_nan(row['close']),
-            'volume': clean_nan(row['volume']),
-            'indicators': {k: clean_nan(v) for k, v in row.items() if k not in ['open', 'high', 'low', 'close', 'volume']}
+            'volume': clean_nan(row['volume'])
         })
     
     return jsonify(candles)
@@ -672,19 +671,18 @@ def get_stock_klines(symbol):
     if df.empty:
         return jsonify([])
     
-    # Calculate indicators
-    df_with_indicators = strategy_engine.get_indicators(df)
+    # Calculate indicators (Disabled for simplification)
+    # df_with_indicators = strategy_engine.get_indicators(df)
     
     candles = []
-    for idx, row in df_with_indicators.iterrows():
+    for idx, row in df.iterrows():
         candles.append({
             'time': int(idx.timestamp()),
             'open': clean_nan(row['open']),
             'high': clean_nan(row['high']),
             'low': clean_nan(row['low']),
             'close': clean_nan(row['close']),
-            'volume': clean_nan(row['volume']),
-            'indicators': {k: clean_nan(v) for k, v in row.items() if k not in ['open', 'high', 'low', 'close', 'volume']}
+            'volume': clean_nan(row['volume'])
         })
     
     return jsonify(candles)

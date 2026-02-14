@@ -234,16 +234,7 @@ function initChart() {
         wickDownColor: '#ef4444',
     });
 
-    // --- Ichimoku Series ---
-    state.tenkanSeries = state.chart.addLineSeries({ color: '#2196F3', lineWidth: 1, title: 'Tenkan' });
-    state.kijunSeries = state.chart.addLineSeries({ color: '#f44336', lineWidth: 1, title: 'Kijun' });
-    state.spanASeries = state.chart.addLineSeries({ color: 'rgba(16, 185, 129, 0.4)', lineWidth: 1, title: 'Span A' });
-    state.spanBSeries = state.chart.addLineSeries({ color: 'rgba(239, 68, 68, 0.4)', lineWidth: 1, title: 'Span B' });
-
-    // --- Bollinger Series ---
-    state.upperBandSeries = state.chart.addLineSeries({ color: 'rgba(167, 139, 250, 0.6)', lineWidth: 1, lineStyle: 2, title: 'Upper Band' });
-    state.lowerBandSeries = state.chart.addLineSeries({ color: 'rgba(167, 139, 250, 0.6)', lineWidth: 1, lineStyle: 2, title: 'Lower Band' });
-    state.sma20Series = state.chart.addLineSeries({ color: 'rgba(245, 158, 11, 0.8)', lineWidth: 1, title: 'SMA20' });
+    // Indicator series removed for simplification
 
     // Resize handler
     window.addEventListener('resize', () => {
@@ -294,18 +285,8 @@ async function loadChartData() {
 
             state.candleSeries.setData(candles);
 
-            // Populate Indicators
-            if (data[0].indicators) {
-                state.tenkanSeries.setData(data.map(d => ({ time: d.time, value: d.indicators.tenkan * rate })));
-                state.kijunSeries.setData(data.map(d => ({ time: d.time, value: d.indicators.kijun * rate })));
-                state.spanASeries.setData(data.map(d => ({ time: d.time, value: d.indicators.span_a * rate })));
-                state.spanBSeries.setData(data.map(d => ({ time: d.time, value: d.indicators.span_b * rate })));
-                state.upperBandSeries.setData(data.map(d => ({ time: d.time, value: d.indicators.upper_band * rate })));
-                state.lowerBandSeries.setData(data.map(d => ({ time: d.time, value: d.indicators.lower_band * rate })));
-                state.sma20Series.setData(data.map(d => ({ time: d.time, value: d.indicators.sma20 * rate })));
-            }
-
-            updateIndicatorVisibility();
+            // Indicator population disabled for simplification
+            // updateIndicatorVisibility();
             state.chart.timeScale().fitContent();
         }
     } catch (error) {
