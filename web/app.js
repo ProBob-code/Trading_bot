@@ -84,11 +84,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateUI();
     loadNews();
 
-    // ... rest of the setup
+    // Additional initializations from other modules
+    initBotManagement();
+    initPositionsPanel();
+    initMarketDepth();
+    initCurrencySelector();
+    initBalanceEditor();
+    initMarketTabs();
+
     setInterval(() => {
         loadPositions();
         loadBots();
-    }, 3000);
+    }, 5000);
 
     setInterval(() => loadNews(), 60000);
     initClock();
@@ -330,6 +337,9 @@ function initSocket() {
     });
 
     state.socket.on('price_update', (data) => {
+        // Strict symbol filtering: only update if it matches the current dashboard symbol
+        if (data.symbol !== state.currentSymbol) return;
+
         updatePrice(data);
         updateAccount(data.account);
         updateChart(data);
@@ -1250,12 +1260,7 @@ function initBotManagement() {
     setInterval(loadBots, 5000);
 }
 
-// Add to DOMContentLoaded
-document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(initBotManagement, 1000);
-    initPositionsPanel();
-    initMarketDepth();
-});
+// Bot management initialized via main DOMContentLoaded
 
 // ============================================================
 // POSITIONS PANEL MANAGEMENT
@@ -2001,22 +2006,7 @@ function closeNewsModal() {
     if (overlay) overlay.style.display = 'none';
 }
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
-    initCurrencySelector();
-    initBalanceEditor();
-    initMarketTabs();
-    initEventListeners();
-
-    // Initial data load
-    loadChartData();
-    loadPositions();
-    loadBots();
-    loadNews();
-
-    // Start bot list refresher
-    setInterval(loadBots, 5000);
-});
+// UI components initialized via main DOMContentLoaded
 
 // ============================================================
 // MARKET COMMAND CENTER (STAR FEATURES)

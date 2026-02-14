@@ -530,6 +530,7 @@ def get_crypto_klines(symbol):
     )
     
     if df.empty:
+        logger.warning(f"⚠️ No klines found for {symbol}")
         return jsonify([])
     
     # Calculate indicators
@@ -1526,7 +1527,11 @@ def price_stream():
                         }
                     
                     price = price_data.get('price', 0)
-                    if price > 0 and not system_state.is_paused():
+                    if price <= 0:
+                        logger.warning(f"⚠️ Skipping 0 price for {symbol}")
+                        continue
+                        
+                    if not system_state.is_paused():
                         paper_trader.set_prices({symbol: price})
                     
                     # Emit update to symbol-specific room
@@ -1542,10 +1547,6 @@ def price_stream():
                     }
                     socketio.emit('price_update', update_payload, room=f"ticker_{symbol}")
                     # logger.debug(f"📡 Emitted price_update for {symbol}: {price}")
-                    
-                    # Also broadcast globally for simple single-user support (legacy)
-                    socketio.emit('price_update', update_payload)
-                    logger.debug(f"📡 Broadcasted price_update for {symbol}: {price}")
                     
                     
                 except Exception as e:
