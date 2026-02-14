@@ -267,8 +267,12 @@ async function loadChartData() {
 // ============================================================
 
 function initSocket() {
-    state.socket = io('http://localhost:5050', {
-        transports: ['websocket', 'polling']
+    // Determine the socket URL: relative to the current window
+    // This fixed the hardcoded 'localhost:5050' which broke on Railway
+    state.socket = io({
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 2000
     });
 
     state.socket.on('connect', () => {
