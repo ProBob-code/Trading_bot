@@ -532,15 +532,30 @@ def get_crypto_klines(symbol):
     if df.empty:
         return jsonify([])
     
+    # Calculate indicators
+    df_with_indicators = strategy_engine.get_indicators(df)
+    
     candles = []
-    for idx, row in df.iterrows():
+    for idx, row in df_with_indicators.iterrows():
         candles.append({
             'time': int(idx.timestamp()),
             'open': row['open'],
             'high': row['high'],
             'low': row['low'],
             'close': row['close'],
-            'volume': row['volume']
+            'volume': row['volume'],
+            'indicators': {
+                'tenkan': row.get('tenkan'),
+                'kijun': row.get('kijun'),
+                'span_a': row.get('span_a') if not pd.isna(row.get('span_a')) else None,
+                'span_b': row.get('span_b') if not pd.isna(row.get('span_b')) else None,
+                'upper_band': row.get('upper_band'),
+                'lower_band': row.get('lower_band'),
+                'sma20': row.get('sma20'),
+                'rsi': row.get('rsi'),
+                'macd': row.get('macd'),
+                'macd_hist': row.get('macd_hist')
+            }
         })
     
     return jsonify(candles)
@@ -656,15 +671,26 @@ def get_stock_klines(symbol):
     if df.empty:
         return jsonify([])
     
+    # Calculate indicators
+    df_with_indicators = strategy_engine.get_indicators(df)
+    
     candles = []
-    for idx, row in df.iterrows():
+    for idx, row in df_with_indicators.iterrows():
         candles.append({
             'time': int(idx.timestamp()),
             'open': row['open'],
             'high': row['high'],
             'low': row['low'],
             'close': row['close'],
-            'volume': row['volume']
+            'volume': row['volume'],
+            'indicators': {
+                'upper_band': row.get('upper_band'),
+                'lower_band': row.get('lower_band'),
+                'sma20': row.get('sma20'),
+                'rsi': row.get('rsi'),
+                'macd': row.get('macd'),
+                'macd_hist': row.get('macd_hist')
+            }
         })
     
     return jsonify(candles)
@@ -1417,75 +1443,103 @@ def download_report():
 # WEBSOCKET - REAL-TIME STREAMING
 # ============================================================
 
+# State for multi-user streaming
+user_watched_symbols = {}  # sid -> {'symbol': str, 'market': str}
+
+def get_active_symbols():
+    """Get all symbols currently being watched by users or bots."""
+    symbols = set()
+    # 1. From active users
+    for watcher in user_watched_symbols.values():
+        symbols.add((watcher['symbol'], watcher['market']))
+    
+    # 2. From default symbols (always keep BTCUSDT and ETHUSDT live)
+    symbols.add(('BTCUSDT', 'crypto'))
+    symbols.add(('ETHUSDT', 'crypto'))
+    
+    # 3. From active bots (ensure bot_manager is accessible)
+    try:
+        from src.engine.bot_manager import get_bot_manager
+        bm = get_bot_manager()
+        for bot in bm.bots.values():
+            if bm.is_running(bot.bot_id):
+                symbols.add((bot.config.symbol, 'crypto' if 'USDT' in bot.config.symbol else 'stock'))
+    except Exception:
+        pass
+            
+    return symbols
+
 def price_stream():
-    """Background thread to stream prices and per-user account updates."""
-    global is_streaming, current_symbol, current_market
+    """Background thread to stream prices for all active symbols."""
+    global is_streaming
     
     while is_streaming:
         try:
-            # 1. Fetch Price
-            symbol_is_stock = current_symbol in ['AAPL', 'TSLA', 'GOOGL', 'MSFT', 'AMZN']
-            if current_market == 'crypto' and not symbol_is_stock:
-                price_data = crypto_provider.get_current_price(current_symbol)
-                ticker = crypto_provider.get_ticker_24h(current_symbol)
-            else:
-                price_data = stock_provider.get_current_quote(current_symbol)
-                ticker = {
-                    'price_change': price_data.get('change', 0),
-                    'price_change_pct': price_data.get('change_pct', 0),
-                    'high_24h': price_data.get('high', 0),
-                    'low_24h': price_data.get('low', 0),
-                    'volume_24h': price_data.get('volume', 0)
-                }
+            active_symbols = get_active_symbols()
             
-            price = price_data.get('price', 0)
-            if price > 0 and not system_state.is_paused():
-                paper_trader.set_prices({current_symbol: price})
+            for symbol, market in active_symbols:
+                try:
+                    # Fetch data
+                    is_crypto = market == 'crypto'
+                    if is_crypto:
+                        price_data = crypto_provider.get_current_price(symbol)
+                        ticker = crypto_provider.get_ticker_24h(symbol)
+                    else:
+                        price_data = stock_provider.get_current_quote(symbol)
+                        ticker = {
+                            'price_change': price_data.get('change', 0),
+                            'price_change_pct': price_data.get('change_pct', 0),
+                            'high_24h': price_data.get('high', 0),
+                            'low_24h': price_data.get('low', 0),
+                            'volume_24h': price_data.get('volume', 0)
+                        }
+                    
+                    price = price_data.get('price', 0)
+                    if price > 0 and not system_state.is_paused():
+                        paper_trader.set_prices({symbol: price})
+                    
+                    # Emit update to symbol-specific room
+                    update_payload = {
+                        'symbol': symbol,
+                        'market': market,
+                        'price': price,
+                        'change_pct': ticker.get('price_change_pct', 0),
+                        'high_24h': ticker.get('high_24h', 0),
+                        'low_24h': ticker.get('low_24h', 0),
+                        'volume_24h': ticker.get('volume_24h', 0),
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    socketio.emit('price_update', update_payload, room=f"ticker_{symbol}")
+                    
+                    # Also broadcast globally for simple single-user support (legacy)
+                    socketio.emit('price_update', update_payload)
+                    
+                except Exception as e:
+                    logger.error(f"Error streaming {symbol}: {e}")
             
-            # 2. Update all active symbols
-            active_symbols = set()
-            for bot in bot_manager.bots.values():
-                if bot_manager.is_running(bot.bot_id):
-                    active_symbols.add(bot.config.symbol)
-            
-            if not system_state.is_paused():
-                for s in active_symbols:
-                    if s == current_symbol: continue
-                    # Simple heuristic for market
-                    is_crypto = s.endswith('USDT') or len(s) > 5
-                    p = crypto_provider.get_current_price(s) if is_crypto else stock_provider.get_current_quote(s)
-                    if p.get('price', 0) > 0:
-                        paper_trader.set_prices({s: p['price']})
-
-            # 3. Global price update
-            socketio.emit('price_update', {
-                'symbol': current_symbol,
-                'market': current_market,
-                'price': price,
-                'change_pct': ticker.get('price_change_pct', 0),
-                'timestamp': datetime.now().isoformat()
-            })
-            
-            # 4. Per-user account updates (Only for users with active accounts in PaperTrader)
+            # Per-user account updates
             for user_id in list(paper_trader.accounts.keys()):
-                acc = paper_trader.get_account_info(user_id)
-                positions = paper_trader.get_positions(user_id)
-                summary = trade_logger.get_daily_summary(user_id, datetime.now().strftime("%Y-%m-%d"))
-                
-                socketio.emit('account_update', {
-                    'cash': acc['cash'],
-                    'total_value': acc['total_value'],
-                    'buying_power': acc['buying_power'],
-                    'pnl': acc['pnl'],
-                    'pnl_pct': acc['pnl_pct'],
-                    'total_trades': summary['total_trades'],
-                    'positions': positions
-                }, room=f"user_{user_id}")
+                try:
+                    acc = paper_trader.get_account_info(user_id)
+                    positions = paper_trader.get_positions(user_id)
+                    summary = trade_logger.get_daily_summary(user_id, datetime.now().strftime("%Y-%m-%d"))
+                    
+                    socketio.emit('account_update', {
+                        'cash': acc['cash'],
+                        'total_value': acc['total_value'],
+                        'buying_power': acc['buying_power'],
+                        'pnl': acc['pnl'],
+                        'pnl_pct': acc['pnl_pct'],
+                        'total_trades': summary['total_trades'],
+                        'positions': positions
+                    }, room=f"user_{user_id}")
+                except Exception as e:
+                    pass
             
             time.sleep(1)
             
         except Exception as e:
-            logger.error(f"Stream error: {e}")
+            logger.error(f"Stream outer error: {e}")
             time.sleep(2)
 
 
@@ -1645,27 +1699,65 @@ def handle_disconnect():
         print("Unauthenticated client disconnected")
 
 
+@socketio.on('connect')
+def handle_connect():
+    """Handle new client connection."""
+    sid = request.sid
+    # Set default
+    user_watched_symbols[sid] = {'symbol': 'BTCUSDT', 'market': 'crypto'}
+    join_room('ticker_BTCUSDT')
+    
+    if current_user.is_authenticated:
+        join_room(f"user_{current_user.id}")
+        logger.info(f"👤 User {current_user.id} connected (sid: {sid})")
+    else:
+        logger.info(f"🌐 Anonymous client connected (sid: {sid})")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection."""
+    sid = request.sid
+    if sid in user_watched_symbols:
+        del user_watched_symbols[sid]
+    logger.info(f"🔌 Client disconnected (sid: {sid})")
+
 @socketio.on('change_symbol')
 def handle_symbol_change(data):
-    """Change the trading symbol."""
-    global current_symbol
+    """Change the trading symbol and update subscriptions."""
+    sid = request.sid
+    old_symbol = user_watched_symbols.get(sid, {}).get('symbol')
+    new_symbol = data.get('symbol', 'BTCUSDT').upper()
+    market = user_watched_symbols.get(sid, {}).get('market', 'crypto')
     
-    current_symbol = data.get('symbol', 'BTCUSDT')
-    emit('symbol_changed', {'symbol': current_symbol})
-
+    if old_symbol:
+        leave_room(f"ticker_{old_symbol}")
+    
+    user_watched_symbols[sid] = {'symbol': new_symbol, 'market': market}
+    join_room(f"ticker_{new_symbol}")
+    
+    emit('symbol_changed', {'symbol': new_symbol})
+    logger.info(f"🔄 Symbol changed to {new_symbol} for sid {sid}")
 
 @socketio.on('change_market')
 def handle_market_change(data):
-    """Change the trading market."""
-    global current_market, current_symbol
+    """Change the trading market and update subscriptions."""
+    sid = request.sid
+    old_symbol = user_watched_symbols.get(sid, {}).get('symbol')
     
-    current_market = data.get('market', 'crypto')
-    current_symbol = data.get('symbol', 'BTCUSDT' if current_market == 'crypto' else 'AAPL')
+    market = data.get('market', 'crypto')
+    symbol = data.get('symbol', 'BTCUSDT' if market == 'crypto' else 'AAPL').upper()
+    
+    if old_symbol:
+        leave_room(f"ticker_{old_symbol}")
+    
+    user_watched_symbols[sid] = {'symbol': symbol, 'market': market}
+    join_room(f"ticker_{symbol}")
     
     emit('market_changed', {
-        'market': current_market,
-        'symbol': current_symbol
+        'market': market,
+        'symbol': symbol
     })
+    logger.info(f"🔄 Market changed to {market} ({symbol}) for sid {sid}")
 
 
 # ============================================================

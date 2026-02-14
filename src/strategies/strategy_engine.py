@@ -317,6 +317,56 @@ class StrategyEngine:
         else:
             return Signal('ml_forecast', 'HOLD', max(bullish, bearish), price, reasons, datetime.now())
     
+    def get_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculate all technical indicators for a DataFrame.
+        
+        Returns a copy of the DataFrame with added indicator columns.
+        """
+        if df.empty:
+            return df
+            
+        df = df.copy()
+        high = df['high']
+        low = df['low']
+        close = df['close']
+        
+        # --- Ichimoku ---
+        nine_high = high.rolling(9).max()
+        nine_low = low.rolling(9).min()
+        df['tenkan'] = (nine_high + nine_low) / 2
+        
+        period26_high = high.rolling(26).max()
+        period26_low = low.rolling(26).min()
+        df['kijun'] = (period26_high + period26_low) / 2
+        
+        df['span_a'] = ((df['tenkan'] + df['kijun']) / 2).shift(26)
+        period52_high = high.rolling(52).max()
+        period52_low = low.rolling(52).min()
+        df['span_b'] = ((period52_high + period52_low) / 2).shift(26)
+        
+        # --- Bollinger Bands ---
+        df['sma20'] = close.rolling(20).mean()
+        std = close.rolling(20).std()
+        df['upper_band'] = df['sma20'] + (2 * std)
+        df['lower_band'] = df['sma20'] - (2 * std)
+        
+        # --- MACD ---
+        ema12 = close.ewm(span=12, adjust=False).mean()
+        ema26 = close.ewm(span=26, adjust=False).mean()
+        df['macd'] = ema12 - ema26
+        df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+        df['macd_hist'] = df['macd'] - df['macd_signal']
+        
+        # --- RSI ---
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rs = gain / loss
+        df['rsi'] = 100 - (100 / (1 + rs))
+        
+        return df
+
     def _combined_signal(self, df: pd.DataFrame, price: float) -> Signal:
         """Combine all strategies for consensus."""
         signals = [
