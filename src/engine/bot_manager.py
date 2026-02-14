@@ -320,8 +320,16 @@ class BotManager:
                 import json
                 with open(BOT_CONFIGS_FILE, 'r') as f:
                     configs = json.load(f)
+                
                 for cfg in configs:
-                    # Map interval to interval_str if needed
+                    # Map legacy 'bot_id' to 'id' for MySQL
+                    if 'bot_id' in cfg:
+                        cfg['id'] = cfg.pop('bot_id')
+                    
+                    # Ensure user_id exists
+                    if 'user_id' not in cfg:
+                        cfg['user_id'] = 1
+                        
                     db_manager.save_bot_config(cfg)
                 logger.info(f"🚚 Migrated {len(configs)} legacy bot configs to MySQL")
                 # Backup and remove
