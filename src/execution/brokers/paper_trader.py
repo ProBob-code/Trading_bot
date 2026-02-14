@@ -234,6 +234,12 @@ class PaperTrader(BaseBroker):
                 return order.to_dict()
         return {'error': 'Order not found'}
     
+    def get_pending_orders(self, user_id: Optional[int] = None) -> List[Dict]:
+        """Get all pending orders for a specific user."""
+        with self.lock:
+            acc = self._get_account(user_id)
+            return [order.to_dict() for order in acc.pending_orders.values()]
+    
     def get_quote(self, symbol: str) -> Dict:
         """Get current quote for a symbol."""
         price = self.current_prices.get(symbol, 0)
