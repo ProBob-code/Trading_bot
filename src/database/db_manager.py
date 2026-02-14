@@ -112,7 +112,7 @@ class DatabaseManager:
                     trade_id VARCHAR(50) UNIQUE,
                     round_trip_id VARCHAR(50),
                     symbol VARCHAR(50),
-                    side VARCHAR(10),
+                    side VARCHAR(20),
                     quantity DOUBLE,
                     price DOUBLE,
                     pnl DOUBLE,
@@ -127,6 +127,13 @@ class DatabaseManager:
                     FOREIGN KEY (user_id) REFERENCES users (id)
                 ) ENGINE=InnoDB
             ''')
+            
+            # Migration: Ensure 'side' column in 'trades' is long enough
+            try:
+                cursor.execute("ALTER TABLE trades MODIFY COLUMN side VARCHAR(20)")
+                conn.commit()
+            except Exception:
+                pass
 
             # System Logs table
             cursor.execute('''

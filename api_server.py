@@ -1541,9 +1541,11 @@ def price_stream():
                         'timestamp': datetime.now().isoformat()
                     }
                     socketio.emit('price_update', update_payload, room=f"ticker_{symbol}")
+                    # logger.debug(f"📡 Emitted price_update for {symbol}: {price}")
                     
                     # Also broadcast globally for simple single-user support (legacy)
                     socketio.emit('price_update', update_payload)
+                    logger.debug(f"📡 Broadcasted price_update for {symbol}: {price}")
                     
                 except Exception as e:
                     logger.error(f"Error streaming {symbol}: {e}")
@@ -1694,55 +1696,34 @@ def update_bot_strategy(bot_id):
 
 @socketio.on('connect')
 def handle_connect():
-    """Handle client connection with user rooms."""
+    """Handle client connection with user rooms and streaming."""
+    sid = request.sid
     global is_streaming, stream_thread
     
-    if not current_user.is_authenticated:
-        return False  # Reject unauthenticated connections
-        
-    # Join user room
-    user_room = f"user_{current_user.id}"
-    join_room(user_room)
-    logger.info(f"👤 User {current_user.username} (ID: {current_user.id}) joined room {user_room}")
+    # Set default watched symbol for this session
+    user_watched_symbols[sid] = {'symbol': 'BTCUSDT', 'market': 'crypto'}
+    join_room('ticker_BTCUSDT')
     
+    if current_user.is_authenticated:
+        user_room = f"user_{current_user.id}"
+        join_room(user_room)
+        logger.info(f"👤 User {current_user.username} (ID: {current_user.id}) connected (sid: {sid})")
+    else:
+        logger.info(f"🌐 Anonymous client connected (sid: {sid})")
+        
+    # Start price stream if not already running
     if not is_streaming or stream_thread is None or not stream_thread.is_alive():
-        logger.info("📡 Starting price stream...")
+        logger.info("📡 Starting price stream loop...")
         is_streaming = True
         stream_thread = threading.Thread(target=price_stream, daemon=True)
         stream_thread.start()
     
     emit('connected', {
         'status': 'ok', 
-        'user_id': current_user.id,
+        'user_id': current_user.id if current_user.is_authenticated else None,
         'symbol': current_symbol,
         'market': current_market
     })
-
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    """Handle client disconnection."""
-    if current_user.is_authenticated:
-        user_room = f"user_{current_user.id}"
-        leave_room(user_room)
-        print(f"User {current_user.id} disconnected. Left room {user_room}")
-    else:
-        print("Unauthenticated client disconnected")
-
-
-@socketio.on('connect')
-def handle_connect():
-    """Handle new client connection."""
-    sid = request.sid
-    # Set default
-    user_watched_symbols[sid] = {'symbol': 'BTCUSDT', 'market': 'crypto'}
-    join_room('ticker_BTCUSDT')
-    
-    if current_user.is_authenticated:
-        join_room(f"user_{current_user.id}")
-        logger.info(f"👤 User {current_user.id} connected (sid: {sid})")
-    else:
-        logger.info(f"🌐 Anonymous client connected (sid: {sid})")
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -1750,7 +1731,13 @@ def handle_disconnect():
     sid = request.sid
     if sid in user_watched_symbols:
         del user_watched_symbols[sid]
-    logger.info(f"🔌 Client disconnected (sid: {sid})")
+        
+    if current_user.is_authenticated:
+        user_room = f"user_{current_user.id}"
+        leave_room(user_room)
+        logger.info(f"🔌 User {current_user.id} disconnected (sid: {sid})")
+    else:
+        logger.info(f"🔌 Anonymous client disconnected (sid: {sid})")
 
 @socketio.on('change_symbol')
 def handle_symbol_change(data):
