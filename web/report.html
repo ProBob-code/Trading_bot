@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
         rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
         /* Report Specific Styles */
         .report-container {
@@ -356,6 +357,19 @@
 
             // Initial Load
             loadData();
+
+            // Initialize Drag & Drop for UI elements
+            new Sortable(document.querySelector('.summary-grid'), {
+                animation: 150,
+                ghostClass: 'sortable-ghost'
+            });
+
+            new Sortable(document.querySelector('.report-container'), {
+                draggable: '.summary-grid, .transactions-section, .drop-zone',
+                animation: 150,
+                handle: '.summary-card, .transactions-header',
+                ghostClass: 'sortable-ghost'
+            });
         });
 
         async function loadData() {
