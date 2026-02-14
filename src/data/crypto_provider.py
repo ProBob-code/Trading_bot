@@ -12,6 +12,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import time
+import os
 from loguru import logger
 
 
@@ -27,7 +28,7 @@ class BinanceCryptoProvider:
     Supported pairs: BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT, etc.
     """
     
-    BASE_URL = "https://api.binance.com/api/v3"
+    # BASE_URL is set in __init__ based on region
     
     # Popular crypto pairs
     PAIRS = {
@@ -60,6 +61,17 @@ class BinanceCryptoProvider:
             'Accept': 'application/json',
             'User-Agent': 'TradingBot/1.0'
         })
+        
+        # Detect if running in US region on Railway or specified via env
+        region = os.getenv('RAILWAY_REPLICA_REGION', '').lower()
+        use_us_api = os.getenv('BINANCE_US_API', 'false').lower() == 'true'
+        
+        if 'us-' in region or use_us_api:
+            logger.info(f"🇺🇸 Detected US region ({region}), utilizing Binance.US API")
+            self.BASE_URL = "https://api.binance.us/api/v3"
+        else:
+            self.BASE_URL = "https://api.binance.com/api/v3"
+
         # Disable SSL verification (workaround for Windows certificate issues)
         self.session.verify = False
         # Suppress InsecureRequestWarning
