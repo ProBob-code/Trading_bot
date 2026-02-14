@@ -337,7 +337,12 @@ class BotManager:
                         conn = db_manager._get_connection()
                         try:
                             cursor = conn.cursor()
-                            cursor.execute("INSERT IGNORE INTO users (id, mobile, username) VALUES (1, '0000000000', 'admin')")
+                            # Default password is 'admin123'
+                            cursor.execute("""
+                                INSERT INTO users (id, mobile, username, password_hash, is_verified) 
+                                VALUES (1, '0000000000', 'admin', 'admin123', 1)
+                                ON DUPLICATE KEY UPDATE password_hash = IF(password_hash IS NULL, 'admin123', password_hash)
+                            """)
                             conn.commit()
                         finally:
                             if conn.is_connected():
