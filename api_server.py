@@ -1547,6 +1547,7 @@ def price_stream():
                     socketio.emit('price_update', update_payload)
                     logger.debug(f"📡 Broadcasted price_update for {symbol}: {price}")
                     
+                    
                 except Exception as e:
                     logger.error(f"Error streaming {symbol}: {e}")
             
