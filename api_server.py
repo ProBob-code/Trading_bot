@@ -781,19 +781,67 @@ def intelligence_loop():
     
     ai_templates = {
         'bullish': [
-            "BTC momentum is accelerating. Convergence on the 1m chart suggests a potential breakout.",
-            "Whale buy orders detected in the $68k-$69k range. Market pulse is heating up.",
-            "Strategy 5 confluence is high. Bulls are in control of the current range."
+            # Technical / Chart-Based
+            "BTC momentum is accelerating. Convergence on the 1m chart suggests a potential breakout above resistance.",
+            "Price reclaimed the 20-period moving average with rising volume — classic bullish continuation pattern.",
+            "Higher lows forming on the 5m chart with compressing Bollinger Bands. Expect a volatility expansion to the upside.",
+            "Ichimoku cloud turned green on the 1-hour timeframe. Kumo twist confirms bullish trend shift.",
+            "MACD histogram flipped positive with a bullish crossover. RSI trending up but not yet overbought — room to run.",
+            "Price broke above a key descending trendline with a strong green candle. Retest of breakout level as support likely.",
+            # Order Flow / Whale Activity
+            "Whale buy orders detected stacking in the bid wall. Institutional accumulation phase may be underway.",
+            "Large market buy orders sweeping through asks. Aggressive buying pressure dominating the order book.",
+            "Open interest surging alongside price — fresh capital entering longs. Funding rate still neutral, healthy rally.",
+            "Exchange net outflows spiking — coins moving to cold storage. Supply squeeze could fuel further upside.",
+            # Sentiment / Macro
+            "Fear & Greed Index shifting from Neutral to Greed. Historically, early greed phases precede 5-10% rallies.",
+            "Social sentiment turning sharply positive across crypto Twitter. Retail interest re-entering the market.",
+            "Strategy 5 confluence is at maximum. All five sub-signals aligned bullish — high-conviction setup.",
+            "Golden cross forming on the daily chart. Long-term momentum shifting decisively in favor of bulls.",
+            "Breakout above the weekly pivot point confirmed. Next target: upper Fibonacci extension at 1.618 level.",
+            "Buyers absorbing all sell-side liquidity at this level. The path of least resistance is higher.",
         ],
         'bearish': [
-            "Volatility is spiking to the downside. Resistance at current levels is holding firm.",
-            "Sell pressure increasing in order book. Caution advised for long positions.",
-            "Trend reversal detected on multiple timeframes. Awaiting support confirmation."
+            # Technical / Chart-Based
+            "Volatility is spiking to the downside. Resistance at current levels is holding firm — rejection candle forming.",
+            "Death cross on the 4-hour chart as the 50 MA drops below the 200 MA. Bearish momentum building.",
+            "Price rejected from the upper Bollinger Band with a long wick. Distribution pattern emerging.",
+            "RSI divergence detected — price made a higher high but RSI made a lower high. Classic bearish divergence.",
+            "Ichimoku cloud is deep red with a bearish Kumo twist ahead. Trend structure favors sellers.",
+            "Lower highs and lower lows confirmed on the 15m chart. Downtrend structure intact.",
+            # Order Flow / Whale Activity
+            "Sell pressure increasing in the order book. Large limit asks stacking above current price.",
+            "Whale wallets moved significant holdings to exchanges in the last hour. Distribution event possible.",
+            "Funding rate spiking positive — overleveraged longs may get liquidated, adding downside pressure.",
+            "Open interest dropping while price falls — long liquidation cascade in progress.",
+            "Exchange inflows surging — potential sell pressure incoming as coins arrive on trading desks.",
+            # Sentiment / Macro
+            "Trend reversal detected on multiple timeframes. Awaiting lower support confirmation before re-entry.",
+            "Fear & Greed Index plunging toward Extreme Fear territory. Panic selling could accelerate near-term.",
+            "Macro headwinds intensifying — rising bond yields and dollar strength pressuring risk assets.",
+            "Market structure broke down below the weekly support. Bears targeting the next demand zone.",
+            "Volume profile shows a gap below current price — thin liquidity could accelerate the drop.",
         ],
         'neutral': [
-            "Market is currently ranging. Consolidation pattern forming on hourly chart.",
-            "Low relative volume detected. Strategic patience recommended for new entries.",
-            "Sentiment is balanced. GodBot confirms no immediate breakout signals."
+            # Consolidation / Range-Bound
+            "Market is currently ranging. Consolidation pattern forming between well-defined support and resistance.",
+            "Price coiling inside a symmetrical triangle. A decisive breakout in either direction is imminent.",
+            "Bollinger Bands are at their tightest squeeze in 48 hours. Major move loading — direction TBD.",
+            "Choppy price action between the 200 and 50 Moving Averages. No clear trend — range-trading optimal.",
+            "Doji candles forming consecutively — market indecision at a key level. Wait for confirmation.",
+            # Low Activity / Volume
+            "Low relative volume detected. Strategic patience recommended — avoid forcing trades in thin markets.",
+            "Weekend liquidity conditions in effect. Spreads are wider and slippage risk is elevated.",
+            "Volume delta is flat — neither buyers nor sellers have conviction. Sidelined capital waiting for a catalyst.",
+            "Asian session showing minimal volatility. European and US sessions likely to set the directional tone.",
+            # Balanced Sentiment
+            "Sentiment is balanced. GodBot confirms no immediate breakout signals — monitoring for setup.",
+            "Fear & Greed Index sitting at 50 — perfectly neutral. Market awaiting the next macro catalyst.",
+            "Funding rate near zero across major exchanges. No directional bias from derivatives markets.",
+            "Oscillators are mean-reverting to the midline. Neither overbought nor oversold — equilibrium phase.",
+            "Institutional flow data shows equal buy and sell activity. Smart money is hedged and waiting.",
+            "Accumulation/Distribution indicator is flat. No clear institutional positioning detected at this level.",
+            "Price hugging the VWAP — fair value zone. Breakout traders should wait for a clear deviation.",
         ]
     }
 
@@ -1045,14 +1093,14 @@ def bot_execution_loop(bot_id):
                 df = crypto_provider.get_historical_klines(
                     symbol=symbol,
                     interval=interval,
-                    limit=60
+                    limit=200
                 )
                 price_data = crypto_provider.get_current_price(symbol)
             else:
                 df = stock_provider.get_historical_data(
                     symbol=symbol,
                     interval=interval,
-                    limit=60
+                    limit=200
                 )
                 price_data = stock_provider.get_current_quote(symbol)
             
@@ -1079,7 +1127,7 @@ def bot_execution_loop(bot_id):
             bot.stats.total_pnl = bot.stats.realized_pnl + bot.stats.unrealized_pnl
 
             # Analyze with selected strategy
-            strategy_engine.min_confluence = 2
+            strategy_engine.min_confluence = bot.config.settings.get('confluence', 1) if isinstance(bot.config.settings, dict) else 1
             if bot_id not in bot_manager.bots:
                 logger.warning(f"⚠️ Bot {bot_id} no longer in manager. Exiting loop.")
                 break
