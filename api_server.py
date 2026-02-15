@@ -1873,13 +1873,26 @@ def restore_bots_on_startup():
         return
     
     logger.info(f"🔄 Restoring {len(configs)} bots from MySQL...")
+    started_canonical_ids = set()
+    
     for cfg in configs:
         user_id = cfg.get('user_id', 1)
         bot_id = cfg.get('id')
         
+        # Compute canonical bot_id to avoid duplicates
+        canonical_id = bot_manager.generate_bot_id(user_id, cfg['market'], cfg['symbol'])
+        if canonical_id in started_canonical_ids:
+            logger.info(f"⏭️ Skipping duplicate config: {bot_id} (canonical: {canonical_id})")
+            # Clean up the stale duplicate from MySQL
+            try:
+                db_manager.delete_bot_config(bot_id)
+            except Exception:
+                pass
+            continue
+        
         # Check if bot should be running (status was 'running' or auto_restart is true)
         if cfg.get('status') == 'running' or cfg.get('auto_restart_enabled', 0):
-            logger.info(f"🚀 Auto-restoring bot: {bot_id}")
+            logger.info(f"🚀 Auto-restoring bot: {canonical_id}")
             
             # Start the bot using bot_manager.start_bot
             result = bot_manager.start_bot(
@@ -1896,7 +1909,10 @@ def restore_bots_on_startup():
             )
             
             if result.get('success'):
-                logger.info(f"✅ Restored bot {bot_id} (Thread started)")
+                actual_bot_id = result['bot_id']
+                start_bot_thread(actual_bot_id)
+                started_canonical_ids.add(canonical_id)
+                logger.info(f"✅ Restored bot {actual_bot_id} (Thread started)")
             else:
                 logger.error(f"❌ Failed to restore bot {bot_id}: {result.get('error')}")
 
