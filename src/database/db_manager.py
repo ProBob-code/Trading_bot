@@ -274,14 +274,28 @@ class DatabaseManager:
                 cursor.close()
                 conn.close()
 
-    def get_user_trades(self, user_id: int, limit: int = 100) -> List[Dict]:
+    def get_user_trades(self, user_id: int, start_date: str = None, end_date: str = None, symbol: str = None, limit: int = 100) -> List[Dict]:
+        """Get trades for a user with optional date and symbol filters."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor(dictionary=True)
-            cursor.execute(
-                "SELECT * FROM trades WHERE user_id = %s ORDER BY timestamp DESC LIMIT %s", 
-                (user_id, limit)
-            )
+            query = "SELECT * FROM trades WHERE user_id = %s"
+            params = [user_id]
+            
+            if start_date:
+                query += " AND date >= %s"
+                params.append(start_date)
+            if end_date:
+                query += " AND date <= %s"
+                params.append(end_date)
+            if symbol:
+                query += " AND symbol = %s"
+                params.append(symbol.upper())
+                
+            query += " ORDER BY timestamp DESC LIMIT %s"
+            params.append(limit)
+            
+            cursor.execute(query, params)
             return cursor.fetchall()
         finally:
             if conn.is_connected():

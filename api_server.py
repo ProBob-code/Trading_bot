@@ -267,31 +267,66 @@ def update_daily_report(user, symbol, side, qty, price, pnl=0):
 @app.route('/api/reports')
 @login_required
 def get_reports_legacy():
-    """Get all daily reports (Legacy Endpoint - redirects to new service)."""
-    reports = []
-    today = datetime.now().strftime("%Y-%m-%d")
+    """Get all daily reports with date range support."""
+    # Accept date filters
+    date_filter = request.args.get('date')
+    start_date = request.args.get('start_date', date_filter)
+    end_date = request.args.get('end_date', date_filter)
     
-    try:
-        # Get user's today's summary
-        summary = trade_logger.get_daily_summary(current_user.id, today)
+    if not start_date:
+        start_date = datetime.now().strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
         
-        # Convert to expected format
-        if summary['total_trades'] > 0:
-            win_rate = (summary['wins'] / summary['total_trades'] * 100) if summary['total_trades'] > 0 else 0
-            avg_profit = (summary['total_pnl'] / summary['total_trades']) if summary['total_trades'] > 0 else 0
+    reports = []
+    try:
+        # Generate date range list
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        # Limit range to 30 days for safety
+        num_days = (end_dt - start_dt).days
+        if num_days > 30:
+            start_dt = end_dt - timedelta(days=30)
             
-            reports.append({
-                'date': today,
-                'user': current_user.username,
-                'total_trades': summary['total_trades'],
-                'win_loss': f"{summary['wins']}/{summary['losses']}",
-                'win_rate': f"{win_rate:.1f}%",
-                'total_pnl': round(summary['total_pnl'], 2),
-                'avg_profit': round(avg_profit, 2)
-            })
+        current_dt = start_dt
+        while current_dt <= end_dt:
+            day_str = current_dt.strftime("%Y-%m-%d")
+            summary = trade_logger.get_daily_summary(current_user.id, day_str)
+            
+            if summary['total_trades'] > 0:
+                win_rate = (summary['wins'] / summary['total_trades'] * 100)
+                avg_profit = (summary['total_pnl'] / summary['total_trades'])
+                
+                reports.append({
+                    'date': day_str,
+                    'user': current_user.username,
+                    'total_trades': summary['total_trades'],
+                    'win_loss': f"{summary['wins']}/{summary['losses']}",
+                    'win_rate': f"{win_rate:.1f}%",
+                    'total_pnl': round(summary['total_pnl'], 2),
+                    'avg_profit': round(avg_profit, 2)
+                })
+            current_dt += timedelta(days=1)
             
     except Exception as e:
-        logger.error(f"Error fetching legacy reports: {e}")
+        logger.error(f"Error fetching filtered reports: {e}")
+        # Fallback to today on error
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            summary = trade_logger.get_daily_summary(current_user.id, today)
+            if summary['total_trades'] > 0:
+                reports.append({
+                    'date': today,
+                    'user': current_user.username,
+                    'total_trades': summary['total_trades'],
+                    'win_loss': f"{summary['wins']}/{summary['losses']}",
+                    'win_rate': f"{(summary['wins']/summary['total_trades']*100):.1f}%",
+                    'total_pnl': round(summary['total_pnl'], 2),
+                    'avg_profit': round(summary['total_pnl']/summary['total_trades'], 2)
+                })
+        except: pass
+        
     return jsonify(reports)
 
 @app.route('/api/reports/trades')
@@ -357,11 +392,23 @@ def get_positions():
                 'closed_at': pos['closed_at'].isoformat() if hasattr(pos['closed_at'], 'isoformat') else pos['closed_at']
             })
             
+    # Get trade history with filters
+    date_filter = request.args.get('date')
+    start_date = request.args.get('start_date', date_filter)
+    end_date = request.args.get('end_date', date_filter)
+    
+    trade_history = trade_logger.get_history(
+        user_id=current_user.id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=50
+    )
+    
     return jsonify({
         'success': True,
         'open_positions': open_positions,
         'closed_positions': filtered_closed,
-        'trade_history': [], # Redirect to /api/reports/trades
+        'trade_history': trade_history,
         'journal': [],
         'pending_orders': paper_trader.get_pending_orders(current_user.id)
     })
@@ -1164,6 +1211,8 @@ def bot_execution_loop(bot_id):
             
             # Emit signal to user room
             socketio.emit('auto_trade_signal', signal_data, room=f"user_{user_id}")
+            if signal.signal != 'HOLD':
+                logger.debug(f"📡 Bot {bot_id} EMITTED signal {signal.signal} for user {user_id}")
             
             # 1. Check for TP/SL Exit Conditions (Proactive Exit)
             symbol_pos = next((p for p in paper_trader.get_positions(user_id) if p['symbol'] == symbol), None)

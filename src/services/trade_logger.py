@@ -224,7 +224,13 @@ class TradeLogger:
                    symbol: str = None,
                    limit: int = 100) -> List[Dict]:
         """Get filtered trade history from MySQL via db_manager."""
-        return db_manager.get_user_trades(user_id, limit=limit)
+        return db_manager.get_user_trades(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            symbol=symbol,
+            limit=limit
+        )
 
     def get_daily_summary(self, user_id: int, date_str: str) -> Dict:
         """Get summary stats for a specific day and user from memory or MySQL."""

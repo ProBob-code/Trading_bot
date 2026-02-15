@@ -1295,6 +1295,24 @@ function initPositionsPanel() {
     // Export CSV button
     document.getElementById('btnExportCSV')?.addEventListener('click', exportToCSV);
 
+    // Date filters
+    const dateFrom = document.getElementById('filterDateFrom');
+    const dateTo = document.getElementById('filterDateTo');
+
+    // Set default dates (today)
+    const today = new Date().toISOString().split('T')[0];
+    if (dateFrom && !dateFrom.value) dateFrom.value = today;
+    if (dateTo && !dateTo.value) dateTo.value = today;
+
+    [dateFrom, dateTo].forEach(el => {
+        el?.addEventListener('change', () => {
+            loadPositions();
+            if (document.querySelector('.pos-tab.active')?.dataset.tab === 'reports') {
+                loadReports();
+            }
+        });
+    });
+
     // Load initial positions
     loadPositions();
 
@@ -1310,7 +1328,17 @@ function initPositionsPanel() {
 
 async function loadPositions() {
     try {
-        const response = await fetch('/api/positions');
+        const from = document.getElementById('filterDateFrom')?.value;
+        const to = document.getElementById('filterDateTo')?.value;
+        let url = '/api/positions';
+        if (from || to) {
+            const params = new URLSearchParams();
+            if (from) params.append('start_date', from);
+            if (to) params.append('end_date', to);
+            url += `?${params.toString()}`;
+        }
+
+        const response = await fetch(url);
         if (!response.ok) return;
 
         const data = await response.json();
@@ -1501,7 +1529,17 @@ function renderPendingOrders() {
 
 async function loadReports() {
     try {
-        const response = await fetch('/api/reports');
+        const from = document.getElementById('filterDateFrom')?.value;
+        const to = document.getElementById('filterDateTo')?.value;
+        let url = '/api/reports';
+        if (from || to) {
+            const params = new URLSearchParams();
+            if (from) params.append('start_date', from);
+            if (to) params.append('end_date', to);
+            url += `?${params.toString()}`;
+        }
+
+        const response = await fetch(url);
         if (!response.ok) return;
 
         const data = await response.json();
