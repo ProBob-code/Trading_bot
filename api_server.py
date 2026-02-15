@@ -1577,8 +1577,7 @@ def price_stream():
 @login_required
 def list_bots():
     """List all active bots for the current user."""
-    bots = bot_manager.get_all_bots(current_user.id)
-    running_bots = [b.to_dict() for b in bots if bot_manager.is_running(b.bot_id)]
+    running_bots = bot_manager.get_running_bots(current_user.id)
     logger.info(f"📊 User {current_user.id} active bots: {len(running_bots)}")
     return jsonify({
         'success': True,

@@ -47,7 +47,8 @@ const state = {
         INR: 83.12,
         GBP: 0.79
     },
-    paperBalance: 100000  // Editable paper trading balance
+    paperBalance: 100000,  // Editable paper trading balance
+    activeBots: []  // Loaded from /api/bots, used for bot_id lookups
 };
 
 function getStrategyName(slug) {
@@ -243,25 +244,6 @@ function initChart() {
             height: container.clientHeight || 350,
         });
     });
-
-    updateIndicatorVisibility();
-}
-
-function updateIndicatorVisibility() {
-    const s = state.currentStrategy;
-
-    // Ichimoku visibility
-    const isIchimoku = (s === 'ichimoku' || s === 'combined');
-    state.tenkanSeries.applyOptions({ visible: isIchimoku });
-    state.kijunSeries.applyOptions({ visible: isIchimoku });
-    state.spanASeries.applyOptions({ visible: isIchimoku });
-    state.spanBSeries.applyOptions({ visible: isIchimoku });
-
-    // Bollinger visibility
-    const isBollinger = (s === 'bollinger' || s === 'combined');
-    state.upperBandSeries.applyOptions({ visible: isBollinger });
-    state.lowerBandSeries.applyOptions({ visible: isBollinger });
-    state.sma20Series.applyOptions({ visible: isBollinger });
 }
 
 async function loadChartData() {
@@ -275,15 +257,19 @@ async function loadChartData() {
 
         if (data && data.length > 0) {
             const rate = state.currencyRates[state.currency] || 1;
-            const candles = data.map(d => ({
-                time: d.time,
-                open: d.open * rate,
-                high: d.high * rate,
-                low: d.low * rate,
-                close: d.close * rate
-            }));
+            const candles = data
+                .filter(d => d.open && d.high && d.low && d.close)
+                .map(d => ({
+                    time: d.time,
+                    open: d.open * rate,
+                    high: d.high * rate,
+                    low: d.low * rate,
+                    close: d.close * rate
+                }));
 
-            state.candleSeries.setData(candles);
+            if (candles.length > 0) {
+                state.candleSeries.setData(candles);
+            }
 
             // Indicator population disabled for simplification
             // updateIndicatorVisibility();
@@ -832,9 +818,14 @@ function initEventListeners() {
         }
 
         // Check if there's a bot running for this symbol/market to hot-swap strategy
-        const botId = `${state.currentMarket}_${state.currentSymbol}`.toLowerCase();
+        // Find matching bot from the loaded bots list (bot_id includes user_id prefix)
+        const matchingBot = state.activeBots && state.activeBots.find(
+            b => b.symbol.toLowerCase() === state.currentSymbol.toLowerCase() &&
+                b.market === state.currentMarket
+        );
+        if (!matchingBot) return; // No running bot for this symbol
         try {
-            const response = await fetch(`/api/bots/${botId}/strategy`, {
+            const response = await fetch(`/api/bots/${matchingBot.bot_id}/strategy`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ strategy: state.currentStrategy })
@@ -869,8 +860,15 @@ function initEventListeners() {
 
     // Dedicated STOP button for the CURRENT symbol
     document.getElementById('btnStopBot').addEventListener('click', () => {
-        const botId = `${state.currentMarket}_${state.currentSymbol}`.toLowerCase();
-        stopBot(botId);
+        const matchingBot = state.activeBots && state.activeBots.find(
+            b => b.symbol.toLowerCase() === state.currentSymbol.toLowerCase() &&
+                b.market === state.currentMarket
+        );
+        if (matchingBot) {
+            stopBot(matchingBot.bot_id);
+        } else {
+            showNotification('No running bot for this symbol');
+        }
     });
 
     // STOP ALL button - stops all running bots
@@ -1044,9 +1042,14 @@ async function loadBots() {
             renderBots(data.bots);
             document.getElementById('botCount').textContent = data.running_count;
 
+            // Store bots for use by strategy selector and other features
+            state.activeBots = data.bots;
+
             // Update Control Buttons (START/STOP) for current symbol
-            const currentBotId = `${state.currentMarket}_${state.currentSymbol}`.toLowerCase();
-            const isBotRunning = data.bots.some(b => b.bot_id === currentBotId);
+            const isBotRunning = data.bots.some(
+                b => b.symbol.toLowerCase() === state.currentSymbol.toLowerCase() &&
+                    b.market === state.currentMarket
+            );
 
             const startBtn = document.getElementById('btnAutoTrade');
             const stopBtn = document.getElementById('btnStopBot');
