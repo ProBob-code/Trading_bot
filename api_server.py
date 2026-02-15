@@ -1016,7 +1016,7 @@ def execute_trade():
 @app.route('/api/panic-sell', methods=['POST'])
 @login_required
 def panic_sell():
-    """Close all open positions immediately for the user."""
+    """Close all open positions immediately AND stop all bots for the user."""
     try:
         positions = paper_trader.get_positions(current_user.id)
         closed_count = 0
@@ -1048,10 +1048,20 @@ def panic_sell():
                     notes="Panic Sell Triggered"
                 )
 
+        # CRITICAL: Also stop all running bots so they don't reopen positions
+        user_bots = [b for b_id, b in list(bot_manager.bots.items()) if b.config.user_id == current_user.id]
+        stopped_count = 0
+        for bot in user_bots:
+            result = bot_manager.stop_bot(bot.bot_id)
+            if result.get('success'):
+                stopped_count += 1
+        bot_manager.save_configs()
+
         return jsonify({
             'success': True,
-            'message': f'Panic Sell executed. Closed {closed_count} positions.',
-            'closed_count': closed_count
+            'message': f'Panic Sell executed. Closed {closed_count} positions, stopped {stopped_count} bots.',
+            'closed_count': closed_count,
+            'stopped_bots': stopped_count
         })
     except Exception as e:
         logger.error(f"Panic sell failed for user {current_user.id}: {e}")
@@ -1358,52 +1368,11 @@ def start_bot_thread(bot_id):
 
 @app.route('/api/auto-trade/start', methods=['POST'])
 def start_auto_trade():
-    """Start live auto-trading."""
-    global live_auto_trading, live_auto_thread, auto_trade_stats
-    global current_symbol, current_interval, current_strategy, current_market
-    global auto_trade_settings, strategy_engine
-    
-    if live_auto_trading:
-        return jsonify({'success': False, 'error': 'Already running'})
-    
-    data = request.json or {}
-    current_symbol = data.get('symbol', current_symbol)
-    current_interval = data.get('interval', current_interval)
-    current_strategy = data.get('strategy', current_strategy)
-    current_market = data.get('market', current_market)
-    
-    # Update settings
-    settings = data.get('settings', {})
-    if settings:
-        auto_trade_settings.update({
-            'confluence': settings.get('confluence', 3),
-            'position_size': settings.get('positionSize', 10),
-            'check_interval': settings.get('checkInterval', 5),
-            'stop_loss': settings.get('stopLoss', 5),
-            'take_profit': settings.get('takeProfit', 10)
-        })
-    
-    # Reset stats
-    # Initialize Logger
-    # Reset stats
-    auto_trade_stats = {
-        'total_trades': 0,
-        'buy_trades': 0,
-        'sell_trades': 0,
-        'total_pnl': 0,
-        'signals': [],
-        'start_time': None,
-        'trades_log': []
-    }
-    
-    live_auto_trading = True
-    live_auto_thread = threading.Thread(target=live_auto_trade_loop, daemon=True)
-    live_auto_thread.start()
-    
+    """Legacy endpoint - redirects to new bot system."""
     return jsonify({
-        'success': True, 
-        'message': f'GodBotTrade started: {current_market.upper()} - {current_symbol} - {current_strategy}'
-    })
+        'success': False, 
+        'error': 'Legacy auto-trade is deprecated. Please use the bot system (Start Bot button).'
+    }), 400
 
 
 @app.route('/api/auto-trade/stop', methods=['POST'])
@@ -1718,10 +1687,56 @@ def stop_bot(bot_id):
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/bots/stop-all', methods=['POST'])
+@login_required
 def stop_all_bots():
-    """Stop all active bots."""
-    bot_manager.stop_all()
-    return jsonify({'success': True, 'message': 'All bots stopped'})
+    """Stop all active bots and close their positions for the current user."""
+    try:
+        # Close positions for all user's bots before stopping
+        user_bots = [b for b_id, b in list(bot_manager.bots.items()) if b.config.user_id == current_user.id]
+        closed_positions = 0
+        
+        for bot in user_bots:
+            symbol = bot.config.symbol
+            positions = paper_trader.get_positions(current_user.id)
+            symbol_pos = next((p for p in positions if p['symbol'] == symbol), None)
+            
+            if symbol_pos:
+                qty = symbol_pos['quantity']
+                side = 'sell' if qty > 0 else 'buy'
+                order = Order(
+                    user_id=current_user.id,
+                    symbol=symbol,
+                    side=OrderSide.SELL if qty > 0 else OrderSide.BUY,
+                    quantity=abs(qty),
+                    order_type=OrderType.MARKET
+                )
+                if paper_trader.submit_order(order):
+                    closed_positions += 1
+                    trade_logger.log_trade(
+                        symbol=symbol,
+                        side='CLOSE',
+                        quantity=abs(qty),
+                        price=symbol_pos.get('current_price', 0),
+                        user_id=current_user.id,
+                        pnl=symbol_pos.get('unrealized_pnl', 0),
+                        strategy=bot.config.strategy,
+                        bot_id=bot.bot_id,
+                        mode=bot.config.mode.value if hasattr(bot.config.mode, 'value') else 'paper',
+                        notes="Stop All - Auto Liquidating"
+                    )
+        
+        # Now stop all bots
+        bot_manager.stop_all()
+        bot_manager.save_configs()
+        
+        return jsonify({
+            'success': True, 
+            'message': f'All bots stopped. Closed {closed_positions} positions.',
+            'closed_positions': closed_positions
+        })
+    except Exception as e:
+        logger.error(f"Error in stop_all_bots: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/bots/<bot_id>/strategy', methods=['PUT'])
 def update_bot_strategy(bot_id):
@@ -1836,6 +1851,9 @@ def bot_watchdog_loop():
                 
                 # Check if bot should be running but its thread is dead
                 if bot.status.value == 'running' and bot.config.auto_restart_enabled:
+                    # SAFETY: Never restart a bot whose stop_flag is set (intentionally stopped)
+                    if bot.stop_flag.is_set():
+                        continue
                     if bot.thread is None or not bot.thread.is_alive():
                         logger.warning(f"🔄 Watchdog: Restarting crashed bot {bot_id}")
                         

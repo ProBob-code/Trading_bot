@@ -882,13 +882,14 @@ function initEventListeners() {
     });
 
     document.getElementById('btnPanicSell').addEventListener('click', async () => {
-        if (confirm('🚨 EMERGENCY: Close ALL open positions immediately?')) {
+        if (confirm('🚨 EMERGENCY: Close ALL open positions and STOP all bots immediately?')) {
             try {
                 const response = await fetch('/api/panic-sell', { method: 'POST' });
                 const result = await response.json();
                 if (result.success) {
                     showNotification(`✅ Panic Sell Executed: ${result.message}`, 'warning');
                     loadPositions();
+                    loadBots();  // Refresh bot list since bots are now stopped
                 }
             } catch (err) {
                 alert('Panic sell failed: ' + err.message);

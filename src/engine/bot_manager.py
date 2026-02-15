@@ -199,27 +199,35 @@ class BotManager:
                 'message': f'Bot {bot_id} started with {strategy}'
             }
     
+    def _stop_bot_unlocked(self, bot_id: str) -> Dict:
+        """Stop a running bot. MUST be called with self.lock already held."""
+        if bot_id not in self.bots:
+            return {'success': False, 'error': 'Bot not found'}
+        
+        bot = self.bots[bot_id]
+        bot.stop_flag.set()
+        bot.status = BotStatus.STOPPED
+        
+        # Wait for thread to actually exit (max 5 seconds)
+        if bot.thread and bot.thread.is_alive():
+            bot.thread.join(timeout=5)
+        
+        # Remove from bots dictionary so it disappears from active lists
+        del self.bots[bot_id]
+        
+        logger.info(f"🛑 Bot stopped and removed: {bot_id}")
+        
+        return {
+            'success': True,
+            'bot_id': bot_id,
+            'message': f'Bot {bot_id} stopped and removed',
+            'final_stats': bot.stats.__dict__
+        }
+
     def stop_bot(self, bot_id: str) -> Dict:
-        """Stop a running bot."""
+        """Stop a running bot (thread-safe public API)."""
         with self.lock:
-            if bot_id not in self.bots:
-                return {'success': False, 'error': 'Bot not found'}
-            
-            bot = self.bots[bot_id]
-            bot.stop_flag.set()
-            bot.status = BotStatus.STOPPED
-            
-            # Remove from bots dictionary so it disappears from active lists
-            del self.bots[bot_id]
-            
-            logger.info(f"🛑 Bot stopped and removed: {bot_id}")
-            
-            return {
-                'success': True,
-                'bot_id': bot_id,
-                'message': f'Bot {bot_id} stopped and removed',
-                'final_stats': bot.stats.__dict__
-            }
+            return self._stop_bot_unlocked(bot_id)
     
     def update_strategy(self, bot_id: str, new_strategy: str) -> Dict:
         """Hot-swap strategy for a running bot."""
@@ -310,7 +318,7 @@ class BotManager:
         """Stop all running bots."""
         with self.lock:
             for bot_id in list(self.bots.keys()):
-                self.stop_bot(bot_id)
+                self._stop_bot_unlocked(bot_id)
         logger.info("🛑 All bots stopped")
 
     def _migrate_legacy_configs(self):
