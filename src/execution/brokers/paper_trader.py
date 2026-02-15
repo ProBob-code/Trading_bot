@@ -83,7 +83,7 @@ class PaperTrader(BaseBroker):
         Call this with real-time prices to simulate order fills.
         """
         with self.lock:
-            self.current_prices = prices
+            self.current_prices.update(prices)
             # Check pending orders
             self._check_pending_orders()
     

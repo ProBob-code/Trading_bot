@@ -1120,32 +1120,38 @@ def panic_sell():
 # ============================================================
 
 def bot_execution_loop(bot_id):
-    """Execution loop for a specific trading bot."""
     bot = bot_manager.bots.get(bot_id)
     if not bot:
-        logger.error(f"Execution loop failed: Bot {bot_id} not found")
+        logger.error(f"❌ [BOT-{bot_id}] Not found in manager at startup.")
         return
 
     config = bot.config
     symbol = config.symbol
     interval = config.interval
-    strategy = config.strategy
     
-    logger.info(f"🚀 Bot execution starting: {bot_id} ({symbol}, {strategy})")
+    logger.info(f"🚀 [BOT-{bot_id}] Execution loop starting for {symbol} ({interval})")
     
+    loop_count = 0
     while not bot.stop_flag.is_set():
+        loop_count += 1
         try:
-            # Check Global Pause
-            if system_state.is_paused():
-                logger.info(f"⏸️ System Paused. Bot {bot_id} sleeping...")
-                time.sleep(5)
+            # Heartbeat every 5 loops
+            if loop_count % 5 == 0:
+                logger.debug(f"💓 [BOT-{bot_id}] Heartbeat - Loop {loop_count} is active")
+                
+            # Check for system pause
+            if get_system_state().is_paused():
+                logger.info(f"⏸️ [BOT-{bot_id}] System paused. Waiting...")
+                time.sleep(10)
                 continue
                 
             # Check if bot still exists in manager (wasn't deleted)
             if bot_id not in bot_manager.bots:
+                logger.warning(f"⚠️ [BOT-{bot_id}] Bot removed from manager. Exiting.")
                 break
 
-            # Fetch fresh data
+            # Fetch data
+            logger.debug(f"🔍 [BOT-{bot_id}] Fetching latest data for {symbol}...")
             if config.market == 'crypto':
                 df = crypto_provider.get_historical_klines(
                     symbol=symbol,
@@ -1162,13 +1168,13 @@ def bot_execution_loop(bot_id):
                 price_data = stock_provider.get_current_quote(symbol)
             
             if df.empty or len(df) < 52:
-                logger.warning(f"⚠️ Bot {bot_id} skipped analysis: Insufficient data ({len(df)} candles, need 52)")
+                logger.warning(f"⚠️ [BOT-{bot_id}] Insufficient data: {len(df)} candles")
                 time.sleep(10)
                 continue
             
             current_price = price_data.get('price', 0)
             if current_price <= 0:
-                logger.warning(f"⚠️ Bot {bot_id} skipped: Invalid price {current_price}")
+                logger.warning(f"⚠️ [BOT-{bot_id}] Invalid price: {current_price}")
                 time.sleep(5)
                 continue
             
@@ -1184,12 +1190,11 @@ def bot_execution_loop(bot_id):
             bot.stats.total_pnl = bot.stats.realized_pnl + bot.stats.unrealized_pnl
 
             # Analyze with selected strategy
-            strategy_engine.min_confluence = bot.config.settings.get('confluence', 1) if isinstance(bot.config.settings, dict) else 1
-            if bot_id not in bot_manager.bots:
-                logger.warning(f"⚠️ Bot {bot_id} no longer in manager. Exiting loop.")
-                break
-                
+            strategy_settings = bot.config.settings if hasattr(bot.config, 'settings') and isinstance(bot.config.settings, dict) else {}
+            strategy_engine.min_confluence = strategy_settings.get('confluence', 1)
+            
             current_strat = bot.config.strategy
+            logger.debug(f"🔍 [BOT-{bot_id}] Analyzing {symbol} with {current_strat}")
             signal = strategy_engine.analyze(df, strategy=current_strat)
             
             # Update bot stats
@@ -1201,10 +1206,10 @@ def bot_execution_loop(bot_id):
             signal_data = {
                 'time': datetime.now().isoformat(),
                 'signal': signal.signal,
-                'strength': signal.strength,
+                'strength': getattr(signal, 'strength', 0),
                 'price': current_price,
                 'strategy': current_strat,
-                'reasons': signal.reasons[:3],
+                'reasons': getattr(signal, 'reasons', [])[:3],
                 'bot_id': bot_id,
                 'symbol': symbol
             }
@@ -1212,33 +1217,36 @@ def bot_execution_loop(bot_id):
             # Emit signal to user room
             socketio.emit('auto_trade_signal', signal_data, room=f"user_{user_id}")
             if signal.signal != 'HOLD':
-                logger.debug(f"📡 Bot {bot_id} EMITTED signal {signal.signal} for user {user_id}")
+                logger.info(f"📡 [BOT-{bot_id}] SIGNAL: {signal.signal} for {symbol} at {current_price}")
             
             # 1. Check for TP/SL Exit Conditions (Proactive Exit)
-            symbol_pos = next((p for p in paper_trader.get_positions(user_id) if p['symbol'] == symbol), None)
             if symbol_pos:
                 pnl_pct = symbol_pos.get('unrealized_pnl_pct', 0)
                 tp_pct = bot.config.take_profit
                 sl_pct = bot.config.stop_loss
                 
                 if pnl_pct >= tp_pct:
-                    logger.info(f"🎯 TAKE PROFIT Triggered: {symbol} at {pnl_pct:.2f}% for user {user_id}")
-                    close_signal = type('Signal', (), {'signal': 'SELL' if symbol_pos['quantity'] > 0 else 'BUY', 'strength': 1.0, 'reasons': ['Take Profit Hit']})
-                    execute_bot_trade(bot, close_signal, current_price)
+                    logger.info(f"🎯 [BOT-{bot_id}] TAKE PROFIT: {pnl_pct:.2f}% (Limit: {tp_pct}%)")
+                    exit_signal = type('Signal', (), {'signal': 'SELL' if symbol_pos['quantity'] > 0 else 'BUY', 'strength': 1.0, 'reasons': ['Take Profit Hit']})
+                    execute_bot_trade(bot, exit_signal, current_price)
                 elif pnl_pct <= -sl_pct:
-                    logger.info(f"🛑 STOP LOSS Triggered: {symbol} at {pnl_pct:.2f}% for user {user_id}")
-                    close_signal = type('Signal', (), {'signal': 'SELL' if symbol_pos['quantity'] > 0 else 'BUY', 'strength': 1.0, 'reasons': ['Stop Loss Hit']})
-                    execute_bot_trade(bot, close_signal, current_price)
-                else:
-                    execute_bot_trade(bot, signal, current_price)
+                    logger.info(f"🛑 [BOT-{bot_id}] STOP LOSS: {pnl_pct:.2f}% (Limit: {sl_pct}%)")
+                    exit_signal = type('Signal', (), {'signal': 'SELL' if symbol_pos['quantity'] > 0 else 'BUY', 'strength': 1.0, 'reasons': ['Stop Loss Hit']})
+                    execute_bot_trade(bot, exit_signal, current_price)
+                # Use OrderSide enum properly
+                order_side = OrderSide.BUY if signal.signal == 'BUY' else OrderSide.SELL
+                logger.info(f"🎯 [BOT-{bot_id}] SIGNAL: {signal.signal} for {symbol} (Confidence: {getattr(signal, 'confidence', 0.0):.2f})")
+                execute_bot_trade(bot, signal, current_price)
             else:
+                if loop_count % 10 == 0:
+                    logger.debug(f"😴 [BOT-{bot_id}] No signal (HOLD) for {symbol}")
                 execute_bot_trade(bot, signal, current_price)
             
             # Sleep (check every 5 seconds)
             time.sleep(5)
             
         except Exception as e:
-            logger.error(f"Error in bot {bot_id} loop: {e}")
+            logger.error(f"❌ [BOT-{bot_id}] CRASH in loop: {e}", exc_info=True)
             time.sleep(10)
     
     logger.info(f"🛑 Bot execution stopped: {bot_id}")
@@ -1254,11 +1262,11 @@ def execute_bot_trade(bot, signal, current_price):
     has_short = symbol in [p['symbol'] for p in positions if p['side'] == 'SHORT']
     
     # Debug logging for every signal
-    logger.info(f"📊 Trade Decision for user {user_id} | {symbol}: Signal={signal.signal}, HasLong={has_long}, HasShort={has_short}")
+    logger.info(f"📊 [BOT-{bot.bot_id}] DECISION: Signal={signal.signal}, HasLong={has_long}, HasShort={has_short}")
     
     # SAFETY: If both LONG and SHORT exist (illegal state), close both immediately
     if has_long and has_short:
-        logger.warning(f"⚠️ ILLEGAL STATE: user {user_id} | {symbol} has BOTH LONG and SHORT. Closing both.")
+        logger.warning(f"⚠️ [BOT-{bot.bot_id}] ILLEGAL STATE: BOTH LONG and SHORT for {symbol}. Closing both.")
         # Close the LONG
         long_pos = next((p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG'), None)
         if long_pos:
@@ -1266,7 +1274,8 @@ def execute_bot_trade(bot, signal, current_price):
                 user_id=user_id,
                 symbol=symbol,
                 side='sell',
-                quantity=long_pos['quantity']
+                quantity=long_pos['quantity'],
+                order_type='market'
             )
             if order_manager.submit_order(order):
                 entry_price = long_pos.get('avg_price', current_price)
@@ -1281,7 +1290,8 @@ def execute_bot_trade(bot, signal, current_price):
                 user_id=user_id,
                 symbol=symbol,
                 side='buy',
-                quantity=short_pos['quantity']
+                quantity=short_pos['quantity'],
+                order_type='market'
             )
             if order_manager.submit_order(order):
                 pnl = (short_pos['avg_price'] - current_price) * short_pos['quantity']
@@ -1290,13 +1300,14 @@ def execute_bot_trade(bot, signal, current_price):
         return  # Exit to let state settle
     
     if signal.signal == 'BUY' and has_short:
-        logger.warning(f"⚠️ {symbol} has SHORT while processing BUY. Closing SHORT first.")
+        logger.info(f"🔄 [BOT-{bot.bot_id}] BUY signal vs SHORT position. Closing SHORT first.")
         short_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'SHORT')
         order = order_manager.create_order(
             user_id=user_id,
             symbol=symbol,
             side='buy',
-            quantity=short_pos['quantity']
+            quantity=short_pos['quantity'],
+            order_type='market'
         )
         if order_manager.submit_order(order):
             pnl = (short_pos['avg_price'] - current_price) * short_pos['quantity']
@@ -1305,14 +1316,15 @@ def execute_bot_trade(bot, signal, current_price):
         return 
 
     if signal.signal == 'SELL' and has_long:
-        logger.warning(f"⚠️ {symbol} has LONG while processing SELL. Closing LONG first.")
+        logger.info(f"🔄 [BOT-{bot.bot_id}] SELL signal vs LONG position. Closing LONG first.")
         long_pos = next(p for p in positions if p['symbol'] == symbol and p['side'] == 'LONG' and p['quantity'] > 0)
         pnl = (current_price - long_pos['avg_price']) * long_pos['quantity']
         order = order_manager.create_order(
             user_id=user_id,
             symbol=symbol,
             side='sell',
-            quantity=long_pos['quantity']
+            quantity=long_pos['quantity'],
+            order_type='market'
         )
         if order_manager.submit_order(order):
             bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
@@ -1321,48 +1333,53 @@ def execute_bot_trade(bot, signal, current_price):
 
     if signal.signal == 'BUY':
         if has_long:
-            logger.debug(f"⏸️ BUY skipped - already have long position for {symbol}")
+            logger.debug(f"⏸️ [BOT-{bot.bot_id}] BUY skipped - already LONG {symbol}")
         else:
             # Open new LONG
-            logger.info(f"🚀 {bot.bot_id} executing LONG for {symbol} @ {current_price}")
             account = paper_trader.get_account_info(user_id)
             trade_value = account['buying_power'] * (bot.config.position_size / 100)
             quantity = min(trade_value / current_price, bot.config.max_quantity)
             
             if quantity > 0:
+                logger.info(f"🚀 [BOT-{bot.bot_id}] Opening LONG {quantity} {symbol} @ {current_price}")
                 order = order_manager.create_order(
                     user_id=user_id,
                     symbol=symbol,
                     side='buy',
-                    quantity=quantity
+                    quantity=quantity,
+                    order_type='market'
                 )
                 if order_manager.submit_order(order):
                     bot_manager.increment_trades(bot.bot_id, 'buy', 0)
                     emit_trade_event(bot, 'LONG BUY', quantity, current_price, 0)
+            else:
+                logger.warning(f"⚠️ [BOT-{bot.bot_id}] BUY failed - zero quantity (Buying Power: {account['buying_power']})")
 
     elif signal.signal == 'SELL':
         if has_short:
-            logger.debug(f"⏸️ SELL skipped - already have short position for {symbol}")
+            logger.debug(f"⏸️ [BOT-{bot.bot_id}] SELL skipped - already SHORT {symbol}")
         elif has_long:
-            # handled above, but just in case
-            return
+            return  # handled above
         else:
             # Open new SHORT
-            logger.info(f"🚀 {bot.bot_id} executing SHORT for {symbol} @ {current_price}")
             account = paper_trader.get_account_info(user_id)
             trade_value = account['buying_power'] * (bot.config.position_size / 100)
             quantity = min(trade_value / current_price, bot.config.max_quantity)
             
             if quantity > 0:
+                logger.info(f"🚀 [BOT-{bot.bot_id}] Opening SHORT {quantity} {symbol} @ {current_price}")
                 order = order_manager.create_order(
                     user_id=user_id,
                     symbol=symbol,
                     side='sell',
-                    quantity=quantity
+                    quantity=quantity,
+                    order_type='market'
                 )
                 if order_manager.submit_order(order):
                     bot_manager.increment_trades(bot.bot_id, 'sell', 0)
                     emit_trade_event(bot, 'SHORT SELL', quantity, current_price, 0)
+            else:
+                logger.warning(f"⚠️ [BOT-{bot.bot_id}] SELL failed - zero quantity")
 
 def emit_trade_event(bot, side, quantity, price, pnl=0):
     user_id = bot.config.user_id

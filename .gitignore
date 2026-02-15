@@ -68,3 +68,8 @@ models/*.joblib
 tmp/
 temp/
 reports/*.json
+
+# Database and Backups
+*.db
+*.db-journal
+*.bak

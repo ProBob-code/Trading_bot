@@ -341,21 +341,19 @@ class BotManager:
                     # Ensure the user exists in DB to satisfy Foreign Key
                     if not db_manager.get_user_by_id(cfg['user_id']):
                         # Create dummy user 1 if not exists
-                        # We use a direct insert because create_user expects mobile
                         conn = db_manager._get_connection()
+                        cursor = None
                         try:
                             cursor = conn.cursor()
                             # Default password is 'admin123'
-                            cursor.execute("""
+                            db_manager._execute(cursor, """
                                 INSERT INTO users (id, mobile, username, password_hash, is_verified) 
                                 VALUES (1, '0000000000', 'admin', 'admin123', 1)
-                                ON DUPLICATE KEY UPDATE password_hash = IF(password_hash IS NULL, 'admin123', password_hash)
+                                ON DUPLICATE KEY UPDATE password_hash = 'admin123'
                             """)
                             conn.commit()
                         finally:
-                            if conn.is_connected():
-                                cursor.close()
-                                conn.close()
+                            db_manager._safe_close(conn, cursor)
                         
                     db_manager.save_bot_config(cfg)
                 logger.info(f"🚚 Migrated {len(configs)} legacy bot configs to MySQL")

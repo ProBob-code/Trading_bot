@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GodBotTrade (GBT) — AI-Powered Trading Platform</title>
+    <meta name="description"
+        content="GodBotTrade is an AI-powered multi-asset trading platform with auto-trading bots, real-time charts, news sentiment analysis, and paper trading. Trade smarter with GBT.">
+    <meta name="keywords"
+        content="trading bot, AI trading, crypto trading, stock trading, auto trading, algorithmic trading, GodBotTrade, GBT">
+    <meta name="author" content="GodBotTrade">
+    <link rel="icon" type="image/png" href="/landing/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/landing/styles.css">
+</head>
+
+<body>
+
+    <!-- ============================================ -->
+    <!-- CANVAS BACKGROUND -->
+    <!-- ============================================ -->
+    <canvas id="particleCanvas"></canvas>
+
+    <!-- ============================================ -->
+    <!-- NAVBAR -->
+    <!-- ============================================ -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-container">
+            <a href="#hero" class="nav-logo">
+                <img src="/landing/logo.png" alt="GodBotTrade Logo" class="nav-logo-img">
+                <span class="nav-logo-text">GodBot<span class="accent">Trade</span></span>
+            </a>
+            <ul class="nav-links" id="navLinks">
+                <li><a href="#about">About</a></li>
+                <li><a href="#features">Features</a></li>
+                <li><a href="#how-it-works">How It Works</a></li>
+                <li><a href="#invest">Why Invest</a></li>
+                <li><a href="#tech">Tech Stack</a></li>
+            </ul>
+            <a href="/login" class="nav-cta">
+                <span class="cta-icon">⚡</span> Start Trading
+            </a>
+            <button class="hamburger" id="hamburger" aria-label="Toggle menu">
+                <span></span><span></span><span></span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- ============================================ -->
+    <!-- HERO SECTION -->
+    <!-- ============================================ -->
+    <section class="hero" id="hero">
+        <div class="hero-content">
+            <div class="hero-text">
+                <div class="hero-badge">
+                    <span class="badge-dot"></span>
+                    AI-Powered Multi-Asset Trading
+                </div>
+                <h1 class="hero-title">
+                    Trade <span class="gradient-text">Smarter</span>,<br>
+                    Not Harder with <span class="gradient-text">GBT</span>
+                </h1>
+                <p class="hero-subtitle">
+                    GodBotTrade is a professional multi-asset trading platform with <strong>AI-driven auto-trading
+                        bots</strong>,
+                    real-time candlestick charts, news sentiment analysis, and paper trading simulation.
+                    Trade <em>Crypto 24/7</em> and <em>Stocks</em> with strategies that deliver up to <strong>77%
+                        success rate</strong>.
+                </p>
+                <div class="hero-actions">
+                    <a href="/login" class="btn btn-primary btn-glow" id="startBtn">
+                        <span class="btn-icon">🚀</span> Start Trading
+                    </a>
+                    <a href="#about" class="btn btn-secondary">
+                        <span class="btn-icon">📖</span> Learn More
+                    </a>
+                </div>
+                <div class="hero-trust">
+                    <div class="trust-item">
+                        <span class="trust-icon">🔒</span>
+                        <span>Paper Trading Safe</span>
+                    </div>
+                    <div class="trust-item">
+                        <span class="trust-icon">⚡</span>
+                        <span>Real-Time Data</span>
+                    </div>
+                    <div class="trust-item">
+                        <span class="trust-icon">🤖</span>
+                        <span>AI-Powered</span>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="hero-image-wrapper">
+                    <img src="/landing/hero-bg.png" alt="GodBotTrade AI Trading Platform" class="hero-image">
+                    <div class="hero-glow"></div>
+                </div>
+            </div>
+        </div>
+        <div class="hero-scroll-indicator">
+            <span>Scroll to explore</span>
+            <div class="scroll-arrow"></div>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- STATS BAR -->
+    <!-- ============================================ -->
+    <section class="stats-section reveal">
+        <div class="container">
+            <div class="stats-cards">
+                <!-- Group 1: Performance -->
+                <div class="stat-card">
+                    <div class="stat-card-icon">🏆</div>
+                    <div class="stat-display">
+                        <span class="stat-number" data-target="77">0</span><span class="stat-suffix">%</span>
+                    </div>
+                    <h3 class="stat-card-title">Win Rate</h3>
+                    <p class="stat-card-desc">Verified accuracy on our MACD + RSI momentum strategy.</p>
+                </div>
+
+                <!-- Group 2: Automation -->
+                <div class="stat-card">
+                    <div class="stat-card-icon">🤖</div>
+                    <div class="stat-display">
+                        <span class="stat-number" data-target="5">0</span><span class="stat-suffix">+</span>
+                    </div>
+                    <h3 class="stat-card-title">AI Strategies</h3>
+                    <p class="stat-card-desc">Diverse autonomous bots including ML forecasting and Combined consensus.
+                    </p>
+                </div>
+
+                <!-- Group 3: Market Access -->
+                <div class="stat-card">
+                    <div class="stat-card-icon">⚡</div>
+                    <div class="stat-display">
+                        <span class="stat-number" data-target="15">0</span><span class="stat-suffix">+</span>
+                    </div>
+                    <h3 class="stat-card-title">Tradable Assets</h3>
+                    <p class="stat-card-desc">Trade leading Crypto and Stocks with 24/7 automated management.</p>
+                </div>
+            </div>
+
+            <div class="stats-sub-bar">
+                <div class="sub-stat">
+                    <strong>24/7</strong> Autonomous Trading
+                </div>
+                <div class="sub-stat-divider"></div>
+                <div class="sub-stat">
+                    <strong>$100K</strong> Free Paper Capital
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- ABOUT / WHAT IS GBT -->
+    <!-- ============================================ -->
+    <section class="section about" id="about">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="section-tag">What is GBT?</span>
+                <h2 class="section-title">The <span class="gradient-text">Next-Gen</span> Trading Platform</h2>
+                <p class="section-subtitle">GodBotTrade combines cutting-edge AI algorithms, real-time market data, and
+                    intuitive design to give you an unfair advantage in the markets.</p>
+            </div>
+            <div class="about-grid">
+                <div class="about-image reveal">
+                    <div class="about-image-wrapper">
+                        <img src="/landing/dashboard-mockup.png" alt="GodBotTrade Dashboard" class="about-img">
+                        <div class="about-glow"></div>
+                    </div>
+                </div>
+                <div class="about-content reveal">
+                    <div class="about-card">
+                        <div class="about-card-icon">📊</div>
+                        <div>
+                            <h3>Multi-Asset Universe</h3>
+                            <p>Trade BTC, ETH, SOL, AAPL, TSLA, and 15+ assets across crypto and stock markets — all
+                                from one unified dashboard.</p>
+                        </div>
+                    </div>
+                    <div class="about-card">
+                        <div class="about-card-icon">🤖</div>
+                        <div>
+                            <h3>Autonomous AI Bots</h3>
+                            <p>Deploy auto-trading bots with Ichimoku, Bollinger Bands, MACD+RSI, ML Forecast, or
+                                Combined consensus strategies.</p>
+                        </div>
+                    </div>
+                    <div class="about-card">
+                        <div class="about-card-icon">📰</div>
+                        <div>
+                            <h3>News Sentiment Engine</h3>
+                            <p>Our NLP engine scans live RSS feeds from CoinTelegraph, Yahoo Finance, and more to detect
+                                BULLISH/BEARISH signals.</p>
+                        </div>
+                    </div>
+                    <div class="about-card">
+                        <div class="about-card-icon">🛡️</div>
+                        <div>
+                            <h3>Risk Management</h3>
+                            <p>Built-in stop-loss, take-profit, panic-sell buttons, and configurable position sizing
+                                protect your capital.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- KEY FEATURES -->
+    <!-- ============================================ -->
+    <section class="section features" id="features">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="section-tag">Features</span>
+                <h2 class="section-title">Everything You Need to <span class="gradient-text">Win</span></h2>
+                <p class="section-subtitle">A comprehensive trading suite built for performance, reliability, and speed.
+                </p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card reveal">
+                    <div class="feature-icon-wrapper">
+                        <div class="feature-icon">📈</div>
+                    </div>
+                    <h3>Real-Time Charts</h3>
+                    <p>TradingView Lightweight Charts with candlesticks, multiple timeframes (1m–1D), and live WebSocket
+                        price updates.</p>
+                    <div class="feature-tag">Live Data</div>
+                </div>
+                <div class="feature-card reveal">
+                    <div class="feature-icon-wrapper">
+                        <div class="feature-icon">🤖</div>
+                    </div>
+                    <h3>Auto-Trading Bots</h3>
+                    <p>5 proven strategies including Ichimoku Cloud, MACD+RSI, Bollinger Bands, ML Forecast, and
+                        Combined consensus voting.</p>
+                    <div class="feature-tag">AI Powered</div>
+                </div>
+                <div class="feature-card reveal">
+                    <div class="feature-icon-wrapper">
+                        <div class="feature-icon">🌐</div>
+                    </div>
+                    <h3>Multi-Asset Trading</h3>
+                    <p>Trade Crypto (BTC, ETH, SOL, BNB, XRP) and Stocks (AAPL, TSLA, GOOGL, MSFT) from a unified
+                        interface.</p>
+                    <div class="feature-tag">Crypto + Stocks</div>
+                </div>
+                <div class="feature-card reveal">
+                    <div class="feature-icon-wrapper">
+                        <div class="feature-icon">📰</div>
+                    </div>
+                    <h3>Sentiment Analysis</h3>
+                    <p>NLP-powered news sentiment scoring from RSS feeds including BULLISH/BEARISH signals and top
+                        gainers/losers.</p>
+                    <div class="feature-tag">NLP Engine</div>
+                </div>
+                <div class="feature-card reveal">
+                    <div class="feature-icon-wrapper">
+                        <div class="feature-icon">💰</div>
+                    </div>
+                    <h3>Paper Trading</h3>
+                    <p>$100K virtual capital with full trade execution, P&L tracking, positions, orders, and
+                        comprehensive trade history.</p>
+                    <div class="feature-tag">Risk Free</div>
+                </div>
+                <div class="feature-card reveal">
+                    <div class="feature-icon-wrapper">
+                        <div class="feature-icon">🛡️</div>
+                    </div>
+                    <h3>Risk Management</h3>
+                    <p>Configurable stop-loss/take-profit, panic-sell, position sizing, and real-time alerts to protect
+                        your portfolio.</p>
+                    <div class="feature-tag">Protection</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- HOW IT WORKS -->
+    <!-- ============================================ -->
+    <section class="section how-it-works" id="how-it-works">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="section-tag">How It Works</span>
+                <h2 class="section-title">Start Trading in <span class="gradient-text">3 Steps</span></h2>
+                <p class="section-subtitle">Get from zero to live trading in minutes, not hours.</p>
+            </div>
+            <div class="steps-grid">
+                <div class="step-card reveal">
+                    <div class="step-number">01</div>
+                    <div class="step-icon">🔗</div>
+                    <h3>Connect</h3>
+                    <p>Sign up and connect to real-time market data. Start with paper trading — no API keys or funding
+                        needed.</p>
+                    <div class="step-line"></div>
+                </div>
+                <div class="step-card reveal">
+                    <div class="step-number">02</div>
+                    <div class="step-icon">⚙️</div>
+                    <h3>Configure</h3>
+                    <p>Choose your assets, pick a strategy (or let our Combined bot decide), set your risk parameters,
+                        and deploy your bot.</p>
+                    <div class="step-line"></div>
+                </div>
+                <div class="step-card reveal">
+                    <div class="step-number">03</div>
+                    <div class="step-icon">💎</div>
+                    <h3>Profit</h3>
+                    <p>Watch your bots execute trades 24/7 with real-time charts, P&L tracking, and news sentiment
+                        keeping you informed.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ============================================ -->
+    <!-- WHY INVEST / INVESTMENT PITCH -->
+    <!-- ============================================ -->
+    <section class="section invest" id="invest">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="section-tag">For Investors</span>
+                <h2 class="section-title">Why <span class="gradient-text">Invest</span> in GBT?</h2>
+                <p class="section-subtitle">GodBotTrade sits at the intersection of AI, fintech, and retail trading — a
+                    $12B+ and growing market.</p>
+            </div>
+
+            <div class="invest-grid">
+                <div class="invest-card invest-card-large reveal">
+                    <div class="invest-card-header">
+                        <div class="invest-icon">🌍</div>
+                        <h3>Massive Market Opportunity</h3>
+                    </div>
+                    <p>The global algorithmic trading market is projected to reach <strong>$31.5 billion by
+                            2028</strong> (CAGR 12.2%). Retail traders are demanding sophisticated tooling previously
+                        available only to hedge funds.</p>
+                    <div class="invest-highlight">
+                        <span class="invest-stat">$31.5B</span>
+                        <span class="invest-stat-label">Market by 2028</span>
+                    </div>
+                </div>
+
+                <div class="invest-card reveal">
+                    <div class="invest-card-header">
+                        <div class="invest-icon">🏗️</div>
+                        <h3>Technology Moat</h3>
+                    </div>
+                    <p>Our multi-strategy consensus voting engine, real-time sentiment analysis, and full-stack platform
+                        create a defensible technology advantage that competitors can't easily replicate.</p>
+                </div>
+
+                <div class="invest-card reveal">
+                    <div class="invest-card-header">
+                        <div class="invest-icon">📈</div>
+                        <h3>Product-Market Fit</h3>
+                    </div>
+                    <p>Real users, proven strategies with 73-77% success rates, and a fully functional platform ready
+                        for scale. GBT is beyond MVP — it's a production-grade trading system.</p>
+                </div>
+
+                <div class="invest-card reveal">
+                    <div class="invest-card-header">
+                        <div class="invest-icon">💡</div>
+                        <h3>Revenue Model</h3>
+                    </div>
+                    <p>Freemium SaaS model with paper trading free. Premium tiers for live trading, advanced bots,
+                        priority data feeds, and institutional API access.</p>
+                </div>
+
+                <div class="invest-card reveal">
+                    <div class="invest-card-header">
+                        <div class="invest-icon">🚀</div>
+                        <h3>Growth Strategy</h3>
+                    </div>
+                    <p>Phase 1: Crypto + US Stocks. Phase 2: Indian market expansion (NSE/BSE). Phase 3: Options
+                        trading, social copy-trading, and mobile app launch.</p>
+                </div>
+
+                <div class="invest-card invest-card-large reveal">
+                    <div class="invest-card-header">
+                        <div class="invest-icon">🎯</div>
+                        <h3>Traction & Roadmap</h3>
+                    </div>
+                    <div class="roadmap">
+                        <div class="roadmap-item roadmap-done">
+                            <div class="roadmap-dot"></div>
+                            <div>
+                                <strong>Phase 1 — Complete</strong>
+                                <p>Core platform, 5 bot strategies, paper trading, real-time charts, sentiment analysis
+                                </p>
+                            </div>
+                        </div>
+                        <div class="roadmap-item roadmap-active">
+                            <div class="roadmap-dot"></div>
+                            <div>
+                                <strong>Phase 2 — In Progress</strong>
+                                <p>Live trading integration, user authentication, cloud deployment (Railway), mobile
+                                    responsive</p>
+                            </div>
+                        </div>
+                        <div class="roadmap-item">
+                            <div class="roadmap-dot"></div>
+                            <div>
+                                <strong>Phase 3 — Planned</strong>
+                                <p>Mobile app, social copy-trading, options strategies, institutional API, Indian
+                                    markets</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- TECH STACK -->
+    <!-- ============================================ -->
+    <section class="section tech" id="tech">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="section-tag">Technology</span>
+                <h2 class="section-title">Built with <span class="gradient-text">Modern Tech</span></h2>
+                <p class="section-subtitle">A robust, scalable architecture designed for high-frequency real-time data.
+                </p>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-card reveal">
+                    <div class="tech-icon">🐍</div>
+                    <h4>Python 3.12</h4>
+                    <p>Backend & ML</p>
+                </div>
+                <div class="tech-card reveal">
+                    <div class="tech-icon">🌶️</div>
+                    <h4>Flask</h4>
+                    <p>REST API</p>
+                </div>
+                <div class="tech-card reveal">
+                    <div class="tech-icon">🔌</div>
+                    <h4>Socket.IO</h4>
+                    <p>Real-Time WebSocket</p>
+                </div>
+                <div class="tech-card reveal">
+                    <div class="tech-icon">📊</div>
+                    <h4>TradingView</h4>
+                    <p>Lightweight Charts</p>
+                </div>
+                <div class="tech-card reveal">
+                    <div class="tech-icon">💰</div>
+                    <h4>Binance API</h4>
+                    <p>Crypto Data</p>
+                </div>
+                <div class="tech-card reveal">
+                    <div class="tech-icon">📰</div>
+                    <h4>Alpha Vantage</h4>
+                    <p>Stock Data</p>
+                </div>
+                <div class="tech-card reveal">
+                    <div class="tech-icon">🧠</div>
+                    <h4>Scikit-learn</h4>
+                    <p>ML Models</p>
+                </div>
+                <div class="tech-card reveal">
+                    <div class="tech-icon">🐳</div>
+                    <h4>Docker</h4>
+                    <p>Containerized</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- FOOTER CTA -->
+    <!-- ============================================ -->
+    <section class="section cta-section" id="cta">
+        <div class="container">
+            <div class="cta-content reveal">
+                <div class="cta-logo">
+                    <img src="/landing/logo.png" alt="GodBotTrade" class="cta-logo-img">
+                </div>
+                <h2 class="cta-title">Ready to Trade <span class="gradient-text">Smarter</span>?</h2>
+                <p class="cta-subtitle">Join GodBotTrade and let AI-powered bots work for you — 24 hours a day, 7 days a
+                    week.</p>
+                <a href="/login" class="btn btn-primary btn-glow btn-large">
+                    <span class="btn-icon">🚀</span> Start Trading Now
+                </a>
+                <div class="cta-note">No credit card required • Start with $100K paper trading</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- FOOTER -->
+    <!-- ============================================ -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <div class="footer-logo">
+                        <img src="/landing/logo.png" alt="GodBotTrade" class="footer-logo-img">
+                        <span>GodBot<span class="accent">Trade</span></span>
+                    </div>
+                    <p>AI-powered multi-asset trading platform. Trade Crypto & Stocks with intelligent automation.</p>
+                </div>
+                <div class="footer-links-group">
+                    <h4>Platform</h4>
+                    <ul>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#tech">Technology</a></li>
+                        <li><a href="/login">Login</a></li>
+                    </ul>
+                </div>
+                <div class="footer-links-group">
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="#about">About GBT</a></li>
+                        <li><a href="#how-it-works">How It Works</a></li>
+                        <li><a href="#invest">Investors</a></li>
+                    </ul>
+                </div>
+                <div class="footer-links-group">
+                    <h4>Contact</h4>
+                    <ul>
+                        <li><a href="mailto:contact@godbottrade.com">contact@godbottrade.com</a></li>
+                        <li><a href="#invest">Investment Inquiries</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 GodBotTrade (GBT). All rights reserved. Made with ⚡ for Traders worldwide.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/landing/script.js"></script>
+</body>
+
+</html>

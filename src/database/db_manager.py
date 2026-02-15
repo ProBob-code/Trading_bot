@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from loguru import logger
 from typing import Dict, List, Optional, Any
+import sqlite3
 
 class DatabaseManager:
     def __init__(self):
@@ -26,10 +27,31 @@ class DatabaseManager:
         
         logger.info(f"🔌 database_manager: Connecting to {self.host}:{self.port} as {self.user} (DB: {self.database})")
         
+        self.use_sqlite = False
+        try:
+            # Check if we can connect to MySQL
+            conn = mysql.connector.connect(
+                host=self.host,
+                port=self.port,
+                user=self.user,
+                password=self.password
+            )
+            conn.close()
+            logger.info("✅ MySQL connection verified.")
+        except Exception as e:
+            logger.warning(f"⚠️ MySQL connection failed: {e}. Falling back to SQLite.")
+            self.use_sqlite = True
+            self.sqlite_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_bot.db")
+            
         self._init_db()
 
     def _get_connection(self):
-        """Create a new MySQL connection."""
+        """Create a new database connection (MySQL or SQLite)."""
+        if self.use_sqlite:
+            conn = sqlite3.connect(self.sqlite_path)
+            conn.row_factory = sqlite3.Row
+            return conn
+            
         try:
             return mysql.connector.connect(
                 host=self.host,
@@ -56,6 +78,72 @@ class DatabaseManager:
                 return self._get_connection()
             raise e
 
+    def _clean_sql(self, sql: str) -> str:
+        """Adjust SQL syntax for SQLite if needed."""
+        if not self.use_sqlite:
+            return sql
+            
+        # Basic SQLite transformations
+        sql = sql.replace('ENGINE=InnoDB', '')
+        sql = sql.replace('INT AUTO_INCREMENT PRIMARY KEY', 'INTEGER PRIMARY KEY AUTOINCREMENT')
+        sql = sql.replace('AUTO_INCREMENT', 'AUTOINCREMENT')
+        sql = sql.replace('DOUBLE', 'REAL')
+        sql = sql.replace('%s', '?')
+        
+        # Handle ON DUPLICATE KEY UPDATE (MySQL) -> ON CONFLICT (SQLite)
+        # This is a very simplistic conversion for our specific needs
+        if "ON DUPLICATE KEY UPDATE" in sql:
+            # We assume the ID is the conflict target for bots table
+            if "INSERT INTO bots" in sql:
+                 parts = sql.split("ON DUPLICATE KEY UPDATE")
+                 updates = parts[1].strip()
+                 # SQLite syntax: ON CONFLICT(id) DO UPDATE SET ...
+                 sql = f"{parts[0]} ON CONFLICT(id) DO UPDATE SET {updates}"
+            # For system_state table
+            elif "INSERT INTO system_state" in sql:
+                 parts = sql.split("ON DUPLICATE KEY UPDATE")
+                 updates = parts[1].strip()
+                 sql = f"{parts[0]} ON CONFLICT(state_key) DO UPDATE SET {updates}"
+            # For users table
+            elif "INSERT INTO users" in sql:
+                 parts = sql.split("ON DUPLICATE KEY UPDATE")
+                 updates = parts[1].strip()
+                 sql = f"{parts[0]} ON CONFLICT(id) DO UPDATE SET {updates}"
+        
+        # Handle VALUES(...) in UPDATE part (MySQL-specific)
+        if self.use_sqlite and "SET" in sql and "VALUES(" in sql:
+             # Example: SET b = VALUES(b) -> SET b = excluded.b
+             import re
+             sql = re.sub(r'VALUES\((\w+)\)', r'excluded.\1', sql)
+
+        # Handle INSERT IGNORE (MySQL) -> INSERT OR IGNORE (SQLite)
+        if self.use_sqlite:
+            sql = sql.replace('INSERT IGNORE', 'INSERT OR IGNORE')
+
+        return sql
+
+    def _execute(self, cursor, query: str, params: Any = None):
+        """Execute a query with standard MySQL placeholders, handled for SQLite."""
+        sql = self._clean_sql(query)
+        if params:
+            cursor.execute(sql, params)
+        else:
+            cursor.execute(sql)
+
+    def _safe_close(self, conn, cursor=None):
+        """Safely close connection and cursor for both MySQL and SQLite."""
+        try:
+            if cursor:
+                cursor.close()
+            if conn:
+                if not self.use_sqlite:
+                    if hasattr(conn, 'is_connected') and conn.is_connected():
+                        conn.close()
+                else:
+                    conn.close()
+        except Exception as e:
+            logger.debug(f"Error during safe close: {e}")
+
     def _init_db(self):
         """Initialize database with required tables."""
         conn = self._get_connection()
@@ -63,7 +151,7 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             # Users table
-            cursor.execute('''
+            self._execute(cursor, '''
                 CREATE TABLE IF NOT EXISTS users (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     username VARCHAR(255) UNIQUE,
@@ -78,7 +166,7 @@ class DatabaseManager:
             ''')
             
             # Bots table
-            cursor.execute('''
+            self._execute(cursor, '''
                 CREATE TABLE IF NOT EXISTS bots (
                     id VARCHAR(255) PRIMARY KEY,
                     user_id INT,
@@ -98,7 +186,7 @@ class DatabaseManager:
             ''')
             
             # Trades table
-            cursor.execute('''
+            self._execute(cursor, '''
                 CREATE TABLE IF NOT EXISTS trades (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     user_id INT,
@@ -122,14 +210,16 @@ class DatabaseManager:
             ''')
             
             # Migration: Ensure 'side' column in 'trades' is long enough
-            try:
-                cursor.execute("ALTER TABLE trades MODIFY COLUMN side VARCHAR(20)")
-                conn.commit()
-            except Exception:
-                pass
+            # SKIP for SQLite as it doesn't support ALTER TABLE ... MODIFY
+            if not self.use_sqlite:
+                try:
+                    cursor.execute("ALTER TABLE trades MODIFY COLUMN side VARCHAR(20)")
+                    conn.commit()
+                except Exception:
+                    pass
 
             # System Logs table
-            cursor.execute('''
+            self._execute(cursor, '''
                 CREATE TABLE IF NOT EXISTS system_logs (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     level VARCHAR(20),
@@ -142,7 +232,7 @@ class DatabaseManager:
             ''')
 
             # News Sentiment table
-            cursor.execute('''
+            self._execute(cursor, '''
                 CREATE TABLE IF NOT EXISTS news_sentiment (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     url VARCHAR(767) UNIQUE,
@@ -157,101 +247,99 @@ class DatabaseManager:
             ''')
 
             # System State table
-            cursor.execute('''
+            # SQLite doesn't support ON UPDATE CURRENT_TIMESTAMP
+            state_sql = '''
                 CREATE TABLE IF NOT EXISTS system_state (
                     state_key VARCHAR(100) PRIMARY KEY,
                     state_value TEXT,
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB
-            ''')
+            '''
+            if not self.use_sqlite:
+                state_sql = state_sql.replace('DEFAULT CURRENT_TIMESTAMP', 'DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
+            
+            self._execute(cursor, state_sql)
             
             conn.commit()
-            logger.info("MySQL database initialized successfully")
-        except Error as e:
+            logger.info(f"{'SQLite' if self.use_sqlite else 'MySQL'} database initialized successfully")
+        except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     # --- User Management ---
     
-    def create_user(self, mobile: str) -> bool:
+    def create_user(self, mobile: str) -> Optional[int]:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO users (mobile) VALUES (%s)", (mobile,))
+            self._execute(cursor, "INSERT INTO users (mobile) VALUES (%s)", (mobile,))
             conn.commit()
-            return True
-        except Error:
-            return False
+            return cursor.lastrowid
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     def get_user_by_mobile(self, mobile: str) -> Optional[Dict]:
         conn = self._get_connection()
         try:
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM users WHERE mobile = %s", (mobile,))
-            return cursor.fetchone()
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor, "SELECT * FROM users WHERE mobile = %s", (mobile,))
+            row = cursor.fetchone()
+            if row and self.use_sqlite:
+                return dict(row)
+            return row
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     def get_user_by_id(self, user_id: int) -> Optional[Dict]:
         conn = self._get_connection()
         try:
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-            return cursor.fetchone()
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor, "SELECT * FROM users WHERE id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and self.use_sqlite:
+                return dict(row)
+            return row
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     def update_user_otp(self, user_id: int, otp: str):
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("UPDATE users SET otp = %s WHERE id = %s", (otp, user_id))
+            self._execute(cursor, "UPDATE users SET otp = %s WHERE id = %s", (otp, user_id))
             conn.commit()
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     def verify_user(self, user_id: int, username: str, password_hash: str):
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute(
+            self._execute(cursor, 
                 "UPDATE users SET is_verified = 1, username = %s, password_hash = %s WHERE id = %s",
                 (username, password_hash, user_id)
             )
             conn.commit()
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     def get_user_by_username(self, username: str) -> Optional[Dict]:
         conn = self._get_connection()
         try:
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
-            return cursor.fetchone()
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor, "SELECT * FROM users WHERE username = %s", (username,))
+            row = cursor.fetchone()
+            if row and self.use_sqlite:
+                return dict(row)
+            return row
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     # --- Trade Management ---
     
     def add_trade(self, record: Dict):
-        """Add a trade record to MySQL."""
+        """Add a trade record to MySQL or SQLite."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -262,23 +350,45 @@ class DatabaseManager:
             # Convert date str if needed
             data = list(record.values())
             
-            cursor.execute(
+            self._execute(cursor, 
                 f"INSERT INTO trades ({columns}) VALUES ({placeholders})",
                 data
             )
             conn.commit()
-        except Error as e:
-            logger.error(f"Error adding trade to MySQL: {e}")
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
+
+    def save_trade(self, trade_data: Dict):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO trades (
+                    user_id, trade_id, round_trip_id, symbol, side, 
+                    quantity, price, pnl, strategy, bot_id, mode, 
+                    account_value, trade_type, notes, date
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            params = (
+                trade_data['user_id'], trade_data['trade_id'],
+                trade_data.get('round_trip_id'), trade_data['symbol'],
+                trade_data['side'], trade_data['quantity'],
+                trade_data['price'], trade_data.get('pnl', 0),
+                trade_data['strategy'], trade_data['bot_id'],
+                trade_data['mode'], trade_data['account_value'],
+                trade_data.get('trade_type', 'market'),
+                trade_data.get('notes'), trade_data.get('date')
+            )
+            self._execute(cursor, query, params)
+            conn.commit()
+        finally:
+            self._safe_close(conn, cursor)
 
     def get_user_trades(self, user_id: int, start_date: str = None, end_date: str = None, symbol: str = None, limit: int = 100) -> List[Dict]:
         """Get trades for a user with optional date and symbol filters."""
         conn = self._get_connection()
         try:
-            cursor = conn.cursor(dictionary=True)
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
             query = "SELECT * FROM trades WHERE user_id = %s"
             params = [user_id]
             
@@ -295,12 +405,13 @@ class DatabaseManager:
             query += " ORDER BY timestamp DESC LIMIT %s"
             params.append(limit)
             
-            cursor.execute(query, params)
-            return cursor.fetchall()
+            self._execute(cursor, query, params)
+            rows = cursor.fetchall()
+            if self.use_sqlite:
+                return [dict(row) for row in rows]
+            return rows
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     # --- Bot Management ---
     
@@ -308,49 +419,54 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            fields = list(config.keys())
-            # Rename interval to interval_str for MySQL keyword avoidance if needed, 
-            # but I already used interval_str in table definition.
-            # Map 'interval' to 'interval_str' in the input dict if necessary.
-            if 'interval' in config:
-                config['interval_str'] = config.pop('interval')
-                fields = list(config.keys())
-
-            placeholders = ", ".join(["%s"] * len(fields))
-            columns = ", ".join(fields)
-            updates = ", ".join([f"{f} = VALUES({f})" for f in fields])
-            
-            data = list(config.values())
-            
-            cursor.execute(
-                f"INSERT INTO bots ({columns}) VALUES ({placeholders}) "
-                f"ON DUPLICATE KEY UPDATE {updates}",
-                data
+            query = """
+                INSERT INTO bots (
+                    id, user_id, symbol, market, strategy, mode, interval_str,
+                    position_size, stop_loss, take_profit, max_quantity, auto_restart_enabled, status
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                    symbol=%s, market=%s, strategy=%s, mode=%s, interval_str=%s,
+                    position_size=%s, stop_loss=%s, take_profit=%s, max_quantity=%s, 
+                    auto_restart_enabled=%s, status=%s
+            """
+            params = (
+                config['id'], config['user_id'], config['symbol'],
+                config['market'], config.get('strategy', 'hybrid'),
+                config.get('mode', 'backtest'), config.get('interval', '1m'),
+                config.get('position_size', 10.0), config.get('stop_loss', 2.0),
+                config.get('take_profit', 4.0), config.get('max_quantity', 1.0),
+                config.get('auto_restart_enabled', 1), config.get('status', 'running'),
+                # For update
+                config['symbol'], config['market'], config.get('strategy', 'hybrid'),
+                config.get('mode', 'backtest'), config.get('interval', '1m'),
+                config.get('position_size', 10.0), config.get('stop_loss', 2.0),
+                config.get('take_profit', 4.0), config.get('max_quantity', 1.0),
+                config.get('auto_restart_enabled', 1), config.get('status', 'running')
             )
+            self._execute(cursor, query, params)
             conn.commit()
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
-    def get_all_bots(self, user_id: Optional[int] = None) -> List[Dict]:
+    def get_all_bots(self, user_id: int = None) -> List[Dict]:
         conn = self._get_connection()
         try:
-            cursor = conn.cursor(dictionary=True)
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
             if user_id:
-                cursor.execute("SELECT * FROM bots WHERE user_id = %s", (user_id,))
+                self._execute(cursor, "SELECT * FROM bots WHERE user_id = %s", (user_id,))
             else:
-                cursor.execute("SELECT * FROM bots")
+                self._execute(cursor, "SELECT * FROM bots")
+            
             rows = cursor.fetchall()
-            # Rename interval_str back to interval
+            bots = []
             for row in rows:
-                if 'interval_str' in row:
-                    row['interval'] = row.pop('interval_str')
-            return rows
+                bot = dict(row) if self.use_sqlite else row
+                # Map interval_str back to interval for the app
+                bot['interval'] = bot.pop('interval_str', '1m')
+                bots.append(bot)
+            return bots
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     # --- Logging ---
     
@@ -358,18 +474,16 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute(
+            self._execute(cursor, 
                 "INSERT INTO system_logs (level, module, message, bot_id, user_id) VALUES (%s, %s, %s, %s, %s)",
                 (level, module, message, bot_id, user_id)
             )
             conn.commit()
-        except Error as e:
+        except Exception:
             # Don't use loguru here to avoid recursion
             pass
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     # --- News Sentiment ---
     
@@ -388,18 +502,16 @@ class DatabaseManager:
                 news_item.get('timestamp')
             ]
             
-            placeholders = ", ".join(["%s"] * len(fields))
             columns = ", ".join(fields)
+            placeholders = ", ".join(["%s"] * len(fields))
             
-            cursor.execute(
+            self._execute(cursor, 
                 f"INSERT IGNORE INTO news_sentiment ({columns}) VALUES ({placeholders})",
                 data
             )
             conn.commit()
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     # --- System State ---
     
@@ -407,28 +519,24 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT state_value FROM system_state WHERE state_key = %s", (key,))
+            self._execute(cursor, "SELECT state_value FROM system_state WHERE state_key = %s", (key,))
             row = cursor.fetchone()
             return row[0] if row else None
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
     def set_system_state_val(self, key: str, value: str):
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute(
+            self._execute(cursor, 
                 "INSERT INTO system_state (state_key, state_value) VALUES (%s, %s) "
                 "ON DUPLICATE KEY UPDATE state_value = VALUES(state_value)",
                 (key, value)
             )
             conn.commit()
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            self._safe_close(conn, cursor)
 
 # Singleton instance
 db_manager = DatabaseManager()

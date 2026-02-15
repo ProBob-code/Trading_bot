@@ -152,11 +152,13 @@ class TradeLogger:
         # For simplicity, we get all trades from the trades table
         conn = db_manager._get_connection()
         try:
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM trades ORDER BY timestamp ASC")
+            use_sqlite = getattr(db_manager, 'use_sqlite', False)
+            cursor = conn.cursor() if use_sqlite else conn.cursor(dictionary=True)
+            db_manager._execute(cursor, "SELECT * FROM trades ORDER BY timestamp ASC")
             rows = cursor.fetchall()
             
-            for record in rows:
+            for row in rows:
+                record = dict(row) if use_sqlite else row
                 # Convert datetime/date objects to strings for existing UI/Logic compatibility
                 if isinstance(record['timestamp'], datetime):
                     record['timestamp'] = record['timestamp'].isoformat()
@@ -168,11 +170,9 @@ class TradeLogger:
                 
             logger.info(f"Replayed {len(self.all_trades)} trades from MySQL. System ready.")
         except Exception as e:
-            logger.error(f"Error loading history from MySQL: {e}")
+            logger.error(f"Error loading history from database: {e}")
         finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+            db_manager._safe_close(conn, cursor)
 
     def _replay_trade(self, record: Dict):
         """Replay a single trade to rebuild memory state."""
