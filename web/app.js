@@ -66,7 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const authData = await authRes.json();
 
         if (!authData.authenticated || !authData.user.is_verified) {
-            window.location.href = 'login.html';
+            window.location.href = 'godbot_login';
             return;
         }
 
@@ -1007,7 +1007,7 @@ function initEventListeners() {
             try {
                 const res = await fetch('/api/auth/logout', { method: 'POST' });
                 if (res.ok) {
-                    window.location.href = 'login.html';
+                    window.location.href = 'godbot_login';
                 }
             } catch (err) {
                 console.error('Logout failed', err);

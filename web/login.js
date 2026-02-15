@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(res => res.json())
         .then(data => {
             if (data.authenticated && data.user.is_verified) {
-                window.location.href = 'index.html';
+                window.location.href = 'godbot_home';
             }
         });
 
@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.success) {
                 successMsg.textContent = 'Verification Successful! Redirecting...';
                 successMsg.classList.remove('hidden');
-                setTimeout(() => window.location.href = 'index.html', 1500);
+                setTimeout(() => window.location.href = 'godbot_home', 1500);
             } else {
                 showError(data.error);
             }
@@ -123,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (data.success) {
                 // Use replace to prevent back button from returning to login
-                window.location.replace('index.html');
+                window.location.replace('godbot_home');
             } else {
                 showError(data.error || 'Login failed');
             }

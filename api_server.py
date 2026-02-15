@@ -211,15 +211,16 @@ def get_auto_trade_status():
     })
 
 @app.route('/')
+@app.route('/godbot_home')
 def index():
     """Serve the main frontend."""
-    return send_from_directory('web', 'index.html')
+    return send_from_directory('web', 'godbot_home.html')
 
 
-@app.route('/login.html')
+@app.route('/godbot_login')
 def login_page():
     """Serve the login page."""
-    return send_from_directory('web', 'login.html')
+    return send_from_directory('web', 'godbot_login.html')
 
 
 @app.route('/live-settings.html')

@@ -748,7 +748,7 @@
                 const data = await response.json();
 
                 if (!data.authenticated) {
-                    window.location.href = 'login.html';
+                    window.location.href = 'godbot_login';
                 } else {
                     // Update UI with user info
                     const username = data.user.username;
