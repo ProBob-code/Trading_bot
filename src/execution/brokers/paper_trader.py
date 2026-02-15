@@ -111,34 +111,36 @@ class PaperTrader(BaseBroker):
             acc = self._get_account(user_id)
             
             # Calculate LONG positions value
-            long_value = sum(
+            long_market_value = sum(
                 pos['quantity'] * self.current_prices.get(symbol, pos['avg_price'])
                 for symbol, pos in acc.positions.items()
             )
             
-            # Calculate SHORT positions P&L (profit when price drops)
+            # Calculate SHORT positions market value and P&L
             short_pnl = 0
+            short_market_value = 0
             for symbol, pos in acc.short_positions.items():
                 current_price = self.current_prices.get(symbol, pos['entry_price'])
-                # Profit = (entry - current) * quantity
+                # Market Value = current_price * quantity (liability)
+                short_market_value += (current_price * pos['quantity'])
+                # P&L = (entry - current) * quantity
                 short_pnl += (pos['entry_price'] - current_price) * pos['quantity']
             
-            total_value = acc.cash + long_value + short_pnl
+            # Equity = Cash (includes short proceeds) + Long Value - Short Liability
+            total_value = acc.cash + long_market_value - short_market_value
             
-            # Buying power = cash minus short margin obligations
-            short_margin = sum(
-                pos['quantity'] * self.current_prices.get(symbol, pos['entry_price'])
-                for symbol, pos in acc.short_positions.items()
-            )
-            buying_power = acc.cash - short_margin
+            # Buying power = cash minus margin obligations for shorts
+            # For simplicity, we use 1:1 margin (can't use the short proceeds to buy more until covered)
+            buying_power = acc.cash - short_market_value
             
             return {
                 'account_id': f'PAPER_USER_{user_id if user_id is not None else 0}',
                 'cash': acc.cash,
-                'long_value': long_value,
+                'long_value': long_market_value,
                 'short_pnl': short_pnl,
+                'short_market_value': short_market_value,
                 'total_value': total_value,
-                'buying_power': buying_power,
+                'buying_power': max(0, buying_power),
                 'initial_capital': acc.initial_capital,
                 'pnl': total_value - acc.initial_capital,
                 'pnl_pct': ((total_value - acc.initial_capital) / acc.initial_capital) * 100 if acc.initial_capital > 0 else 0

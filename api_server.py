@@ -1312,7 +1312,7 @@ def execute_bot_trade(bot, signal, current_price):
         if order_manager.submit_order(order):
             pnl = (short_pos['avg_price'] - current_price) * short_pos['quantity']
             bot_manager.increment_trades(bot.bot_id, 'buy', pnl)
-            emit_trade_event(bot, 'COVER SHORT', short_pos['quantity'], current_price, pnl)
+            emit_trade_event(bot, 'COVER SHORT', short_pos['quantity'], current_price, pnl, reasons=getattr(signal, 'reasons', []))
         return 
 
     if signal.signal == 'SELL' and has_long:
@@ -1328,7 +1328,7 @@ def execute_bot_trade(bot, signal, current_price):
         )
         if order_manager.submit_order(order):
             bot_manager.increment_trades(bot.bot_id, 'sell', pnl)
-            emit_trade_event(bot, 'CLOSE LONG', long_pos['quantity'], current_price, pnl)
+            emit_trade_event(bot, 'CLOSE LONG', long_pos['quantity'], current_price, pnl, reasons=getattr(signal, 'reasons', []))
         return 
 
     if signal.signal == 'BUY':
@@ -1351,7 +1351,7 @@ def execute_bot_trade(bot, signal, current_price):
                 )
                 if order_manager.submit_order(order):
                     bot_manager.increment_trades(bot.bot_id, 'buy', 0)
-                    emit_trade_event(bot, 'LONG BUY', quantity, current_price, 0)
+                    emit_trade_event(bot, 'LONG BUY', quantity, current_price, 0, reasons=getattr(signal, 'reasons', []))
             else:
                 logger.warning(f"⚠️ [BOT-{bot.bot_id}] BUY failed - zero quantity (Buying Power: {account['buying_power']})")
 
@@ -1377,11 +1377,11 @@ def execute_bot_trade(bot, signal, current_price):
                 )
                 if order_manager.submit_order(order):
                     bot_manager.increment_trades(bot.bot_id, 'sell', 0)
-                    emit_trade_event(bot, 'SHORT SELL', quantity, current_price, 0)
+                    emit_trade_event(bot, 'SHORT SELL', quantity, current_price, 0, reasons=getattr(signal, 'reasons', []))
             else:
                 logger.warning(f"⚠️ [BOT-{bot.bot_id}] SELL failed - zero quantity")
 
-def emit_trade_event(bot, side, quantity, price, pnl=0):
+def emit_trade_event(bot, side, quantity, price, pnl=0, reasons=None):
     user_id = bot.config.user_id
     trade_msg = {
         'type': 'trade',
@@ -1391,6 +1391,7 @@ def emit_trade_event(bot, side, quantity, price, pnl=0):
         'price': price,
         'pnl': pnl,
         'strategy': bot.config.strategy,
+        'reasons': reasons or [],
         'timestamp': datetime.now().isoformat(),
         'user': 'system_bot',
         'bot_id': bot.bot_id

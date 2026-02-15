@@ -308,8 +308,19 @@ function initSocket() {
         if (data.symbol !== state.currentSymbol) return;
 
         updatePrice(data);
-        updateAccount(data.account);
+        // Deprecated: account update now comes in its own event
+        // updateAccount(data.account);
         updateChart(data);
+    });
+
+    state.socket.on('account_update', (data) => {
+        console.log('Account update received:', data);
+        updateAccount(data);
+        // If we have positions in the update, we can refresh the list faster than the 5s interval
+        if (data.positions) {
+            positionsData.open = data.positions;
+            renderOpenPositions();
+        }
     });
 
     state.socket.on('connected', (data) => {
@@ -603,18 +614,25 @@ function addTradeToFeed(trade) {
         displayValue = `<span class="price">${formatPrice(trade.price)}</span>`;
     }
 
+    const reasons = trade.reasons && trade.reasons.length > 0
+        ? `<div class="signal-reasons">${trade.reasons.join(', ')}</div>`
+        : '';
+
     item.innerHTML = `
-        <span class="side">${trade.side === 'BUY' || trade.side.includes('BUY') ? '🟢' : '🔴'} ${trade.side.split(' ')[0]}</span>
-        <span class="symbol">${trade.symbol}</span>
-        <div class="price-qty-container">
-            ${displayValue}
-            <span class="qty">×${trade.quantity.toFixed(4)}</span>
+        <div class="signal-main">
+            <span class="side">${trade.side === 'BUY' || trade.side.includes('BUY') ? '🟢' : '🔴'} ${trade.side.split(' ')[0]}</span>
+            <span class="symbol">${trade.symbol}</span>
+            <div class="price-qty-container">
+                ${displayValue}
+                <span class="qty">×${trade.quantity.toFixed(4)}</span>
+            </div>
+            <span class="time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
         </div>
-        <span class="time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        ${reasons}
     `;
     feed.insertBefore(item, feed.firstChild);
 
-    while (feed.children.length > 30) {
+    while (feed.children.length > 50) {
         feed.removeChild(feed.lastChild);
     }
 }
@@ -629,20 +647,29 @@ function addSignalToFeed(signal) {
         signal.signal === 'SELL' ? 'sell' : 'hold';
 
     item.className = `trade-item ${signalClass}`;
-    item.style.opacity = '0.7';
+
+    // Make HOLD more subtle but still visible, BUY/SELL full opacity
+    item.style.opacity = signal.signal === 'HOLD' ? '0.6' : '1.0';
+
+    const reasons = signal.reasons && signal.reasons.length > 0
+        ? `<div class="signal-reasons">${signal.reasons.join(', ')}</div>`
+        : '';
 
     item.innerHTML = `
-        <span class="side">${signalIcon} ${signal.signal}</span>
-        <span class="symbol">${signal.symbol}</span>
-        <div class="price-qty-container">
-            <span class="price">${formatPrice(signal.price)}</span>
-            <span class="qty">Signal</span>
+        <div class="signal-main">
+            <span class="side">${signalIcon} ${signal.signal}</span>
+            <span class="symbol">${signal.symbol}</span>
+            <div class="price-qty-container">
+                <span class="price">${formatPrice(signal.price)}</span>
+                <span class="qty">Signal</span>
+            </div>
+            <span class="time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
         </div>
-        <span class="time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+        ${reasons}
     `;
     feed.insertBefore(item, feed.firstChild);
 
-    while (feed.children.length > 30) {
+    while (feed.children.length > 50) {
         feed.removeChild(feed.lastChild);
     }
 }
@@ -1399,10 +1426,13 @@ function renderOpenPositions() {
     } else {
         openBody.innerHTML = positionsData.open.map(pos => {
             const currentPrice = pos.current_price || pos.avg_price;
+            const isShort = pos.side === 'SHORT' || pos.side === 'SELL';
             const netPnl = pos.net_pnl;
-            const netPnlPct = pos.avg_price > 0 ? ((currentPrice / pos.avg_price) - 1) * 100 : 0;
+            const netPnlPct = pos.avg_price > 0
+                ? (isShort ? (1 - currentPrice / pos.avg_price) : (currentPrice / pos.avg_price - 1)) * 100
+                : 0;
             const pnlClass = netPnl >= 0 ? 'pnl-positive' : 'pnl-negative';
-            const sideClass = pos.side === 'BUY' || pos.side === 'LONG' ? 'side-long' : 'side-short';
+            const sideClass = !isShort ? 'side-long' : 'side-short';
 
             return `
                 <tr>
