@@ -1,3 +1,7 @@
+# Load environment variables from .env BEFORE any other imports
+from dotenv import load_dotenv
+load_dotenv()
+
 """
 GodBotTrade API Server
 ======================
