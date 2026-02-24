@@ -73,7 +73,7 @@ from src.strategies.strategy_engine import StrategyEngine, get_strategy_engine
 from src.engine.bot_manager import get_bot_manager, BotManager, BotStats
 
 # Initialize Flask
-app = Flask(__name__, static_folder='web', static_url_path='')
+app = Flask(__name__, static_folder='web', static_url_path='/static')
 app.config['SECRET_KEY'] = 'god-bot-trade-secret-2026'  # PRO-CODER: Use environment variable in production
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
@@ -210,29 +210,47 @@ def get_auto_trade_status():
         'active_bots': len(running_bots)
     })
 
+# ============================================================
+# VERSION ROUTING — V1 (Legacy) & V2 (Institutional)
+# ============================================================
+
+@app.route('/v1/<path:filename>')
+def serve_v1(filename):
+    """Serve V1 legacy frontend files."""
+    return send_from_directory('web/v1', filename)
+
+@app.route('/v2/<path:filename>')
+def serve_v2(filename):
+    """Serve V2 institutional terminal files."""
+    return send_from_directory('web/v2', filename)
+
+# Default & backward-compatible shortcuts
 @app.route('/')
 @app.route('/godbot_home')
 def index():
-    """Serve the main frontend."""
-    return send_from_directory('web', 'godbot_home.html')
-
+    """Serve the main frontend (V1 default)."""
+    return send_from_directory('web/v1', 'godbot_home.html')
 
 @app.route('/godbot_login')
 def login_page():
-    """Serve the login page."""
-    return send_from_directory('web', 'godbot_login.html')
-
+    """Serve the login page (V1)."""
+    return send_from_directory('web/v1', 'godbot_login.html')
 
 @app.route('/live-settings.html')
 def live_settings():
-    """Serve the live trading settings page."""
-    return send_from_directory('web', 'live-settings.html')
-
+    """Serve the live trading settings page (V1)."""
+    return send_from_directory('web/v1', 'live-settings.html')
 
 @app.route('/report.html')
 def report_page():
-    """Serve the trading report page."""
-    return send_from_directory('web', 'report.html')
+    """Serve the trading report page (V1)."""
+    return send_from_directory('web/v1', 'report.html')
+
+@app.route('/paper_dashboard.html')
+@app.route('/paper_dashboard')
+def paper_dashboard():
+    """Serve V2 institutional terminal (shortcut)."""
+    return send_from_directory('web/v2', 'paper_dashboard.html')
 
 
 # Bot manager (singleton)
