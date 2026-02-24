@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GodBot Trade – Paper Trading Dashboard</title>
+    <meta name="description"
+        content="Institutional-grade paper trading dashboard with multi-bot comparison, equity curves, and Monte Carlo validation">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+        rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <link rel="stylesheet" href="paper_styles.css">
+    <script src="paper_app.js"></script>
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <h1>GodBot Trade</h1>
+                <span class="mode-badge">PAPER MODE</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="toggle-group">
+                <label class="toggle-label">Net PnL</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="pnlToggle" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+                <label class="toggle-label">Gross PnL</label>
+            </div>
+            <button class="btn btn-outline" onclick="refreshAll()">↻ Refresh</button>
+            <button class="btn btn-danger" onclick="resetAll()">⚠ Reset</button>
+            <div id="lastUpdate" class="update-time"></div>
+        </div>
+    </header>
+
+    <!-- Status Bar -->
+    <div class="status-bar" id="statusBar">
+        <div class="status-item">
+            <span class="status-label">Bots</span>
+            <span class="status-value" id="totalBots">0</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Trades</span>
+            <span class="status-value" id="totalTrades">0</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">System</span>
+            <span class="status-value safe" id="systemStatus">●</span>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+        <!-- 1. Market Pulse -->
+        <section class="section" id="marketPulseSection">
+            <h2 class="section-title">📊 Market Pulse</h2>
+            <div class="market-pulse-grid" id="marketPulse">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- 2. Live Signals -->
+        <section class="section" id="liveSignalsSection">
+            <h2 class="section-title">📡 Live Signals</h2>
+            <div class="table-wrapper glass-card signal-container">
+                <table class="comparison-table" id="signalsTable">
+                    <thead>
+                        <tr>
+                            <th>Bot</th>
+                            <th>Strategy</th>
+                            <th>Dir</th>
+                            <th>Entry</th>
+                            <th>SL</th>
+                            <th>TP</th>
+                            <th>R:R</th>
+                            <th>Risk%</th>
+                            <th>Regime</th>
+                            <th>Confidence</th>
+                            <th>Active</th>
+                        </tr>
+                    </thead>
+                    <tbody id="signalsBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 3. Live Trades -->
+        <section class="section" id="liveTradesSection">
+            <h2 class="section-title">🔥 Live Trades</h2>
+            <div class="table-wrapper glass-card">
+                <table class="comparison-table" id="liveTradesTable">
+                    <thead>
+                        <tr>
+                            <th>Bot</th>
+                            <th>Entry</th>
+                            <th>Price</th>
+                            <th>Unrealized PnL</th>
+                            <th>R</th>
+                            <th>Slippage</th>
+                            <th>Time</th>
+                            <th>Risk Ladder</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="liveTradesBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 4. Bot Cards -->
+        <section class="section" id="botCardsSection">
+            <h2 class="section-title">Strategy Bots</h2>
+            <div class="bot-cards-grid" id="botCards">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- 5. Comparison Table -->
+        <section class="section">
+            <h2 class="section-title">Bot Comparison</h2>
+            <div class="table-wrapper glass-card">
+                <table class="comparison-table" id="comparisonTable">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th data-sort="bot_id" onclick="sortTable('bot_id')">Bot Instance ↕</th>
+                            <th>Safety ↕</th>
+                            <th data-sort="composite_score" onclick="sortTable('composite_score')" class="sort-desc">
+                                Score ↕</th>
+                            <th data-sort="regime_stability" onclick="sortTable('regime_stability')">Stability ↕</th>
+                            <th data-sort="stress_grade" onclick="sortTable('stress_grade')">Stress ↕</th>
+                            <th data-sort="slippage_sensitivity" onclick="sortTable('slippage_sensitivity')">Slippage ↕
+                            </th>
+                            <th data-sort="capital_efficiency" onclick="sortTable('capital_efficiency')">Efficiency ↕
+                            </th>
+                            <th data-sort="max_drawdown_pct" onclick="sortTable('max_drawdown_pct')">Max DD ↕</th>
+                            <th data-sort="expectancy" onclick="sortTable('expectancy')">Exp ↕</th>
+                            <th data-sort="total_pnl" onclick="sortTable('total_pnl')">Total PnL ↕</th>
+                            <th data-sort="risk_of_ruin" onclick="sortTable('risk_of_ruin')">RoR ↕</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comparisonBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Charts (Secondary Analysis) -->
+        <section class="section">
+            <div class="charts-grid">
+                <div class="glass-card chart-card">
+                    <h3 class="card-title">Equity Curves</h3>
+                    <div class="chart-container">
+                        <canvas id="equityChart"></canvas>
+                    </div>
+                </div>
+                <div class="glass-card chart-card">
+                    <h3 class="card-title">Drawdown</h3>
+                    <div class="chart-container">
+                        <canvas id="drawdownChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 6. Strategy Stress Lab -->
+        <section class="section">
+            <h2 class="section-title">🧪 Strategy Stress Lab</h2>
+            <div id="stressResults" class="stress-accordion">
+                <!-- Populated by JS as lazy-load accordions -->
+            </div>
+        </section>
+
+        <!-- 7. Regime Drift Alerts -->
+        <section class="section">
+            <h2 class="section-title">⚠ Regime Drift Monitor</h2>
+            <div id="driftAlertsPanel" class="drift-panel glass-card">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- 8. Capital Allocation Intelligence -->
+        <section class="section">
+            <h2 class="section-title">📊 Capital Allocation Intelligence</h2>
+            <div class="allocation-grid">
+                <div class="table-wrapper glass-card">
+                    <table class="comparison-table" id="allocationTable">
+                        <thead>
+                            <tr>
+                                <th>Bot</th>
+                                <th>Current</th>
+                                <th>Kelly %</th>
+                                <th>Vol Parity %</th>
+                                <th>Final %</th>
+                                <th>Risk Cap</th>
+                            </tr>
+                        </thead>
+                        <tbody id="allocationBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="glass-card pie-container">
+                    <canvas id="allocationPieChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- 9. Capital Efficiency Cards -->
+        <section class="section">
+            <h2 class="section-title">💰 Capital Efficiency</h2>
+            <div class="efficiency-grid" id="efficiencyCards">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- 10. Trade Explorer (History) -->
+        <section class="section">
+            <h2 class="section-title">Trade Explorer (Historical)</h2>
+            <div class="glass-card trade-explorer">
+                <div class="filter-bar">
+                    <select id="tradeFilterBot" class="select-input">
+                        <option value="">All Bots</option>
+                    </select>
+                    <select id="tradeFilterResult" class="select-input">
+                        <option value="">All Results</option>
+                        <option value="WIN">Wins</option>
+                        <option value="LOSS">Losses</option>
+                        <option value="BREAKEVEN">Breakeven</option>
+                    </select>
+                    <button class="btn btn-outline" onclick="loadTrades()">Filter</button>
+                </div>
+                <div class="table-wrapper">
+                    <table class="comparison-table trades-table" id="tradesTable">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Bot</th>
+                                <th>Side</th>
+                                <th>Entry</th>
+                                <th>Exit</th>
+                                <th>R</th>
+                                <th>PnL</th>
+                                <th>Result</th>
+                                <th>Regime</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradesBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination">
+                    <button class="btn btn-outline btn-sm" onclick="prevPage()">← Prev</button>
+                    <span id="pageInfo" class="page-info">Page 1</span>
+                    <button class="btn btn-outline btn-sm" onclick="nextPage()">Next →</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 11. GodBot Intelligence -->
+        <section class="section">
+            <h2 class="section-title">🧠 GodBot Intelligence</h2>
+            <div id="intelInsights" class="intel-grid">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- 12. Market News -->
+        <section class="section">
+            <h2 class="section-title">📰 Market News</h2>
+            <div id="marketNews" class="news-panel glass-card">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- Modals -->
+        <div class="modal" id="tradeDebugModal">
+            <div class="modal-content glass-card">
+                <button class="modal-close" onclick="closeModal()">✕</button>
+                <h3 class="card-title">Trade Debug</h3>
+                <div id="debugContent">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+
+        <div id="floatingBannerContainer" class="floating-banner-container"></div>
+
+    </main>
+
+    <footer class="footer">
+        <p>GodBot Trade v2.0 • Institutional Research Terminal • Paper Trading Mode</p>
+    </footer>
+
+    <script src="/web/paper_app.js"></script>
+</body>
+
+</html>
