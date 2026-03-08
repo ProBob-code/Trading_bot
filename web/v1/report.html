@@ -281,25 +281,50 @@
 
             <!-- Summary Cards -->
             <div class="summary-grid">
+                <div class="summary-card">
+                    <div class="summary-card-label">Account Equity P&L</div>
+                    <div class="summary-card-value" id="accountPnl">$0.00</div>
+                    <div class="summary-card-change" id="accountPnlPct">0.00%</div>
+                </div>
                 <div class="summary-card profit">
-                    <div class="summary-card-label">Total P&L</div>
+                    <div class="summary-card-label">Realized Trade P&L</div>
                     <div class="summary-card-value" id="totalPnl">$0.00</div>
-                    <div class="summary-card-change" id="winRate">0% Win Rate</div>
+                    <div class="summary-card-change" id="tradeVolume">$0.00 Vol</div>
                 </div>
                 <div class="summary-card">
-                    <div class="summary-card-label">Total Trades</div>
-                    <div class="summary-card-value" id="totalTrades">0</div>
-                    <div class="summary-card-change" id="tradeVolume">$0 Vol</div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-card-label">Best Trade</div>
-                    <div class="summary-card-value" id="bestTrade">$0.00</div>
-                    <div class="summary-card-change positive">Top Win</div>
+                    <div class="summary-card-label">Win Rate (Closed)</div>
+                    <div class="summary-card-value" id="winRate">0%</div>
+                    <div class="summary-card-change"><span id="totalTrades">0</span> Total Trades</div>
                 </div>
                 <div class="summary-card loss">
                     <div class="summary-card-label">Worst Trade</div>
                     <div class="summary-card-value" id="worstTrade">$0.00</div>
                     <div class="summary-card-change negative">Max Drawdown</div>
+                </div>
+            </div>
+
+            <!-- Strategy Success Rate Section -->
+            <div class="report-section transactions-section" style="margin-bottom: 32px;">
+                <div class="transactions-header" style="background: rgba(124, 58, 237, 0.05);">
+                    <h2>Strategy Performance Matrix</h2>
+                </div>
+                <div class="table-container" style="padding: 0 0 20px 0;">
+                    <table class="transactions-table" style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr>
+                                <th style="text-align: left; padding: 16px 24px;">Strategy</th>
+                                <th style="text-align: left; padding: 16px 24px;">Total</th>
+                                <th style="text-align: left; padding: 16px 24px;">Closing</th>
+                                <th style="text-align: left; padding: 16px 24px;">Wins</th>
+                                <th style="text-align: left; padding: 16px 24px;">Losses</th>
+                                <th style="text-align: left; padding: 16px 24px;">Win Rate</th>
+                                <th style="text-align: left; padding: 16px 24px;">Net P&L</th>
+                            </tr>
+                        </thead>
+                        <tbody id="strategyBody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -386,6 +411,11 @@
                 const summaryRes = await fetch(`/api/reports/summary?date=${date}`);
                 const summary = await summaryRes.json();
                 updateSummary(summary, data);
+
+                // Fetch strategy stats
+                const stratRes = await fetch(`/api/reports/strategy-stats?date=${date}`);
+                const stratStats = await stratRes.json();
+                renderStrategyStats(stratStats);
 
                 document.getElementById('reportStatus').textContent = `Showing data for ${date}`;
 
@@ -528,6 +558,12 @@
                 return;
             }
 
+            // Account-level P&L (Equity based)
+            document.getElementById('accountPnl').textContent = formatCurrency(summary.account_pnl);
+            document.getElementById('accountPnl').className = 'summary-card-value ' + (summary.account_pnl >= 0 ? 'positive' : 'negative');
+            document.getElementById('accountPnlPct').textContent = (summary.account_pnl_pct >= 0 ? '+' : '') + summary.account_pnl_pct.toFixed(2) + '%';
+
+            // Realized Trade P&L
             document.getElementById('totalPnl').textContent = formatCurrency(summary.total_pnl);
             document.getElementById('totalPnl').className = 'summary-card-value ' + (summary.total_pnl >= 0 ? 'positive' : 'negative');
             document.getElementById('totalTrades').textContent = summary.total_trades;
@@ -544,8 +580,23 @@
             document.getElementById('bestTrade').textContent = formatCurrency(best);
             document.getElementById('worstTrade').textContent = formatCurrency(worst);
 
-            const winRate = summary.total_trades > 0 ? (summary.wins / summary.total_trades * 100).toFixed(1) : 0;
-            document.getElementById('winRate').textContent = `${winRate}% Win Rate`;
+            const winRate = summary.closing_trades > 0 ? (summary.wins / summary.closing_trades * 100).toFixed(1) : 0;
+            document.getElementById('winRate').textContent = `${winRate}%`;
+        }
+
+        function renderStrategyStats(stats) {
+            const tbody = document.getElementById('strategyBody');
+            tbody.innerHTML = stats.map(s => `
+                <tr>
+                    <td><strong>${s.strategy}</strong></td>
+                    <td>${s.total_trades}</td>
+                    <td>${s.closing_trades}</td>
+                    <td><span class="positive">${s.wins}</span></td>
+                    <td><span class="negative">${s.losses}</span></td>
+                    <td><span style="font-weight:600">${s.win_rate.toFixed(1)}%</span></td>
+                    <td class="${s.pnl >= 0 ? 'positive' : 'negative'}"><strong>${formatCurrency(s.pnl)}</strong></td>
+                </tr>
+            `).join('');
         }
 
         function calculateSummaryFromData(trades) {

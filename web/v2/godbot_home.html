@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GodBotTrade - Multi-Asset Trading [V2]</title>
+    <link rel="stylesheet" href="/v2/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">GodBotTrade</span>
+                <span class="logo-tagline">Multi-Asset Trading</span>
+            </div>
+
+            <!-- Market Tabs -->
+            <div class="market-tabs">
+                <button class="market-tab active" data-market="crypto">🪙 Crypto</button>
+                <button class="market-tab" data-market="stocks">📈 Stocks</button>
+            </div>
+
+            <!-- Profile & Connection -->
+            <div class="header-right">
+                <!-- Global System Pause -->
+                <button id="btnSystemPause" class="btn-system-pause" onclick="toggleSystemPause()"
+                    title="Pause/Resume All Trading">
+                    <span class="pause-icon">⏸️</span>
+                    <span class="pause-text">Running</span>
+                </button>
+
+                <div class="connection-status" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+
+                <div class="header-currency-selector">
+                    <select id="currencySelect" class="currency-select">
+                        <option value="USD" data-symbol="$">$ USD</option>
+                        <option value="EUR" data-symbol="€">€ EUR</option>
+                        <option value="INR" data-symbol="₹">₹ INR</option>
+                        <option value="GBP" data-symbol="£">£ GBP</option>
+                    </select>
+                </div>
+                <div class="profile-section" id="profileSection">
+                    <div class="profile-info" onclick="toggleProfileMenu()">
+                        <span class="profile-avatar">👤</span>
+                        <span class="profile-name" id="profileName">User</span>
+                        <span class="profile-arrow">▼</span>
+                    </div>
+                    <div class="profile-dropdown" id="profileDropdown">
+                        <div class="dropdown-header">
+                            <span class="dropdown-avatar">👤</span>
+                            <div class="dropdown-user-info">
+                                <span class="dropdown-username" id="dropdownBrand">User</span>
+                                <span class="dropdown-role" id="dropdownSub">Pro Trader</span>
+                            </div>
+                        </div>
+                        <div class="dropdown-stats">
+                            <div class="dropdown-stat">
+                                <span class="stat-label">Login Time</span>
+                                <span class="stat-value" id="loginTime">--</span>
+                            </div>
+                            <div class="dropdown-stat">
+                                <span class="stat-label">Session ID</span>
+                                <span class="stat-value" id="sessionId">--</span>
+                            </div>
+                        </div>
+                        <button id="btnLogout" class="btn-logout">🚪 Logout</button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Symbol & Strategy Bar -->
+            <section class="control-bar">
+                <div class="symbol-group">
+                    <label>Symbol</label>
+                    <select id="symbolSelect">
+                        <!-- Crypto options -->
+                        <optgroup label="Crypto (24/7)" id="cryptoSymbols">
+                            <option value="BTCUSDT">BTC/USDT</option>
+                            <option value="ETHUSDT">ETH/USDT</option>
+                            <option value="BNBUSDT">BNB/USDT</option>
+                            <option value="SOLUSDT">SOL/USDT</option>
+                            <option value="XRPUSDT">XRP/USDT</option>
+                        </optgroup>
+                        <!-- Stock options (hidden initially) -->
+                        <optgroup label="US Stocks" id="stockSymbols" style="display:none;">
+                            <option value="AAPL">Apple (AAPL)</option>
+                            <option value="TSLA">Tesla (TSLA)</option>
+                            <option value="GOOGL">Google (GOOGL)</option>
+                            <option value="MSFT">Microsoft (MSFT)</option>
+                            <option value="AMZN">Amazon (AMZN)</option>
+                        </optgroup>
+                    </select>
+                </div>
+
+                <div class="strategy-group">
+                    <label>Strategy</label>
+                    <select id="strategySelect">
+                        <!-- Populated dynamically from /api/v2/strategies -->
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+
+                <div class="interval-group">
+                    <label>Interval</label>
+                    <div class="interval-selector">
+                        <button class="interval-btn active" data-interval="1m">1m</button>
+                        <button class="interval-btn" data-interval="5m">5m</button>
+                        <button class="interval-btn" data-interval="15m">15m</button>
+                        <button class="interval-btn" data-interval="1h">1H</button>
+                        <button class="interval-btn" data-interval="1d">1D</button>
+                    </div>
+                </div>
+
+                <button class="btn btn-settings" id="btnSettings">⚙️ Customize</button>
+                <button class="btn btn-settings" id="btnTips" style="background: var(--gold); color: #000;">💡
+                    Tips</button>
+            </section>
+
+            <!-- Price Display -->
+            <section class="price-section">
+                <div class="price-main">
+                    <span class="price-value" id="currentPrice">$0.00</span>
+                    <span class="price-change" id="priceChange">+0.00%</span>
+                    <span class="market-badge" id="marketBadge">CRYPTO</span>
+                </div>
+                <div class="price-stats">
+                    <div class="stat">
+                        <span class="stat-label">24h High</span>
+                        <span class="stat-value" id="high24h">$0.00</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">24h Low</span>
+                        <span class="stat-value" id="low24h">$0.00</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Volume</span>
+                        <span class="stat-value" id="volume24h">0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Strategy</span>
+                        <span class="stat-value" id="activeStrategy">Strategy 1</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Chart -->
+            <section class="chart-section">
+                <div id="chart"></div>
+            </section>
+
+            <!-- Trading Panel -->
+            <div class="account-summary">
+                <div class="account-stat">
+                    <span class="account-label">Balance</span>
+                    <span class="account-value" id="accountBalance">$100,000.00</span>
+                    <button class="btn-edit-balance" id="btnEditBalance" title="Edit Balance">✏️</button>
+                </div>
+                <div class="account-stat">
+                    <span class="account-label">P&L</span>
+                    <span class="account-value pnl" id="accountPnl">$0.00</span>
+                </div>
+                <div class="account-stat">
+                    <span class="account-label">Trades</span>
+                    <span class="account-value" id="tradeCount">0</span>
+                </div>
+            </div>
+
+            <div class="trade-configuration">
+                <div class="config-row">
+                    <div class="config-item">
+                        <label>Quantity</label>
+                        <input type="number" id="tradeQuantity" value="0.01" step="0.001" min="0.001">
+                    </div>
+                    <div class="config-item">
+                        <label>Stop Loss %</label>
+                        <input type="number" id="stopLoss" value="5" step="0.5" min="0.5" max="50">
+                    </div>
+                    <div class="config-item">
+                        <label>Take Profit %</label>
+                        <input type="number" id="takeProfit" value="10" step="0.5" min="0.5" max="100">
+                    </div>
+                </div>
+                <div class="config-row">
+                    <div class="config-item">
+                        <label>Position Size %</label>
+                        <input type="number" id="positionSize" value="10" step="1" min="1" max="100"
+                            title="% of balance per trade">
+                    </div>
+                    <div class="config-item">
+                        <label>Max Quantity</label>
+                        <input type="number" id="maxQuantity" value="10" step="0.1" min="0.1"
+                            title="Maximum quantity per trade">
+                    </div>
+                    <div class="config-item status-badge-item">
+                        <div class="bot-badge" id="botBadge">Ready</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="trade-buttons">
+                <button class="btn btn-buy" id="btnBuy">BUY</button>
+                <button class="btn btn-sell" id="btnSell">SELL</button>
+            </div>
+
+            <!-- Auto Trading -->
+            <div class="auto-trade">
+                <div class="auto-trade-header">
+                    <span class="auto-trade-title">🤖 Auto Trading</span>
+                    <span class="auto-trade-status" id="autoTradeStatus">Stopped</span>
+                </div>
+                <div class="auto-trade-controls">
+                    <div class="auto-trade-actions">
+                        <button class="btn btn-auto btn-compact" id="btnAutoTrade">
+                            <span id="autoTradeLabel">START</span>
+                        </button>
+                        <button class="btn btn-stop btn-compact" id="btnStopBot" style="display:none;">
+                            🛑 STOP
+                        </button>
+                        <button class="btn btn-stop-all btn-compact" id="btnStopAll">
+                            🛑 STOP ALL
+                        </button>
+                        <button class="btn btn-panic btn-compact" id="btnPanicSell" title="Close All Positions">🚨 PANIC
+                            SELL</button>
+                        <button class="btn btn-news-analysis btn-compact" id="btnMarketAnalysis">🔍 News
+                            Analysis</button>
+                        <button class="btn btn-secondary btn-compact" id="btnBacktest">📈 Backtest</button>
+                        <button class="btn btn-report btn-compact" id="btnReport">📊 Report</button>
+                        <button class="btn btn-reset btn-compact" id="btnResetPaper" style="background: #e11d48;">🔄
+                            Reset</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trading Mode Toggle -->
+            <div class="trading-mode-section">
+                <div class="mode-toggle">
+                    <button class="mode-btn active" id="btnPaperMode" data-mode="paper">
+                        📝 Paper
+                    </button>
+                    <button class="mode-btn" id="btnLiveMode" data-mode="live">
+                        💰 Live
+                    </button>
+                </div>
+                <span class="mode-badge paper" id="tradingModeBadge">PAPER MODE</span>
+                <a href="live-settings.html" class="btn btn-settings"
+                    style="font-size:11px;padding:6px 12px;margin-left:8px;">⚙️ API Keys</a>
+            </div>
+
+            <!-- Active Bots Panel -->
+            <div class="active-bots-panel" id="activeBotsPanel">
+                <div class="bots-header">
+                    <span>🤖 Active Bots</span>
+                    <span class="bot-count" id="botCount">0</span>
+                </div>
+                <div class="bots-list" id="botsList">
+                    <div class="no-bots">No active bots</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Sidebar Column -->
+        <div class="sidebar-col">
+            <!-- Signals Feed -->
+            <aside class="trades-feed">
+                <div class="feed-header">
+                    <h3>Live Signals & Trades</h3>
+                    <button class="btn-clear" id="btnClearFeed">Clear</button>
+                </div>
+                <div class="feed-labels">
+                    <span>Signal</span>
+                    <span>Symbol</span>
+                    <span>Price/Qty</span>
+                    <span>Time</span>
+                </div>
+                <div id="tradesFeed"></div>
+            </aside>
+
+            <!-- Market Command Center -->
+            <div class="command-center">
+                <div class="command-section-title">
+                    <i class="fas fa-bolt"></i> Market Pulse
+                </div>
+                <div class="pulse-container">
+                    <svg class="gauge-svg" viewBox="0 0 200 120">
+                        <defs>
+                            <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#ff4d4d" />
+                                <stop offset="50%" stop-color="#ffd700" />
+                                <stop offset="100%" stop-color="#00d4ff" />
+                            </linearGradient>
+                        </defs>
+                        <path class="gauge-bg" d="M20,100 A80,80 0 0,1 180,100" />
+                        <path class="gauge-fill" id="pulseGaugeFill" d="M20,100 A80,80 0 0,1 180,100" />
+                        <circle class="gauge-needle" id="pulseNeedle" cx="100" cy="100" r="6" />
+                        <line class="gauge-needle-line" id="pulseNeedleLine" x1="100" y1="100" x2="100" y2="40"
+                            stroke="#fff" stroke-width="3" stroke-linecap="round" />
+                    </svg>
+                    <div class="pulse-value" id="pulseValue">50</div>
+                    <div class="pulse-label">NEUTRAL VOLATILITY</div>
+                </div>
+
+                <div class="command-section-title">
+                    <i class="fas fa-robot"></i> GodBot Intelligence
+                </div>
+                <div class="ai-insight-box">
+                    <div class="ai-header">
+                        <span>Status: Analyzing</span>
+                        <span id="aiTimestamp">--:--:--</span>
+                    </div>
+                    <div class="ai-text" id="aiInsightText">
+                        Awaiting market movement to generate strategic insights...
+                    </div>
+                    <div class="ai-cursor"></div>
+                </div>
+            </div>
+
+            <!-- News Feed Section -->
+            <aside class="news-feed">
+                <div class="news-header">
+                    <h3 id="newsHeading">📰 Crypto Market News</h3>
+                    <div class="sentiment-badge" id="overallSentiment">
+                        <span class="sentiment-dot neutral"></span>
+                        <span class="sentiment-label">NEUTRAL</span>
+                    </div>
+                </div>
+                <div class="news-list" id="newsFeed">
+                    <div class="news-loading">Loading news...</div>
+                </div>
+                <div class="news-movers">
+                    <div class="movers-section gainers">
+                        <span class="movers-title">🟢 Top Gainers</span>
+                        <div id="topGainers" class="movers-list">--</div>
+                    </div>
+                    <div class="movers-section losers">
+                        <span class="movers-title">🔴 Top Losers</span>
+                        <div id="topLosers" class="movers-list">--</div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- Positions Panel (New) -->
+        <section class="positions-panel">
+            <div class="positions-header">
+                <div class="positions-tabs">
+                    <button class="pos-tab active" data-tab="open">📈 Open Positions</button>
+                    <button class="pos-tab" data-tab="closed">✅ Closed</button>
+                    <button class="pos-tab" data-tab="history">📜 Trade History <span
+                            class="trade-count-badge">0</span></button>
+                    <button class="pos-tab" data-tab="orders">⏳ Orders</button>
+                    <button class="pos-tab" data-tab="journal">📓 Audit Journal</button>
+                    <button class="pos-tab" data-tab="reports">📊 Daily Reports</button>
+                </div>
+                <div class="positions-actions">
+                    <input type="date" id="filterDateFrom" class="date-filter">
+                    <span>to</span>
+                    <input type="date" id="filterDateTo" class="date-filter">
+                    <button class="btn-export" id="btnExportCSV">📥 Export CSV</button>
+                </div>
+            </div>
+
+            <!-- Open Positions Tab -->
+            <div class="pos-content active" id="tab-open">
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Qty</th>
+                            <th>Avg Price</th>
+                            <th>Current</th>
+                            <th>Net Position</th>
+                            <th>Open Interest</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="openPositionsBody">
+                        <tr class="empty-row">
+                            <td colspan="8">No open positions</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Closed Positions Tab -->
+            <div class="pos-content" id="tab-closed">
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Qty</th>
+                            <th>Entry</th>
+                            <th>Exit</th>
+                            <th>P&L</th>
+                            <th>Closed At</th>
+                        </tr>
+                    </thead>
+                    <tbody id="closedPositionsBody">
+                        <tr class="empty-row">
+                            <td colspan="7">No closed positions</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Trade History Tab -->
+            <div class="pos-content" id="tab-history">
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Type</th>
+                            <th>Side</th>
+                            <th>Qty</th>
+                            <th>Price</th>
+                            <th>Value</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tradeHistoryBody">
+                        <tr class="empty-row">
+                            <td colspan="8">No trade history</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pending Orders Tab -->
+            <div class="pos-content" id="tab-orders">
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Symbol</th>
+                            <th>Type</th>
+                            <th>Side</th>
+                            <th>Qty</th>
+                            <th>Price</th>
+                            <th>SL</th>
+                            <th>TP</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pendingOrdersBody">
+                        <tr class="empty-row">
+                            <td colspan="9">No pending orders</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Audit Journal Tab -->
+            <div class="pos-content" id="tab-journal">
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Action</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditJournalBody">
+                        <tr class="empty-row">
+                            <td colspan="4">No logs in audit journal</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Daily Reports Tab -->
+            <div class="pos-content" id="tab-reports">
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>User</th>
+                            <th>Total Trades</th>
+                            <th>Wins/Losses</th>
+                            <th>Win Rate</th>
+                            <th>Total P&L</th>
+                            <th>Avg Profit</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dailyReportsBody">
+                        <tr class="empty-row">
+                            <td colspan="7">No reports generated yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-left">
+                <span class="system-time" id="footerTime">--:--:--</span>
+                <span class="footer-separator">|</span>
+                <span class="server-status">Server: <span id="serverStatusText">Online</span></span>
+            </div>
+            <div class="footer-center">
+                <span class="footer-copyright">&copy; 2026 GodBotTrade. All rights reserved.</span>
+            </div>
+            <div class="footer-right">
+                <span class="version-tag">v2.0.0-institutional</span>
+            </div>
+        </footer>
+
+        <!-- Market Depth Modal -->
+        <div class="depth-modal" id="depthModal">
+            <div class="depth-content">
+                <div class="depth-header">
+                    <h3>📊 Market Depth - <span id="depthSymbol">BTC/USDT</span></h3>
+                    <button class="depth-close" onclick="closeDepthModal()">×</button>
+                </div>
+                <div class="depth-body">
+                    <div class="depth-grid">
+                        <div class="depth-side bids">
+                            <h4>Bids (Buy Orders)</h4>
+                            <div id="depthBids">
+                                <div class="depth-row bid-row"><span class="depth-price">$89,400</span><span
+                                        class="depth-volume">2.5 BTC</span></div>
+                                <div class="depth-row bid-row"><span class="depth-price">$89,350</span><span
+                                        class="depth-volume">5.2 BTC</span></div>
+                                <div class="depth-row bid-row"><span class="depth-price">$89,300</span><span
+                                        class="depth-volume">8.1 BTC</span></div>
+                                <div class="depth-row bid-row"><span class="depth-price">$89,250</span><span
+                                        class="depth-volume">12.4 BTC</span></div>
+                                <div class="depth-row bid-row"><span class="depth-price">$89,200</span><span
+                                        class="depth-volume">15.8 BTC</span></div>
+                            </div>
+                        </div>
+                        <div class="depth-side asks">
+                            <h4>Asks (Sell Orders)</h4>
+                            <div id="depthAsks">
+                                <div class="depth-row ask-row"><span class="depth-price">$89,450</span><span
+                                        class="depth-volume">1.8 BTC</span></div>
+                                <div class="depth-row ask-row"><span class="depth-price">$89,500</span><span
+                                        class="depth-volume">4.3 BTC</span></div>
+                                <div class="depth-row ask-row"><span class="depth-price">$89,550</span><span
+                                        class="depth-volume">6.9 BTC</span></div>
+                                <div class="depth-row ask-row"><span class="depth-price">$89,600</span><span
+                                        class="depth-volume">10.2 BTC</span></div>
+                                <div class="depth-row ask-row"><span class="depth-price">$89,650</span><span
+                                        class="depth-volume">14.5 BTC</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
+                        <div class="analytics-grid">
+                            <div class="analytics-card">
+                                <div class="analytics-label">Total Bid Vol</div>
+                                <div class="analytics-value positive" id="totalBidVol">44.0 BTC</div>
+                            </div>
+                            <div class="analytics-card">
+                                <div class="analytics-label">Total Ask Vol</div>
+                                <div class="analytics-value negative" id="totalAskVol">37.7 BTC</div>
+                            </div>
+                            <div class="analytics-card">
+                                <div class="analytics-label">Spread</div>
+                                <div class="analytics-value" id="depthSpread">$50 (0.06%)</div>
+                            </div>
+                            <div class="analytics-card">
+                                <div class="analytics-label">Imbalance</div>
+                                <div class="analytics-value positive" id="depthImbalance">+14.3%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strategy Customization Modal -->
+        <div class="modal" id="settingsModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>⚙️ Strategy Customization</h2>
+                    <button class="modal-close" id="modalClose">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="setting-group">
+                        <label>Minimum Confluence (signals needed)</label>
+                        <input type="range" id="settingConfluence" min="1" max="5" value="3">
+                        <span id="confluenceValue">3</span>
+                    </div>
+                    <div class="setting-group">
+                        <label>Position Size (% of balance)</label>
+                        <input type="range" id="settingPositionSize" min="1" max="25" value="10">
+                        <span id="positionSizeValue">10%</span>
+                    </div>
+                    <div class="setting-group">
+                        <label>Check Interval (seconds)</label>
+                        <input type="range" id="settingInterval" min="3" max="30" value="5">
+                        <span id="intervalValue">5s</span>
+                    </div>
+                    <div class="setting-group">
+                        <label>Stop Loss (%)</label>
+                        <input type="number" id="settingStopLoss" value="5" min="1" max="20">
+                    </div>
+                    <div class="setting-group">
+                        <label>Take Profit (%)</label>
+                        <input type="number" id="settingTakeProfit" value="10" min="1" max="50">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-save" id="btnSaveSettings">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tips Modal -->
+        <div class="modal" id="tipsModal">
+            <div class="modal-content"
+                style="max-width: 700px; max-height: 85vh; display: flex; flex-direction: column;">
+                <div class="modal-header" style="flex-shrink: 0; position: relative;">
+                    <h2>💡 Strategy Tips & Success Rates</h2>
+                    <button class="modal-close" id="tipsModalClose">&times;</button>
+                </div>
+                <div class="modal-body" style="font-size: 13px; line-height: 1.6; overflow-y: auto; padding: 20px;">
+
+                    <div class="tip-strategy"
+                        style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #7c3aed;">
+                        <h3 style="color: #7c3aed; margin-bottom: 10px;">🌩️ Strategy 1</h3>
+                        <p><strong>Success Rate:</strong> 50-75% (varies by market)</p>
+                        <p><strong>Best Timeframe:</strong> 1H, 4H, 1D (higher = more reliable)</p>
+                        <p><strong>Recommended Settings:</strong></p>
+                        <ul style="margin: 8px 0; padding-left: 20px; color: var(--text-secondary);">
+                            <li>Confluence: 3 signals minimum</li>
+                            <li>Interval: 15m+ for day trading, 1H+ for swing</li>
+                            <li>Position Size: 5-10%</li>
+                        </ul>
+                        <p style="color: var(--gold);">⚠️ Avoid in sideways/ranging markets - wait for clear trend</p>
+                    </div>
+
+                    <div class="tip-strategy"
+                        style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #3b82f6;">
+                        <h3 style="color: #3b82f6; margin-bottom: 10px;">📊 Strategy 2</h3>
+                        <p><strong>Success Rate:</strong> 55-65% (higher with squeeze detection)</p>
+                        <p><strong>Best Timeframe:</strong> 15m, 1H, 4H</p>
+                        <p><strong>Recommended Settings:</strong></p>
+                        <ul style="margin: 8px 0; padding-left: 20px; color: var(--text-secondary);">
+                            <li>Confluence: 2-3 signals</li>
+                            <li>Interval: 5m for scalping, 1H for swing</li>
+                            <li>Position Size: 5-8%</li>
+                        </ul>
+                        <p style="color: var(--green);">✅ Works well in ranging markets for mean reversion</p>
+                    </div>
+
+                    <div class="tip-strategy"
+                        style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #10b981;">
+                        <h3 style="color: #10b981; margin-bottom: 10px;">📈 Strategy 3</h3>
+                        <p><strong>Success Rate:</strong> 73-77% (highest when combined!)</p>
+                        <p><strong>Best Timeframe:</strong> 1H, 4H, 1D</p>
+                        <p><strong>Recommended Settings:</strong></p>
+                        <ul style="margin: 8px 0; padding-left: 20px; color: var(--text-secondary);">
+                            <li>Confluence: 2-3 signals</li>
+                            <li>Interval: 15m-1H for crypto, 1D for stocks</li>
+                            <li>Position Size: 10-15%</li>
+                        </ul>
+                        <p style="color: var(--green);">✅ Best performer in trending markets</p>
+                    </div>
+
+                    <div class="tip-strategy"
+                        style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #f59e0b;">
+                        <h3 style="color: #f59e0b; margin-bottom: 10px;">🤖 Strategy 4</h3>
+                        <p><strong>Success Rate:</strong> 50-60% (trend detection)</p>
+                        <p><strong>Best Timeframe:</strong> 1H, 4H, 1D</p>
+                        <p><strong>Recommended Settings:</strong></p>
+                        <ul style="margin: 8px 0; padding-left: 20px; color: var(--text-secondary);">
+                            <li>Confluence: 2 signals</li>
+                            <li>Interval: 1H minimum (needs data)</li>
+                            <li>Position Size: 5-10%</li>
+                        </ul>
+                        <p style="color: var(--gold);">⚠️ Uses simple linear regression - experimental</p>
+                    </div>
+
+                    <div class="tip-strategy"
+                        style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 12px; border-left: 4px solid #ec4899;">
+                        <h3 style="color: #ec4899; margin-bottom: 10px;">⚡ Strategy 5 (Combined)</h3>
+                        <p><strong>Success Rate:</strong> 65-80% (consensus voting)</p>
+                        <p><strong>Best Timeframe:</strong> 1H, 4H</p>
+                        <p><strong>Recommended Settings:</strong></p>
+                        <ul style="margin: 8px 0; padding-left: 20px; color: var(--text-secondary);">
+                            <li>Confluence: 3 strategies must agree</li>
+                            <li>Interval: 15m-1H</li>
+                            <li>Position Size: 10-15%</li>
+                        </ul>
+                        <p style="color: var(--green);">✅ Most conservative - fewer but higher quality signals</p>
+                    </div>
+
+                    <div
+                        style="padding: 16px; background: linear-gradient(135deg, #7c3aed22, #f59e0b22); border-radius: 12px;">
+                        <h3 style="color: var(--gold); margin-bottom: 12px;">🎯 Pro Tips</h3>
+                        <ol style="padding-left: 20px; color: var(--text-secondary);">
+                            <li><strong>Higher timeframes = more reliable signals</strong> (less noise)</li>
+                            <li><strong>Crypto:</strong> Use 15m-1H for day trading, 4H for swing</li>
+                            <li><strong>Stocks:</strong> Use 1H-1D timeframes (market hours only)</li>
+                            <li><strong>Start conservative:</strong> Low position size (5%), high confluence (3+)</li>
+                            <li><strong>Trending market:</strong> Use Strategy 1, Strategy 3</li>
+                            <li><strong>Ranging market:</strong> Use Strategy 2</li>
+                            <li><strong>Unsure:</strong> Use Strategy 5 for consensus</li>
+                        </ol>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- News Analysis Modal -->
+    <div class="news-modal-overlay" id="newsModalOverlay" onclick="closeNewsModal()"></div>
+    <div class="news-modal" id="newsModal">
+        <div class="news-modal-header">
+            <h3>🔍 Market News Sentiment</h3>
+            <button class="btn-close" onclick="closeNewsModal()">&times;</button>
+        </div>
+        <div class="news-modal-body" id="modalNewsList">
+            <!-- News items will be injected here -->
+        </div>
+        <div class="news-modal-footer">
+            <button class="btn btn-secondary" onclick="closeNewsModal()">Close</button>
+        </div>
+    </div>
+
+    <script>
+        // Server-side Session Check
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('/api/auth/status');
+                const data = await response.json();
+
+                if (!data.authenticated) {
+                    window.location.href = 'godbot_login';
+                } else {
+                    // Update UI with user info
+                    const username = data.user.username;
+                    document.getElementById('profileName').textContent = username;
+                    document.getElementById('dropdownBrand').textContent = username;
+                    document.getElementById('dropdownSub').textContent = data.user.is_verified ? 'Verified Trader' : 'Unverified';
+
+                    // Set login time if not set
+                    if (!localStorage.getItem('loginTime')) {
+                        localStorage.setItem('loginTime', new Date().toISOString());
+                    }
+
+                    const loginTime = new Date(localStorage.getItem('loginTime'));
+                    document.getElementById('loginTime').textContent = loginTime.toLocaleTimeString();
+                    document.getElementById('sessionId').textContent = btoa(loginTime.getTime().toString()).substring(0, 8).toUpperCase();
+                }
+            } catch (error) {
+                console.error('Auth check failed:', error);
+                // Fallback to login on error
+                // window.location.href = 'login.html';
+            }
+        });
+
+        // Toggle profile dropdown
+        function toggleProfileMenu() {
+            const dropdown = document.getElementById('profileDropdown');
+            dropdown.classList.toggle('open');
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            const profileSection = document.getElementById('profileSection');
+            const dropdown = document.getElementById('profileDropdown');
+            if (profileSection && !profileSection.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.classList.remove('open');
+            }
+        });
+
+        // Logout function
+        async function logout() {
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                localStorage.removeItem('loginTime');
+                window.location.href = 'login.html';
+            } catch (error) {
+                console.error('Logout failed:', error);
+                window.location.href = 'login.html';
+            }
+        }
+    </script>
+    <script src="/v2/paper_app.js"></script>
+</body>
+
+</html>

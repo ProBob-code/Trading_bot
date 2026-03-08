@@ -109,6 +109,16 @@ class DatabaseManager:
                  parts = sql.split("ON DUPLICATE KEY UPDATE")
                  updates = parts[1].strip()
                  sql = f"{parts[0]} ON CONFLICT(id) DO UPDATE SET {updates}"
+            # For v2_strategy_metrics table
+            elif "INSERT INTO v2_strategy_metrics" in sql:
+                 parts = sql.split("ON DUPLICATE KEY UPDATE")
+                 updates = parts[1].strip()
+                 sql = f"{parts[0]} ON CONFLICT(user_id, strategy) DO UPDATE SET {updates}"
+            # For v2_strategy_profiles table
+            elif "v2_strategy_profiles" in sql:
+                 parts = sql.split("ON DUPLICATE KEY UPDATE")
+                 updates = parts[1].strip()
+                 sql = f"{parts[0]} ON CONFLICT(strategy) DO UPDATE SET {updates}"
         
         # Handle VALUES(...) in UPDATE part (MySQL-specific)
         if self.use_sqlite and "SET" in sql and "VALUES(" in sql:
@@ -259,7 +269,98 @@ class DatabaseManager:
                 state_sql = state_sql.replace('DEFAULT CURRENT_TIMESTAMP', 'DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
             
             self._execute(cursor, state_sql)
-            
+
+            # ── V2 Tables (isolated from V1) ──
+
+            # V2 Trade Ledger — full execution audit trail
+            self._execute(cursor, '''
+                CREATE TABLE IF NOT EXISTS v2_trades (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    trade_id VARCHAR(50),
+                    symbol VARCHAR(50),
+                    side VARCHAR(20),
+                    position_side VARCHAR(20),
+                    quantity DOUBLE,
+                    fill_price DOUBLE,
+                    market_price DOUBLE,
+                    spread_pct DOUBLE,
+                    slippage_pct DOUBLE,
+                    commission DOUBLE,
+                    volatility_input DOUBLE,
+                    volume_input DOUBLE,
+                    leverage DOUBLE DEFAULT 1,
+                    margin_mode VARCHAR(20) DEFAULT 'isolated',
+                    realized_pnl DOUBLE,
+                    net_pnl DOUBLE,
+                    entry_price DOUBLE,
+                    strategy VARCHAR(100),
+                    bot_id VARCHAR(255),
+                    trade_type VARCHAR(20),
+                    account_value DOUBLE,
+                    notes TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    date DATE
+                ) ENGINE=InnoDB
+            ''')
+
+            # V2 Strategy Metrics — aggregated per user per strategy
+            self._execute(cursor, '''
+                CREATE TABLE IF NOT EXISTS v2_strategy_metrics (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    strategy VARCHAR(50) NOT NULL,
+                    total_trades INT DEFAULT 0,
+                    wins INT DEFAULT 0,
+                    losses INT DEFAULT 0,
+                    total_pnl DOUBLE DEFAULT 0,
+                    avg_win DOUBLE DEFAULT 0,
+                    avg_loss DOUBLE DEFAULT 0,
+                    expectancy DOUBLE DEFAULT 0,
+                    profit_factor DOUBLE DEFAULT 0,
+                    sharpe_ratio DOUBLE DEFAULT 0,
+                    sortino_ratio DOUBLE DEFAULT 0,
+                    calmar_ratio DOUBLE DEFAULT 0,
+                    recovery_factor DOUBLE DEFAULT 0,
+                    max_drawdown_pct DOUBLE DEFAULT 0,
+                    avg_r_multiple DOUBLE DEFAULT 0,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, strategy)
+                ) ENGINE=InnoDB
+            ''')
+
+            # V2 Strategy Equity Curve
+            self._execute(cursor, '''
+                CREATE TABLE IF NOT EXISTS v2_strategy_equity_curve (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    strategy VARCHAR(50) NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    equity_value DOUBLE NOT NULL
+                ) ENGINE=InnoDB
+            ''')
+
+            # V2 Strategy Profiles — per-strategy risk parameters
+            self._execute(cursor, '''
+                CREATE TABLE IF NOT EXISTS v2_strategy_profiles (
+                    strategy VARCHAR(50) PRIMARY KEY,
+                    default_risk_pct DOUBLE DEFAULT 2.0,
+                    default_leverage DOUBLE DEFAULT 1.0,
+                    max_drawdown_limit DOUBLE DEFAULT 10.0,
+                    volatility_filter TINYINT DEFAULT 0
+                ) ENGINE=InnoDB
+            ''')
+
+            # Seed default V2 strategy profiles
+            for strat in ['ichimoku', 'bollinger', 'macd_rsi', 'ml_forecast', 'combined']:
+                try:
+                    self._execute(cursor,
+                        "INSERT IGNORE INTO v2_strategy_profiles (strategy) VALUES (%s)",
+                        (strat,)
+                    )
+                except Exception:
+                    pass
+
             conn.commit()
             logger.info(f"{'SQLite' if self.use_sqlite else 'MySQL'} database initialized successfully")
         except Exception as e:
@@ -537,6 +638,241 @@ class DatabaseManager:
             conn.commit()
         finally:
             self._safe_close(conn, cursor)
+
+    # ══════════════════════════════════════════════════════════════
+    # V2 Methods — Fully isolated from V1
+    # ══════════════════════════════════════════════════════════════
+
+    def v2_save_trade(self, trade_data: Dict):
+        """Save a V2 trade with full execution audit trail."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO v2_trades (
+                    user_id, trade_id, symbol, side, position_side,
+                    quantity, fill_price, market_price, spread_pct, slippage_pct,
+                    commission, volatility_input, volume_input, leverage, margin_mode,
+                    realized_pnl, net_pnl, entry_price, strategy, bot_id,
+                    trade_type, account_value, notes, date
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            params = (
+                trade_data.get('user_id'), trade_data.get('trade_id'),
+                trade_data.get('symbol'), trade_data.get('side'),
+                trade_data.get('position_side'), trade_data.get('quantity'),
+                trade_data.get('fill_price'), trade_data.get('market_price'),
+                trade_data.get('spread_pct'), trade_data.get('slippage_pct'),
+                trade_data.get('commission'), trade_data.get('volatility_input'),
+                trade_data.get('volume_input'), trade_data.get('leverage', 1.0),
+                trade_data.get('margin_mode', 'isolated'),
+                trade_data.get('realized_pnl'), trade_data.get('net_pnl'),
+                trade_data.get('entry_price'), trade_data.get('strategy'),
+                trade_data.get('bot_id'), trade_data.get('trade_type'),
+                trade_data.get('account_value'), trade_data.get('notes'),
+                trade_data.get('date')
+            )
+            self._execute(cursor, query, params)
+            conn.commit()
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_get_user_trades(
+        self, user_id: int, strategy: str = None,
+        trade_type: str = None, limit: int = 500
+    ) -> List[Dict]:
+        """Get V2 trades with optional strategy and type filters."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            query = "SELECT * FROM v2_trades WHERE user_id = %s"
+            params: list = [user_id]
+
+            if strategy:
+                query += " AND strategy = %s"
+                params.append(strategy)
+            if trade_type:
+                query += " AND trade_type = %s"
+                params.append(trade_type)
+
+            query += " ORDER BY timestamp DESC LIMIT %s"
+            params.append(limit)
+
+            self._execute(cursor, query, params)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows] if self.use_sqlite else rows
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_upsert_strategy_metrics(self, user_id: int, strategy: str, metrics: Dict):
+        """Insert or update V2 strategy metrics."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO v2_strategy_metrics (
+                    user_id, strategy, total_trades, wins, losses, total_pnl,
+                    avg_win, avg_loss, expectancy, profit_factor, sharpe_ratio,
+                    sortino_ratio, calmar_ratio, recovery_factor, max_drawdown_pct,
+                    avg_r_multiple
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    total_trades=%s, wins=%s, losses=%s, total_pnl=%s,
+                    avg_win=%s, avg_loss=%s, expectancy=%s, profit_factor=%s,
+                    sharpe_ratio=%s, sortino_ratio=%s, calmar_ratio=%s,
+                    recovery_factor=%s, max_drawdown_pct=%s, avg_r_multiple=%s
+            """
+            vals = (
+                metrics.get('total_trades', 0), metrics.get('wins', 0),
+                metrics.get('losses', 0), metrics.get('total_pnl', 0),
+                metrics.get('avg_win', 0), metrics.get('avg_loss', 0),
+                metrics.get('expectancy', 0), metrics.get('profit_factor', 0),
+                metrics.get('sharpe_ratio', 0), metrics.get('sortino_ratio', 0),
+                metrics.get('calmar_ratio', 0), metrics.get('recovery_factor', 0),
+                metrics.get('max_drawdown_pct', 0), metrics.get('avg_r_multiple', 0),
+            )
+            params = (user_id, strategy) + vals + vals
+            self._execute(cursor, query, params)
+            conn.commit()
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_append_equity_point(self, user_id: int, strategy: str, equity_value: float):
+        """Append a point to the V2 strategy equity curve."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            self._execute(cursor,
+                "INSERT INTO v2_strategy_equity_curve (user_id, strategy, equity_value) VALUES (%s, %s, %s)",
+                (user_id, strategy, equity_value)
+            )
+            conn.commit()
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_get_strategy_metrics(self, user_id: int, strategy: str = None) -> List[Dict]:
+        """Get V2 strategy metrics (all strategies if strategy=None)."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            if strategy:
+                self._execute(cursor,
+                    "SELECT * FROM v2_strategy_metrics WHERE user_id = %s AND strategy = %s",
+                    (user_id, strategy)
+                )
+            else:
+                self._execute(cursor,
+                    "SELECT * FROM v2_strategy_metrics WHERE user_id = %s",
+                    (user_id,)
+                )
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows] if self.use_sqlite else rows
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_get_equity_curve(self, user_id: int, strategy: str, start_date: str = None) -> List[Dict]:
+        """Get V2 equity curve points for a strategy."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            query = "SELECT * FROM v2_strategy_equity_curve WHERE user_id = %s AND strategy = %s"
+            params: list = [user_id, strategy]
+
+            if start_date:
+                query += " AND timestamp >= %s"
+                params.append(start_date)
+
+            query += " ORDER BY timestamp ASC"
+            self._execute(cursor, query, params)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows] if self.use_sqlite else rows
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_get_strategy_profile(self, strategy: str = None) -> List[Dict]:
+        """Get V2 strategy profile(s)."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            if strategy:
+                self._execute(cursor, "SELECT * FROM v2_strategy_profiles WHERE strategy = %s", (strategy,))
+            else:
+                self._execute(cursor, "SELECT * FROM v2_strategy_profiles")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows] if self.use_sqlite else rows
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_upsert_strategy_profile(self, strategy: str, profile: Dict):
+        """Insert or update V2 strategy profile."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO v2_strategy_profiles (strategy, default_risk_pct, default_leverage, max_drawdown_limit, volatility_filter)
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    default_risk_pct=%s, default_leverage=%s, max_drawdown_limit=%s, volatility_filter=%s
+            """
+            vals = (
+                profile.get('default_risk_pct', 2.0),
+                profile.get('default_leverage', 1.0),
+                profile.get('max_drawdown_limit', 10.0),
+                1 if profile.get('volatility_filter') else 0,
+            )
+            params = (strategy,) + vals + vals
+            self._execute(cursor, query, params)
+            conn.commit()
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_sync_strategy_profiles(self, strategies: List[Dict]):
+        """Ensure all strategies from registry have a profile in the database."""
+        for strategy in strategies:
+            s_id = strategy['id']
+            conn = self._get_connection()
+            try:
+                cursor = conn.cursor()
+                self._execute(cursor, "SELECT strategy FROM v2_strategy_profiles WHERE strategy = %s", (s_id,))
+                if not cursor.fetchone():
+                    logger.info(f"✨ Seeding default profile for new strategy: {s_id}")
+                    self._execute(cursor, """
+                        INSERT INTO v2_strategy_profiles (strategy, default_risk_pct, default_leverage, max_drawdown_limit, volatility_filter)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (s_id, 2.0, 1.0, 10.0, 0))
+                    conn.commit()
+            except Exception as e:
+                logger.error(f"❌ Error syncing strategy profile for {s_id}: {e}")
+            finally:
+                self._safe_close(conn, cursor)
+
+    # ── Trade Clearing (Reset) ────────────────────────────────
+
+    def clear_user_trades(self, user_id: int):
+        """Delete all V1 trades for a user (used by paper trading reset)."""
+        conn, cursor = self._connect()
+        try:
+            self._execute(cursor, "DELETE FROM trades WHERE user_id = %s", (user_id,))
+            conn.commit()
+            logger.info(f"🗑️ Cleared V1 trades for user {user_id}")
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_clear_user_trades(self, user_id: int):
+        """Delete all V2 trades for a user (used by V2 paper trading reset)."""
+        conn, cursor = self._connect()
+        try:
+            self._execute(cursor, "DELETE FROM v2_trades WHERE user_id = %s", (user_id,))
+            # Also clear V2 strategy metrics
+            try:
+                self._execute(cursor, "DELETE FROM v2_strategy_metrics WHERE user_id = %s", (user_id,))
+            except Exception:
+                pass  # Table may not exist yet
+            conn.commit()
+            logger.info(f"🗑️ Cleared V2 trades + metrics for user {user_id}")
+        finally:
+            self._safe_close(conn, cursor)
+
 
 # Singleton instance
 db_manager = DatabaseManager()

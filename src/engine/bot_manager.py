@@ -62,6 +62,7 @@ class BotStats:
     signals_generated: int = 0
     last_signal: str = "HOLD"
     last_price: float = 0.0
+    current_qty: float = 0.0  # Tracks position for THIS bot specifically
 
 
 @dataclass
@@ -134,9 +135,10 @@ class BotManager:
         # Optional: Auto-migrate legacy configs on first startup
         self._migrate_legacy_configs()
     
-    def generate_bot_id(self, user_id: int, market: str, symbol: str) -> str:
-        """Generate unique bot ID including user_id."""
-        return f"u{user_id}_{market}_{symbol}".lower()
+    def generate_bot_id(self, user_id: int, market: str, symbol: str, strategy: str = "default") -> str:
+        """Generate unique bot ID including user_id and strategy."""
+        strategy_slug = strategy.lower().replace(" ", "_").replace("-", "_")
+        return f"u{user_id}_{market}_{symbol}_{strategy_slug}".lower()
     
     def start_bot(
         self,
@@ -155,7 +157,7 @@ class BotManager:
         Returns:
             Dict with bot_id and status
         """
-        bot_id = self.generate_bot_id(user_id, market, symbol)
+        bot_id = self.generate_bot_id(user_id, market, symbol, strategy)
         
         with self.lock:
             # Check if bot already exists
@@ -296,15 +298,17 @@ class BotManager:
                 if hasattr(stats, key):
                     setattr(stats, key, value)
     
-    def increment_trades(self, bot_id: str, side: str, pnl: float = 0):
-        """Increment trade counters and track realized P&L."""
+    def increment_trades(self, bot_id: str, side: str, qty: float = 0, pnl: float = 0):
+        """Increment trade counters and track realized P&L and per-bot quantity."""
         if bot_id in self.bots:
             stats = self.bots[bot_id].stats
             stats.total_trades += 1
             if side.lower() == 'buy':
                 stats.buy_trades += 1
+                stats.current_qty += qty
             else:
                 stats.sell_trades += 1
+                stats.current_qty -= qty
             stats.realized_pnl += pnl
             stats.total_pnl = stats.realized_pnl + stats.unrealized_pnl
     

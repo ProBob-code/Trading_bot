@@ -235,18 +235,39 @@ class TradeLogger:
     def get_daily_summary(self, user_id: int, date_str: str) -> Dict:
         """Get summary stats for a specific day and user from memory or MySQL."""
         # For efficiency, use memory since it's already replayed
-        trades = [t for t in self.all_trades if t['date'] == date_str and t.get('user_id') == user_id]
+        trades = [t for t in self.all_trades if str(t.get('date')) == date_str and int(t.get('user_id', 0)) == user_id]
+        
+        # Win rate and P&L should be calculated from CLOSING trades (those with non-zero P&L)
+        closing_trades = [t for t in trades if abs(float(t.get('pnl', 0))) > 1e-9]
         
         stats = {
             "date": date_str,
             "total_trades": len(trades),
+            "closing_trades": len(closing_trades),
             "total_volume": sum(float(t['quantity']) * float(t['price']) for t in trades),
-            "total_pnl": sum(float(t['pnl']) for t in trades),
-            "wins": len([t for t in trades if float(t['pnl']) > 0]),
-            "losses": len([t for t in trades if float(t['pnl']) < 0]),
+            "total_pnl": sum(float(t['pnl']) for t in closing_trades),
+            "wins": len([t for t in closing_trades if float(t['pnl']) > 0]),
+            "losses": len([t for t in closing_trades if float(t['pnl']) < 0]),
             "symbols": list(set(t['symbol'] for t in trades))
         }
         return stats
+
+    def reset_user(self, user_id: int):
+        """Clear all in-memory trades and positions for a specific user."""
+        with self.lock:
+            # Clear all_trades
+            self.all_trades = [t for t in self.all_trades if int(t.get('user_id', 0)) != user_id]
+            
+            # Clear open_positions
+            keys_to_delete = []
+            for key in self.open_positions:
+                if key.startswith(f"{user_id}_"):
+                    keys_to_delete.append(key)
+            
+            for key in keys_to_delete:
+                del self.open_positions[key]
+                
+            logger.info(f"🧹 TradeLogger: Cleared in-memory state for user {user_id}")
 
 # Global Singleton
 _instance = None

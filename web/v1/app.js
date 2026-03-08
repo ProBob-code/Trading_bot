@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateProfileUI(authData.user);
     } catch (err) {
         console.error('Auth Check Failed', err);
-        window.location.href = 'login.html';
+        window.location.href = 'godbot_login';
         return;
     }
 
@@ -1076,7 +1076,8 @@ async function loadBots() {
             // Update Control Buttons (START/STOP) for current symbol
             const isBotRunning = data.bots.some(
                 b => b.symbol.toLowerCase() === state.currentSymbol.toLowerCase() &&
-                    b.market === state.currentMarket
+                    b.market === state.currentMarket &&
+                    b.strategy === state.currentStrategy
             );
 
             const startBtn = document.getElementById('btnAutoTrade');
