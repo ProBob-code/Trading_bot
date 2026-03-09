@@ -1,0 +1,15 @@
+[mysqld]
+# Redo Log Fix for MySQL 8.0.30+
+# Disables dynamic resizing below 512MB to avoid "Cannot resize redo log file" crash
+# especially common on shared filesystems (Docker Desktop/WSL2/Linux)
+innodb_redo_log_capacity = 536870912
+
+# Performance & Stability
+innodb_buffer_pool_size = 512M
+innodb_log_buffer_size = 16M
+max_connections = 100
+default_authentication_plugin = mysql_native_password
+
+# Character Set
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci

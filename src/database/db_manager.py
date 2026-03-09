@@ -8,42 +8,64 @@ import sqlite3
 
 class DatabaseManager:
     def __init__(self):
-        # Support both custom DB_* and Railway default MYSQL* environment variables
-        # Priority: MYSQL* variables (Railway default) -> DB_* variables -> Defaults
-        # We check MYSQL* first because if DB_* is set to "" (empty string) it might override valid MYSQL* values
+        self._detect_config()
         
+        # Retry logic: Attempt to connect to MySQL 3 times before failing back to SQLite
+        # This gives the MySQL container time to start up if running via docker-compose
+        max_retries = 3
+        retry_delay = 2
+        
+        self.use_sqlite = True
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(f"🔌 database_manager: Connecting to MySQL (Attempt {attempt}/{max_retries})...")
+                conn = mysql.connector.connect(
+                    host=self.host,
+                    port=self.port,
+                    user=self.user,
+                    password=self.password,
+                    connect_timeout=5
+                )
+                conn.close()
+                self.use_sqlite = False
+                logger.info("✅ MySQL connection verified.")
+                break
+            except Error as e:
+                # Handle specific errors for clearer feedback
+                if e.errno == 1045:
+                    logger.error(f"❌ MySQL Access Denied (Check credentials): {e}")
+                elif e.errno == 2003:
+                    logger.warning(f"⚠️ MySQL Host not reachable (Is it running?): {e}")
+                else:
+                    logger.warning(f"⚠️ MySQL connection attempt {attempt} failed: {e}")
+                
+                if attempt < max_retries:
+                    logger.info(f"⏳ Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+        
+        if self.use_sqlite:
+            logger.warning("🚫 MySQL unavailable after all attempts. Falling back to SQLite.")
+            self.sqlite_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_bot.db")
+            
+        self._init_db()
+
+    def _detect_config(self):
+        """Prioritize environment variables (Railway default vs Local custom)."""
+        # Railway provides MYSQL* by default
+        # Local setups often use DB_*
         self.host = (os.getenv('MYSQLHOST') or os.getenv('DB_HOST') or 'localhost').strip()
         
-        # Handle port parsing safely
         port_str = (os.getenv('MYSQLPORT') or os.getenv('DB_PORT') or '3306').strip()
         try:
             self.port = int(port_str)
         except ValueError:
             self.port = 3306
-                
+            
         self.user = (os.getenv('MYSQLUSER') or os.getenv('DB_USER') or 'root').strip()
         self.password = (os.getenv('MYSQLPASSWORD') or os.getenv('DB_PASSWORD') or '').strip()
         self.database = (os.getenv('MYSQLDATABASE') or os.getenv('DB_NAME') or 'trading_bot').strip()
         
-        logger.info(f"🔌 database_manager: Connecting to {self.host}:{self.port} as {self.user} (DB: {self.database})")
-        
-        self.use_sqlite = False
-        try:
-            # Check if we can connect to MySQL
-            conn = mysql.connector.connect(
-                host=self.host,
-                port=self.port,
-                user=self.user,
-                password=self.password
-            )
-            conn.close()
-            logger.info("✅ MySQL connection verified.")
-        except Exception as e:
-            logger.warning(f"⚠️ MySQL connection failed: {e}. Falling back to SQLite.")
-            self.use_sqlite = True
-            self.sqlite_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_bot.db")
-            
-        self._init_db()
+        logger.info(f"🔍 database_config: {self.host}:{self.port} user={self.user} db={self.database}")
 
     def _get_connection(self):
         """Create a new database connection (MySQL or SQLite)."""
@@ -61,21 +83,32 @@ class DatabaseManager:
                 database=self.database
             )
         except Error as e:
-            logger.error(f"Error connecting to MySQL: {e}")
-            # If database doesn't exist, try connecting without it to create it
-            if e.errno == 1049: # Unknown database
-                conn = mysql.connector.connect(
-                    host=self.host,
-                    port=self.port,
-                    user=self.user,
-                    password=self.password
-                )
-                cursor = conn.cursor()
-                cursor.execute(f"CREATE DATABASE IF NOT EXISTS {self.database}")
-                conn.commit()
-                cursor.close()
-                conn.close()
-                return self._get_connection()
+            # If database doesn't exist (1049), try creating it
+            if e.errno == 1049:
+                logger.info(f"🛠️ Database '{self.database}' not found. Attempting to create it...")
+                try:
+                    conn = mysql.connector.connect(
+                        host=self.host,
+                        port=self.port,
+                        user=self.user,
+                        password=self.password
+                    )
+                    cursor = conn.cursor()
+                    cursor.execute(f"CREATE DATABASE IF NOT EXISTS {self.database}")
+                    conn.commit()
+                    cursor.close()
+                    conn.close()
+                    return self._get_connection()
+                except Error as create_err:
+                    logger.error(f"❌ Failed to create database: {create_err}")
+                    raise create_err
+            
+            # For other errors, log specifically
+            if e.errno == 1045:
+                logger.error("❌ MySQL Authentication failed (1045). Check DB_USER/DB_PASSWORD.")
+            elif e.errno == 2003:
+                logger.error(f"❌ MySQL Server unreachable at {self.host}:{self.port} (2003).")
+            
             raise e
 
     def _clean_sql(self, sql: str) -> str:
