@@ -13,9 +13,10 @@ Features:
 - Liquidation checks on price updates
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import threading
+import uuid
 from loguru import logger
 
 from .execution_engine import ExecutionEngine, ExecutionResult
@@ -44,7 +45,7 @@ class V2Position:
         self.avg_price = avg_price
         self.leverage = leverage
         self.margin_mode = margin_mode
-        self.opened_at = datetime.now()
+        self.opened_at = datetime.now(timezone.utc)
         
         # Computed fields
         notional = avg_price * quantity
@@ -242,6 +243,12 @@ class PaperTraderV2:
             return True
         return False
     
+    def _generate_trade_id(self, symbol: str, trade_type: str) -> str:
+        """Generate unique trade ID: {SYMBOL}_{YYYYMMDD_HHMMSS_ffffff}_{TYPE}_{uuid8}"""
+        ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')
+        uid = uuid.uuid4().hex[:8]
+        return f"{symbol}_{ts}_{trade_type}_{uid}".upper()
+
     def _open_position(
         self, acc, user_id, symbol, side, quantity, leverage,
         market_price, volatility, volume, strategy, margin_mode
@@ -291,9 +298,13 @@ class PaperTraderV2:
                 margin_mode=margin_mode,
             )
         
+        # Generate trade ID
+        trade_id = self._generate_trade_id(symbol, 'OPEN')
+
         # Audit trail
         trade_record = {
             'type': 'OPEN',
+            'trade_id': trade_id,
             'symbol': symbol,
             'side': exec_side,
             'position_side': pos_side,
@@ -302,7 +313,7 @@ class PaperTraderV2:
             'leverage': leverage,
             'margin_mode': margin_mode,
             'user_id': user_id,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             **result.to_dict(),
         }
         acc.trade_history.append(trade_record)
@@ -310,16 +321,18 @@ class PaperTraderV2:
         logger.info(
             f"[V2-TRADER] {'🟢' if exec_side == 'BUY' else '🔴'} OPEN {pos_side}: "
             f"user {user_id} | {quantity} {symbol} @ {result.fill_price:.4f} "
-            f"(lev={leverage}×, margin=${required_margin:.2f})"
+            f"(lev={leverage}×, margin=${required_margin:.2f}) [{trade_id}]"
         )
         
         return {
             'success': True,
             'type': 'OPEN',
+            'trade_id': trade_id,
             'symbol': symbol,
             'side': exec_side,
             'position_side': pos_side,
             'quantity': quantity,
+            'strategy': strategy,
             'leverage': leverage,
             **result.to_dict(),
         }
@@ -357,12 +370,19 @@ class PaperTraderV2:
             pos.quantity -= close_qty
             pos.margin_used -= margin_returned
         
+        # Generate trade ID and compute duration
+        trade_id = self._generate_trade_id(symbol, 'CLOSE')
+        exit_time = datetime.now(timezone.utc)
+        duration_seconds = (exit_time - pos.opened_at).total_seconds()
+
         # Record closed trade
         closed_record = {
             'type': 'CLOSE',
+            'trade_id': trade_id,
             'symbol': symbol,
             'side': exec_side,
             'position_side': pos.side,
+            'direction': pos.side,
             'quantity': close_qty,
             'entry_price': pos.avg_price,
             'exit_price': result.fill_price,
@@ -371,7 +391,8 @@ class PaperTraderV2:
             'net_pnl': round(net_pnl, 2),
             'strategy': strategy,
             'user_id': user_id,
-            'timestamp': datetime.now().isoformat(),
+            'duration_seconds': round(duration_seconds, 2),
+            'timestamp': exit_time.isoformat(),
             **result.to_dict(),
         }
         acc.trade_history.append(closed_record)
@@ -381,20 +402,24 @@ class PaperTraderV2:
         logger.info(
             f"[V2-TRADER] {pnl_emoji} CLOSE {pos.side}: user {user_id} | "
             f"{close_qty} {symbol} @ {result.fill_price:.4f} | "
-            f"P&L=${realized_pnl:.2f} (lev={pos.leverage}×)"
+            f"P&L=${realized_pnl:.2f} (lev={pos.leverage}×) [{trade_id}]"
         )
         
         return {
             'success': True,
             'type': 'CLOSE',
+            'trade_id': trade_id,
             'symbol': symbol,
             'side': exec_side,
             'position_side': pos.side,
+            'direction': pos.side,
             'quantity': close_qty,
             'entry_price': pos.avg_price,
+            'exit_price': result.fill_price,
             'leverage': pos.leverage,
             'realized_pnl': round(realized_pnl, 2),
             'net_pnl': round(net_pnl, 2),
+            'duration_seconds': round(duration_seconds, 2),
             **result.to_dict(),
         }
     
@@ -482,3 +507,47 @@ class PaperTraderV2:
             else:
                 self.accounts.clear()
                 logger.info("[V2-TRADER] Reset all accounts")
+
+    def save_positions(self, user_id: int, db_manager):
+        """Persist all open positions to v2_positions table."""
+        with self.lock:
+            acc = self._get_account(user_id)
+            for symbol, pos in acc.positions.items():
+                db_manager.v2_save_position(user_id, {
+                    'symbol': symbol,
+                    'side': pos.side,
+                    'quantity': pos.quantity,
+                    'avg_price': pos.avg_price,
+                    'leverage': pos.leverage,
+                    'margin_mode': pos.margin_mode,
+                    'margin_used': pos.margin_used,
+                    'strategy': getattr(pos, 'strategy', None),
+                    'opened_at': pos.opened_at.isoformat() if pos.opened_at else None,
+                })
+            logger.info(f"[V2-TRADER] Saved {len(acc.positions)} positions for user {user_id}")
+
+    def load_positions(self, user_id: int, db_manager):
+        """Load open positions from v2_positions table (for restart recovery)."""
+        with self.lock:
+            rows = db_manager.v2_get_positions(user_id)
+            if not rows:
+                return
+            acc = self._get_account(user_id)
+            for row in rows:
+                symbol = row['symbol']
+                pos = V2Position(
+                    symbol=symbol,
+                    side=row['side'],
+                    quantity=row['quantity'],
+                    avg_price=row['avg_price'],
+                    leverage=row.get('leverage', 1.0),
+                    margin_mode=row.get('margin_mode', 'isolated'),
+                )
+                pos.margin_used = row.get('margin_used', 0)
+                if row.get('opened_at'):
+                    try:
+                        pos.opened_at = datetime.fromisoformat(str(row['opened_at']))
+                    except (ValueError, TypeError):
+                        pos.opened_at = datetime.now(timezone.utc)
+                acc.positions[symbol] = pos
+            logger.info(f"[V2-TRADER] Loaded {len(rows)} positions for user {user_id} from DB")

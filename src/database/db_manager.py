@@ -310,7 +310,7 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS v2_trades (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     user_id INT NOT NULL,
-                    trade_id VARCHAR(50),
+                    trade_id VARCHAR(100) UNIQUE,
                     symbol VARCHAR(50),
                     side VARCHAR(20),
                     position_side VARCHAR(20),
@@ -330,6 +330,8 @@ class DatabaseManager:
                     strategy VARCHAR(100),
                     bot_id VARCHAR(255),
                     trade_type VARCHAR(20),
+                    direction VARCHAR(20),
+                    duration_seconds DOUBLE,
                     account_value DOUBLE,
                     notes TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -393,6 +395,25 @@ class DatabaseManager:
                     )
                 except Exception:
                     pass
+
+            # V2 Open Positions — persisted for restart durability
+            self._execute(cursor, '''
+                CREATE TABLE IF NOT EXISTS v2_positions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    symbol VARCHAR(50) NOT NULL,
+                    side VARCHAR(10) NOT NULL,
+                    quantity DOUBLE NOT NULL,
+                    avg_price DOUBLE NOT NULL,
+                    leverage DOUBLE DEFAULT 1.0,
+                    margin_mode VARCHAR(20) DEFAULT 'isolated',
+                    margin_used DOUBLE,
+                    strategy VARCHAR(50),
+                    opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, symbol)
+                ) ENGINE=InnoDB
+            ''')
 
             conn.commit()
             logger.info(f"{'SQLite' if self.use_sqlite else 'MySQL'} database initialized successfully")
@@ -677,18 +698,18 @@ class DatabaseManager:
     # ══════════════════════════════════════════════════════════════
 
     def v2_save_trade(self, trade_data: Dict):
-        """Save a V2 trade with full execution audit trail."""
+        """Save a V2 trade with full execution audit trail. Uses INSERT IGNORE for dedup."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
             query = """
-                INSERT INTO v2_trades (
+                INSERT IGNORE INTO v2_trades (
                     user_id, trade_id, symbol, side, position_side,
                     quantity, fill_price, market_price, spread_pct, slippage_pct,
                     commission, volatility_input, volume_input, leverage, margin_mode,
                     realized_pnl, net_pnl, entry_price, strategy, bot_id,
-                    trade_type, account_value, notes, date
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    trade_type, direction, duration_seconds, account_value, notes, date
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             params = (
                 trade_data.get('user_id'), trade_data.get('trade_id'),
@@ -702,6 +723,7 @@ class DatabaseManager:
                 trade_data.get('realized_pnl'), trade_data.get('net_pnl'),
                 trade_data.get('entry_price'), trade_data.get('strategy'),
                 trade_data.get('bot_id'), trade_data.get('trade_type'),
+                trade_data.get('direction'), trade_data.get('duration_seconds'),
                 trade_data.get('account_value'), trade_data.get('notes'),
                 trade_data.get('date')
             )
@@ -892,7 +914,7 @@ class DatabaseManager:
             self._safe_close(conn, cursor)
 
     def v2_clear_user_trades(self, user_id: int):
-        """Delete all V2 trades for a user (used by V2 paper trading reset)."""
+        """Delete all V2 trades, metrics, and positions for a user (used by V2 paper trading reset)."""
         conn, cursor = self._connect()
         try:
             self._execute(cursor, "DELETE FROM v2_trades WHERE user_id = %s", (user_id,))
@@ -901,8 +923,72 @@ class DatabaseManager:
                 self._execute(cursor, "DELETE FROM v2_strategy_metrics WHERE user_id = %s", (user_id,))
             except Exception:
                 pass  # Table may not exist yet
+            # Clear V2 positions
+            try:
+                self._execute(cursor, "DELETE FROM v2_positions WHERE user_id = %s", (user_id,))
+            except Exception:
+                pass
             conn.commit()
-            logger.info(f"🗑️ Cleared V2 trades + metrics for user {user_id}")
+            logger.info(f"🗑️ Cleared V2 trades + metrics + positions for user {user_id}")
+        finally:
+            self._safe_close(conn, cursor)
+
+    # ── V2 Position Persistence ────────────────────────────────
+
+    def v2_save_position(self, user_id: int, position_data: Dict):
+        """Upsert a V2 open position (for restart durability)."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            query = """
+                INSERT INTO v2_positions (
+                    user_id, symbol, side, quantity, avg_price,
+                    leverage, margin_mode, margin_used, strategy, opened_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    side=%s, quantity=%s, avg_price=%s,
+                    leverage=%s, margin_mode=%s, margin_used=%s,
+                    strategy=%s
+            """
+            vals = (
+                position_data.get('side'),
+                position_data.get('quantity'),
+                position_data.get('avg_price'),
+                position_data.get('leverage', 1.0),
+                position_data.get('margin_mode', 'isolated'),
+                position_data.get('margin_used'),
+                position_data.get('strategy'),
+            )
+            params = (
+                user_id,
+                position_data.get('symbol'),
+                *vals,
+                position_data.get('opened_at'),
+                *vals,
+            )
+            self._execute(cursor, query, params)
+            conn.commit()
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_delete_position(self, user_id: int, symbol: str):
+        """Delete a V2 position (when fully closed)."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            self._execute(cursor, "DELETE FROM v2_positions WHERE user_id = %s AND symbol = %s", (user_id, symbol))
+            conn.commit()
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_get_positions(self, user_id: int) -> List[Dict]:
+        """Get all open V2 positions for a user."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor, "SELECT * FROM v2_positions WHERE user_id = %s", (user_id,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows] if self.use_sqlite else rows
         finally:
             self._safe_close(conn, cursor)
 

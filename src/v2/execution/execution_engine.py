@@ -100,7 +100,7 @@ class CommissionModel:
     Commission model — flat percentage of trade value.
     """
     
-    DEFAULT_RATE = 0.001  # 0.1%
+    DEFAULT_RATE = 0.0004  # 0.04% (Binance taker fee)
     
     def __init__(self, rate: float = None):
         self.rate = rate if rate is not None else self.DEFAULT_RATE

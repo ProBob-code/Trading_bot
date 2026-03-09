@@ -48,11 +48,11 @@ class StrategyAnalytics:
         if not trades:
             return self._empty_metrics()
         
-        pnls = [t.get('net_pnl', t.get('realized_pnl', 0)) for t in trades]
+        pnls = [float(t.get('net_pnl') if t.get('net_pnl') is not None else t.get('realized_pnl', 0)) for t in trades]
         total = len(pnls)
         
         wins = [p for p in pnls if p > 0]
-        losses = [p for p in pnls if p < 0]
+        losses = [p for p in pnls if p <= 0]
         
         win_count = len(wins)
         loss_count = len(losses)
@@ -98,7 +98,7 @@ class StrategyAnalytics:
             'total_trades': total,
             'wins': win_count,
             'losses': loss_count,
-            'win_rate': round(win_rate, 4),
+            'win_rate': round(win_rate * 100, 2),
             'total_pnl': round(total_pnl, 2),
             'avg_win': round(avg_win, 2),
             'avg_loss': round(avg_loss, 2),

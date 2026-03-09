@@ -1477,25 +1477,23 @@ function initPositionsPanel() {
 
 async function loadPositions() {
     try {
-        const from = document.getElementById('filterDateFrom')?.value;
-        const to = document.getElementById('filterDateTo')?.value;
-        let url = '/api/positions';
-        if (from || to) {
-            const params = new URLSearchParams();
-            if (from) params.append('start_date', from);
-            if (to) params.append('end_date', to);
-            url += `?${params.toString()}`;
-        }
+        // V2: Fetch open positions and trade history from isolated V2 endpoints
+        const [posRes, historyRes] = await Promise.all([
+            fetch('/api/v2/positions'),
+            fetch('/api/v2/trades?limit=100')
+        ]);
 
-        const response = await fetch(url);
-        if (!response.ok) return;
+        if (!posRes.ok || !historyRes.ok) return;
 
-        const data = await response.json();
-        if (data.success) {
-            positionsData.open = data.open_positions || [];
-            positionsData.closed = data.closed_positions || [];
-            positionsData.history = data.trade_history || [];
-            positionsData.orders = data.pending_orders || [];
+        const posData = await posRes.json();
+        const historyData = await historyRes.json();
+
+        if (posData.success && historyData.success) {
+            positionsData.open = posData.positions || [];
+            positionsData.history = historyData.trades || [];
+            // Closed trades are CLOSE records in history
+            positionsData.closed = (historyData.trades || []).filter(t => (t.trade_type || t.type) === 'CLOSE');
+            positionsData.orders = []; // V2 pending orders to be implemented later
 
             renderOpenPositions();
             renderClosedPositions();
@@ -1503,7 +1501,7 @@ async function loadPositions() {
             renderPendingOrders();
         }
     } catch (error) {
-        // API not yet implemented, use local tracking
+        console.error('Error loading V2 positions:', error);
         renderFromLocalState();
     }
 }
@@ -1580,22 +1578,24 @@ function renderClosedPositions() {
         body.innerHTML = '<tr class="empty-row"><td colspan="7">No closed positions</td></tr>';
     } else {
         body.innerHTML = positionsData.closed.map(pos => {
-            const pnl = pos.pnl || (pos.exit - pos.entry) * pos.qty;
-            const pnlPct = ((pos.exit / pos.entry) - 1) * 100;
+            const pnl = pos.net_pnl ?? pos.realized_pnl ?? 0;
+            const entry = pos.entry_price || pos.entry || 0;
+            const exit = pos.exit_price || pos.exit || 0;
+            const pnlPct = entry > 0 ? ((exit / entry) - 1) * 100 : 0;
             const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
-            const sideClass = pos.side === 'BUY' ? 'side-long' : 'side-short';
+            const sideClass = (pos.side || '').toUpperCase().includes('BUY') ? 'side-long' : 'side-short';
 
             return `
                 <tr class="closed-trade-row">
                     <td>
                         <div class="trade-symbol-meta">
                             <strong>${pos.symbol}</strong>, 
-                            <span class="${sideClass}">${pos.side === 'BUY' ? 'buy' : 'sell'} ${pos.qty}</span>
+                            <span class="${sideClass}">${(pos.side || '').toLowerCase()} ${pos.quantity || pos.qty}</span>
                         </div>
                     </td>
                     <td colspan="3">
                         <div class="trade-price-flow">
-                            $${parseFloat(pos.entry).toLocaleString()} &rarr; $${parseFloat(pos.exit).toLocaleString()}
+                            $${parseFloat(entry).toLocaleString()} &rarr; $${parseFloat(exit).toLocaleString()}
                         </div>
                     </td>
                     <td class="${pnlClass}">
@@ -1606,7 +1606,7 @@ function renderClosedPositions() {
                     </td>
                     <td colspan="2">
                         <div class="trade-time-cell">
-                            ${new Date(pos.closed_at).toLocaleString()}
+                            ${pos.timestamp ? new Date(pos.timestamp).toLocaleString() : '—'}
                         </div>
                     </td>
                 </tr>
@@ -1645,22 +1645,29 @@ function renderTradeHistory() {
     const body = document.getElementById('tradeHistoryBody');
     if (!body) return;
 
-    // Use auto_trade_stats trades_log if available
     if (positionsData.history.length === 0) {
         body.innerHTML = '<tr class="empty-row"><td colspan="8">No trade history</td></tr>';
     } else {
-        body.innerHTML = positionsData.history.slice(-20).reverse().map(trade => `
+        body.innerHTML = positionsData.history.slice(-20).reverse().map(trade => {
+            const tradeType = trade.trade_type || trade.type || '—';
+            const price = trade.fill_price || trade.price || 0;
+            const qty = trade.quantity || 0;
+            const ts = trade.timestamp || trade.time;
+            const side = (trade.side || '').toUpperCase();
+
+            return `
             <tr>
-                <td>${new Date(trade.time).toLocaleTimeString()}</td>
+                <td>${ts ? new Date(ts).toLocaleTimeString() : '—'}</td>
                 <td><strong>${trade.symbol}</strong></td>
-                <td>MARKET</td>
-                <td class="${trade.side === 'BUY' ? 'side-long' : 'side-short'}">${trade.side}</td>
-                <td>${trade.quantity}</td>
-                <td>$${trade.price.toLocaleString()}</td>
-                <td>$${(trade.quantity * trade.price).toLocaleString()}</td>
-                <td>✓ Filled</td>
+                <td><span style="font-size:0.7rem; color:var(--text-secondary)">${tradeType}</span></td>
+                <td class="${side.includes('BUY') ? 'side-long' : 'side-short'}">${side}</td>
+                <td>${qty.toFixed(4)}</td>
+                <td>$${price.toLocaleString()}</td>
+                <td>$${(qty * price).toLocaleString()}</td>
+                <td><span style="color:var(--green)">✓ Filled</span></td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
     }
 
     // Update Trade Count in UI
@@ -1833,27 +1840,21 @@ function exportToCSV() {
 
 function calculateAnalytics() {
     const trades = positionsData.history;
-    if (trades.length === 0) return {};
+    if (!trades || trades.length === 0) return {};
 
-    const pnls = [];
+    // Filter to CLOSE trades only — these contain the real PnL
+    const closedTrades = trades.filter(t => t.trade_type === 'CLOSE');
+    if (closedTrades.length === 0) return {};
+
+    // Use nullish coalescing (??) to avoid net_pnl === 0 false-fallback
+    const pnls = closedTrades.map(t => t.net_pnl ?? t.realized_pnl ?? 0);
     let wins = 0;
     let losses = 0;
-
-    // Calculate win rate and returns
-    for (let i = 1; i < trades.length; i += 2) {
-        const entry = trades[i - 1];
-        const exit = trades[i];
-        if (entry && exit) {
-            const pnl = (exit.price - entry.price) * entry.quantity;
-            pnls.push(pnl);
-            if (pnl > 0) wins++;
-            else losses++;
-        }
-    }
+    pnls.forEach(p => p > 0 ? wins++ : losses++);
 
     const totalPnL = pnls.reduce((a, b) => a + b, 0);
     const avgReturn = pnls.length > 0 ? totalPnL / pnls.length : 0;
-    const winRate = (wins / (wins + losses)) * 100 || 0;
+    const winRate = (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : 0;
 
     // Sharpe ratio (simplified)
     const mean = avgReturn;
@@ -1865,7 +1866,7 @@ function calculateAnalytics() {
         totalPnL,
         winRate,
         sharpe,
-        totalTrades: trades.length
+        totalTrades: closedTrades.length
     };
 }
 

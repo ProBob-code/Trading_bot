@@ -158,6 +158,15 @@ def v2_trade():
             except Exception as e:
                 logger.error(f"[V2] Failed to save trade to DB: {e}")
 
+            # Persist position state AFTER trade insert (correct ordering)
+            try:
+                if result.get('type') == 'CLOSE':
+                    db_manager.v2_delete_position(current_user.id, symbol)
+                else:
+                    v2_paper_trader.save_positions(current_user.id, db_manager)
+            except Exception as e:
+                logger.error(f"[V2] Failed to persist position: {e}")
+
             # If this was a close, update strategy analytics
             if result.get('type') == 'CLOSE' and strategy != 'manual':
                 acc_info = v2_paper_trader.get_account_info(current_user.id)
@@ -408,7 +417,8 @@ def _v2_place_trade(bot, side, quantity, current_price, leverage, trade_type):
 
     if result.get('success'):
         # Update bot stats
-        pnl = result.get('realized_pnl', 0) or 0
+        # Use net_pnl to ensure commissions are deducted from bot card display
+        pnl = result.get('net_pnl', result.get('realized_pnl', 0)) or 0
         bot_manager_v2.increment_trades(bot.bot_id, side, pnl)
 
         # Persist to v2_trades table
@@ -422,6 +432,15 @@ def _v2_place_trade(bot, side, quantity, current_price, leverage, trade_type):
             db_manager.v2_save_trade(trade_record)
         except Exception as e:
             logger.error(f"[V2-BOT-{bot.bot_id}] Failed to save trade: {e}")
+
+        # Persist position state AFTER trade insert (correct ordering)
+        try:
+            if result.get('type') == 'CLOSE':
+                db_manager.v2_delete_position(user_id, symbol)
+            else:
+                v2_paper_trader.save_positions(user_id, db_manager)
+        except Exception as e:
+            logger.error(f"[V2-BOT-{bot.bot_id}] Failed to persist position: {e}")
 
         # Update strategy analytics on close trades
         if result.get('type') == 'CLOSE' and strategy != 'manual':
@@ -616,7 +635,11 @@ def _compute_live_metrics(user_id, strategy_filter=None):
     """
     Compute strategy metrics live from the v2_trades table.
     Used as fallback when v2_strategy_metrics is empty/zero.
+    Delegates to StrategyAnalytics.compute_metrics() for accurate institutional metrics.
     """
+    from src.v2.analytics.strategy_analytics import StrategyAnalytics
+    analytics = StrategyAnalytics()
+
     trades = db_manager.v2_get_user_trades(user_id=user_id, strategy=strategy_filter, limit=10000)
     if not trades:
         return []
@@ -625,67 +648,18 @@ def _compute_live_metrics(user_id, strategy_filter=None):
     from collections import defaultdict
     grouped = defaultdict(list)
     for t in trades:
-        strat = t.get('strategy', 'unknown')
+        strat = t.get('strategy') or 'unknown'
         grouped[strat].append(t)
 
     results = []
     for strat, strat_trades in grouped.items():
         close_trades = [t for t in strat_trades if t.get('trade_type') == 'CLOSE']
         if not close_trades:
-            # Count all trades even if none closed
-            results.append({
-                'strategy': strat,
-                'total_trades': len(strat_trades),
-                'wins': 0, 'losses': 0,
-                'total_pnl': 0, 'avg_win': 0, 'avg_loss': 0,
-                'expectancy': 0, 'profit_factor': 0,
-                'sharpe_ratio': 0, 'sortino_ratio': 0,
-                'calmar_ratio': 0, 'recovery_factor': 0,
-                'max_drawdown_pct': 0, 'avg_r_multiple': 0,
-                'win_rate': 0,
-            })
-            continue
-
-        pnls = [float(t.get('realized_pnl', 0) or 0) for t in close_trades]
-        wins = [p for p in pnls if p > 0]
-        losses = [p for p in pnls if p <= 0]
-        total_pnl = sum(pnls)
-
-        win_rate = len(wins) / len(pnls) * 100 if pnls else 0
-        avg_win = sum(wins) / len(wins) if wins else 0
-        avg_loss = sum(losses) / len(losses) if losses else 0
-        profit_factor = (sum(wins) / abs(sum(losses))) if losses and sum(losses) != 0 else 0
-        expectancy = (avg_win * (len(wins)/len(pnls)) + avg_loss * (len(losses)/len(pnls))) if pnls else 0
-
-        # Max drawdown from PnL curve
-        cumulative = 0
-        peak = 0
-        max_dd = 0
-        for p in pnls:
-            cumulative += p
-            peak = max(peak, cumulative)
-            dd = peak - cumulative
-            max_dd = max(max_dd, dd)
-        max_dd_pct = (max_dd / peak * 100) if peak > 0 else 0
-
-        results.append({
-            'strategy': strat,
-            'total_trades': len(strat_trades),
-            'wins': len(wins),
-            'losses': len(losses),
-            'total_pnl': round(total_pnl, 2),
-            'avg_win': round(avg_win, 2),
-            'avg_loss': round(avg_loss, 2),
-            'expectancy': round(expectancy, 2),
-            'profit_factor': round(profit_factor, 2),
-            'sharpe_ratio': 0,
-            'sortino_ratio': 0,
-            'calmar_ratio': 0,
-            'recovery_factor': 0,
-            'max_drawdown_pct': round(max_dd_pct, 2),
-            'avg_r_multiple': 0,
-            'win_rate': round(win_rate, 1),
-        })
+            metrics = analytics._empty_metrics()
+        else:
+            metrics = analytics.compute_metrics(close_trades)
+        metrics['strategy'] = strat
+        results.append(metrics)
 
     return results
 
