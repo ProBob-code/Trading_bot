@@ -6,7 +6,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.services.trade_logger import TradeLogger
+from shared.services.trade_logger import TradeLogger
 
 def test_logger():
     # Use a temp directory for testing

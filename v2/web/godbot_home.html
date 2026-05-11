@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoatBot V2 — Institutional Terminal</title>
+    <link rel="stylesheet" href="/v2/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://s3.tradingview.com/tv.js"></script>
+    <script src="/common/ChartManager.js?v=2"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        // FOUC Prevention: Apply theme BEFORE CSS loads
+        (function () {
+            const theme = localStorage.getItem("theme") || "dark";
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
+</head>
+
+
+<body>
+    <div class="main-layout">
+        <!-- ═══════════════════════════════════════
+             SIDEBAR (NAV)
+             ═══════════════════════════════════════ -->
+        <aside class="slim-sidebar">
+            <div class="sidebar-logo">
+                <div class="logo-icon"><img src="/v2/assets/goatbot_logo.svg" alt="GoatBot Trade"></div>
+                <span class="logo-text">GoatBot Trade</span>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" title="Home" data-route="home">
+                    <i class="fas fa-home"></i>
+                    <span class="nav-label">Home</span>
+                </a>
+                <a href="#" class="nav-item" title="Report" data-route="report">
+                    <i class="fas fa-file-invoice"></i>
+                    <span class="nav-label">Report</span>
+                </a>
+                <a href="#" class="nav-item" title="Paper Trade" data-route="paper">
+                    <i class="fas fa-vial"></i>
+                    <span class="nav-label">Paper Trade</span>
+                </a>
+                <a href="#" class="nav-item" title="Live Trade" data-route="live">
+                    <i class="fas fa-rocket"></i>
+                    <span class="nav-label">Live Trade</span>
+                </a>
+                <a href="#" class="nav-item" title="Portfolio" data-route="portfolio">
+                    <i class="fas fa-wallet"></i>
+                    <span class="nav-label">Portfolio</span>
+                </a>
+                <a href="#" class="nav-item" title="Profile Settings" data-route="profile">
+                    <i class="fas fa-user-cog"></i>
+                    <span class="nav-label">Profile Settings</span>
+                </a>
+            </nav>
+            <div style="margin-top: auto; padding-bottom: 20px; width: 100%;">
+                <button class="nav-item" id="logoutBtn"
+                    style="background:none; border:none; cursor:pointer; width:100%; text-align:left;">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span class="nav-label">Logout</span>
+                </button>
+            </div>
+        </aside>
+        <div class="sidebar-overlay"></div>
+
+        <!-- ═══════════════════════════════════════
+             HEADER (COMMAND BAR)
+             ═══════════════════════════════════════ -->
+        <header class="header">
+            <div class="header-left">
+                <span class="header-brand-text">GoatBot <span class="accent-text">Trade</span></span>
+                <div class="market-nav">
+                    <button class="nav-pill active" data-market="crypto" onclick="switchAsset('crypto')">Crypto</button>
+                    <button class="nav-pill" data-market="stocks" onclick="switchAsset('stocks')">Stocks</button>
+                    <button class="nav-pill" data-market="forex" onclick="switchAsset('forex')">Forex</button>
+                    <button class="nav-pill" data-market="commodities"
+                        onclick="switchAsset('commodities')">Commodities</button>
+                </div>
+            </div>
+
+            <div class="header-center">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="globalSearch" placeholder="Search markets (BTC, AAPL...)" autocomplete="off">
+                    <span class="search-shortcut">⌘K</span>
+                    <div class="search-results" id="searchResults"></div>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <div class="terminal-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">BALANCE</span>
+                        <span class="stat-value" id="accountBalance">$0.00</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">DAY P&L</span>
+                        <span class="stat-value pnl-positive" id="accountPnl">+$0.00</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">TRADES</span>
+                        <span class="stat-value" id="tradeCount">0</span>
+                    </div>
+                </div>
+                <div class="top-actions">
+                    <div class="status-badge">
+                        <span class="pulse-dot"></span>
+                        <span id="serverStatusText">LIVE</span>
+                    </div>
+                    <button id="themeToggle" class="icon-action">🌙</button>
+                    <div class="user-chip" id="userProfileChip" onclick="toggleUserDropdown()">
+                        <div class="user-info-col">
+                            <span class="user-name" id="userNameDisplay">Trader</span>
+                            <span class="user-role">TRADER</span>
+                        </div>
+                        <div class="user-avatar"><i class="fas fa-user-shield"></i></div>
+                    </div>
+                    <!-- User Dropdown Menu -->
+                    <div class="user-dropdown" id="userDropdown">
+                        <div class="dropdown-header">
+                            <div class="dropdown-avatar"><i class="fas fa-user-shield"></i></div>
+                            <div>
+                                <div class="dropdown-name" id="dropdownUserName">Trader</div>
+                                <div class="dropdown-role">Institutional Trader</div>
+                            </div>
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="#" data-route="portfolio"><i class="fas fa-chart-pie"></i>
+                            Portfolio</a>
+                        <a class="dropdown-item" href="#" data-route="report"><i class="fas fa-file-alt"></i>
+                            Reports</a>
+                        <a class="dropdown-item" href="#" data-route="profile"><i class="fas fa-cog"></i> Settings</a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item logout-item" href="#" onclick="showLogoutModal(); return false;"><i
+                                class="fas fa-sign-out-alt"></i> Logout</a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+
+        <!-- ═══════════════════════════════════════
+             LEFT: MARKET WATCH
+             ═══════════════════════════════════════ -->
+        <section class="panel glass-panel left-panel" style="display: flex; flex-direction: column; overflow: hidden;">
+            <div class="panel-header" style="padding: 12px 16px; border-bottom: 1px solid var(--glass-border);">
+                <div style="display:flex; flex-direction:column;">
+                    <span class="panel-label">MARKET WATCH</span>
+                    <h3 style="margin:0; font-size:14px; font-weight:800; letter-spacing: -0.2px;">WATCHLIST</h3>
+                </div>
+                <div class="header-actions">
+                    <i class="fas fa-sync-alt" onclick="loadInitialData()"></i>
+                </div>
+            </div>
+
+            <!-- MY WATCHLIST (Favorites) -->
+            <div id="tab-watchlist" class="side-tab-content" style="display: flex; flex-direction: column;">
+                <div class="watchlist-section" id="userWatchlistSection">
+                    <div class="watchlist-header">
+                        <span class="section-eyebrow">⭐ My Watchlist</span>
+                        <span class="watchlist-count" id="watchlistCount">0</span>
+                    </div>
+                    <div id="userWatchlistBody">
+                        <div class="watchlist-empty">
+                            <i class="far fa-heart"></i>
+                            <span>Search & add assets to your watchlist</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Default Market Watch -->
+                <div class="panel-header" style="border-bottom:none; padding-bottom: 0;">
+                    <span
+                        style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Market
+                        Watch</span>
+                    <i class="fas fa-sync-alt" style="font-size: 11px; color: var(--text-muted); cursor: pointer;"
+                        onclick="loadInitialData()"></i>
+                </div>
+                <div class="market-list" id="marketTableBody" style="flex: 1; overflow-y: auto;">
+                    <!-- Market items injected here -->
+                </div>
+            </div>
+
+            <!-- Market Intelligence Section (News) -->
+            <div class="intel-panel"
+                style="flex: 1; border-top: 1px solid var(--glass-border); display: flex; flex-direction: column;">
+                <div class="panel-header"
+                    style="padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display:flex; flex-direction:column;">
+                        <span class="panel-label">INTELLIGENCE</span>
+                        <h3 style="margin:0; font-size:12px; color:var(--text-secondary);" id="newsTitle">CRYPTO
+                            INSIGHTS</h3>
+                    </div>
+                    <div id="overallSentiment" class="sentiment-badge-mini"
+                        style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.03); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--glass-border);">
+                        <span class="sentiment-dot"
+                            style="width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted);"></span>
+                        <span class="sentiment-label"
+                            style="font-size: 10px; font-weight: 800; color: var(--text-muted);">NEUTRAL</span>
+                    </div>
+                    <div class="header-actions">
+                        <i class="fas fa-rss" onclick="loadNews()"></i>
+                    </div>
+                </div>
+                <div id="newsFeed" class="news-feed-inline" style="flex: 1; overflow-y: auto;">
+                    <div class="news-loading">Scanning global markets...</div>
+                </div>
+            </div>
+        </section>
+        </section>
+
+        <!-- ═══════════════════════════════════════
+             CENTER: CHART & TERMINAL
+             ═══════════════════════════════════════ -->
+        <main class="center-panel">
+            <!-- Chart Panel -->
+            <div class="panel glass-panel chart-card" style="margin-bottom:0;">
+                <div class="panel-header">
+                    <div style="display:flex; align-items:baseline; gap:16px;">
+                        <h2 id="assetName" style="font-size:20px; font-weight:800; letter-spacing:-0.5px;">BTCUSDT</h2>
+                        <span id="assetPrice"
+                            style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">$0.00</span>
+                        <span id="assetChange" class="p-positive" style="font-size:12px; font-weight:700;">+0.00%</span>
+                        <span id="assetTrend" style="font-size:12px;">↑</span>
+                    </div>
+                    <div style="display:flex; gap:12px; align-items:center;">
+                        <span id="botBadge"
+                            style="font-size: 10px; font-weight: 800; color: var(--gold); background: rgba(255, 215, 0, 0.1); padding: 2px 8px; border-radius: 4px;">MANUAL</span>
+                        <div class="interval-selector" style="display:flex; gap:4px;">
+                            <button class="tab-btn active" style="padding:4px 8px; font-size:11px;"
+                                data-interval="1m">1m</button>
+                            <button class="tab-btn" style="padding:4px 8px; font-size:11px;"
+                                data-interval="5m">5m</button>
+                            <button class="tab-btn" style="padding:4px 8px; font-size:11px;"
+                                data-interval="1h">1H</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="tradingview_chart" class="tv-chart-container"></div>
+            </div>
+
+            <div class="panel glass-panel terminal-card" style="margin-top:0;">
+                <div style="padding: 0 16px; margin-bottom: 8px;">
+                    <span
+                        style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">The
+                        Cockpit</span>
+                </div>
+                <div class="terminal-tabs" id="positionTabs">
+                    <button class="tab-btn active" data-tab="open">Positions</button>
+                    <button class="tab-btn" data-tab="history">History</button>
+                    <button class="tab-btn" data-tab="feed">Signals</button>
+                    <button class="tab-btn" data-tab="portfolio">Portfolio</button>
+                </div>
+                <div class="terminal-content">
+                    <!-- Positions Table -->
+                    <div id="tab-open" class="tab-content">
+                        <table class="trades-table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Side</th>
+                                    <th>Net Qty</th>
+                                    <th>Avg Price</th>
+                                    <th>P&L (Unrealized)</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="openPositionsBody"></tbody>
+                        </table>
+                    </div>
+                    <!-- Trade History -->
+                    <div id="tab-history" class="tab-content hidden">
+                        <table class="trades-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Symbol</th>
+                                    <th>Side</th>
+                                    <th>Entry</th>
+                                    <th>Exit</th>
+                                    <th>P&L</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tradeHistoryBody"></tbody>
+                        </table>
+                    </div>
+                    <!-- Signals Feed -->
+                    <div id="tab-feed" class="tab-content hidden">
+                        <div id="tradesFeed" style="padding: 10px;"></div>
+                    </div>
+                    <!-- Portfolio Analysis -->
+                    <div id="tab-portfolio" class="tab-content hidden">
+                        <div class="portfolio-metrics-grid">
+                            <div class="metric-card">
+                                <span class="label">Profit Factor</span>
+                                <span class="value" id="statProfitFactor">1.82</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="label">Sharpe Ratio</span>
+                                <span class="value" id="statSharpe">2.15</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="label">Max Drawdown</span>
+                                <span class="value red" id="statDrawdown">-4.2%</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="label">Win Rate</span>
+                                <span class="value green" id="statWinRate">68%</span>
+                            </div>
+                        </div>
+                        <div id="portfolioChartContainer"
+                            style="height:150px; margin-top:20px; border-top:1px solid var(--border-color); padding-top:10px;">
+                            <span
+                                style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Equity
+                                Curve (Simulated)</span>
+                            <div class="equity-placeholder"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- ═══════════════════════════════════════
+             RIGHT: AI & EXECUTION
+             ═══════════════════════════════════════ -->
+        <section class="panel glass-panel right-panel">
+            <!-- AI Pulse -->
+            <div class="glass-panel ai-card" style="margin:0; border:none; border-radius:16px;">
+                <div class="panel-header" style="border:none;">
+                    <div style="display:flex; flex-direction:column;">
+                        <span
+                            style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:2px;">The
+                            Oracle</span>
+                        <h3 style="margin:0;">AI Momentum Pulse</h3>
+                    </div>
+                </div>
+                <div class="gauge-container">
+                    <svg class="gauge-svg" viewBox="0 0 200 120">
+                        <defs>
+                            <linearGradient id="pulseGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="var(--ai-pulse)" />
+                                <stop offset="100%" stop-color="var(--bullish)" />
+                            </linearGradient>
+                            <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
+                                <stop offset="0%" stop-color="rgba(124, 58, 237, 0.15)" />
+                                <stop offset="100%" stop-color="rgba(13, 20, 32, 0)" />
+                            </radialGradient>
+                        </defs>
+                        <!-- Background Glow -->
+                        <circle cx="100" cy="60" r="60" fill="url(#bgGlow)" />
+                        <!-- Radar Grid -->
+                        <circle cx="100" cy="60" r="40" fill="none" stroke="rgba(255, 255, 255, 0.02)" stroke-width="1"
+                            stroke-dasharray="2 4" />
+                        <circle cx="100" cy="60" r="30" fill="none" stroke="rgba(255, 255, 255, 0.02)"
+                            stroke-width="1" />
+                        <circle cx="100" cy="60" r="20" fill="none" stroke="rgba(255, 255, 255, 0.02)"
+                            stroke-width="1" />
+                        <!-- Crosshairs -->
+                        <line x1="100" y1="10" x2="100" y2="110" stroke="rgba(255, 255, 255, 0.01)" stroke-width="1" />
+                        <line x1="50" y1="60" x2="150" y2="60" stroke="rgba(255, 255, 255, 0.01)" stroke-width="1" />
+                        <!-- Background circle -->
+                        <circle cx="100" cy="60" r="50" fill="none" stroke="rgba(255, 255, 255, 0.03)"
+                            stroke-width="6" />
+                        <!-- Fill circle -->
+                        <circle cx="100" cy="60" r="50" class="gauge-fill" id="pulseGaugeFill" fill="none"
+                            stroke="url(#pulseGradient)" stroke-width="6" stroke-dasharray="314.16"
+                            stroke-dashoffset="314.16" stroke-linecap="round" transform="rotate(-90 100 60)" />
+                        <!-- Scanner Line (Rotating) -->
+                        <line x1="100" y1="60" x2="100" y2="10" class="scanner-line" stroke="var(--bullish)"
+                            stroke-width="1" opacity="0.5" transform="rotate(0 100 60)" />
+                        <!-- Value Text -->
+                        <text x="100" y="65" class="gauge-value" id="pulseValue">0</text>
+                        <!-- Label -->
+                        <text x="100" y="82" fill="var(--text-muted)" font-size="7" font-weight="700" letter-spacing="1"
+                            text-anchor="middle">MOMENTUM</text>
+                    </svg>
+                </div>
+                <div class="ai-insight-box">
+                    <p id="aiInsightText">Analyzing institutional order flow...</p>
+                </div>
+            </div>
+
+            <!-- Execution Panel -->
+            <div class="glass-panel order-card" style="margin:0; border:none; border-radius:16px;">
+                <div class="panel-header" style="border:none;">
+                    <div style="display:flex; flex-direction:column;">
+                        <span
+                            style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:2px;">The
+                            Execution</span>
+                        <h3 style="margin:0;">EXECUTION ENGINE</h3>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span
+                            style="font-size:9px; font-weight:800; color:var(--text-muted); margin-right:4px;">AUTO</span>
+                        <label class="switch" style="position:relative; display:inline-block; width:34px; height:18px;">
+                            <input type="checkbox" id="btnAutoTrade" style="opacity:0; width:0; height:0;">
+                            <span class="slider round"
+                                style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:#1e293b; transition:.4s; border-radius:34px;"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="side-selector">
+                    <button class="side-btn active buy" id="buySide">BUY / LONG</button>
+                    <button class="side-btn sell" id="sellSide">SELL / SHORT</button>
+                </div>
+                <div class="order-form">
+                    <div class="field-group">
+                        <label>Asset Symbol</label>
+                        <input type="text" class="field-input" value="BTCUSDT" id="orderSymbol" readonly>
+                    </div>
+                    <div class="field-group">
+                        <label>Order Quantity</label>
+                        <input type="number" class="field-input" placeholder="0.000" id="orderQty" step="0.001">
+                    </div>
+                    <div class="field-group">
+                        <label>Price (Limit)</label>
+                        <input type="number" class="field-input" placeholder="Market" id="orderPrice">
+                    </div>
+                    <button class="btn-execute buy" id="btnExecuteOrder">Execute Order</button>
+                    <div
+                        style="margin-top:auto; padding-top:16px; display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
+                        <span>Status: <span id="autoTradeStatus">Idle</span></span>
+                        <span>Engine: <span style="color:var(--accent);">v2.4.0</span></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════
+         BELOW THE FOLD — SCROLLABLE SECTIONS
+         ═══════════════════════════════════════ -->
+    <div class="below-fold">
+
+        <!-- SECTION 1: Strategy Selector & Auto-Trade Controls -->
+        <div class="section-card" id="sectionAutoTrade">
+            <div class="section-header">
+                <div>
+                    <span class="section-label">The Command Deck</span>
+                    <h2>STRATEGY & AUTO-TRADE</h2>
+                </div>
+                <span id="autoTradeStatusBadge"
+                    style="font-size:11px; font-weight:700; color:var(--text-muted);">IDLE</span>
+            </div>
+            <div class="control-bar">
+                <div class="field-group">
+                    <label>Strategy</label>
+                    <select id="strategySelect">
+                        <option value="combined">⚡ Regime-Adaptive Ensemble</option>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <label>Symbol</label>
+                    <select id="symbolSelect">
+                        <optgroup label="Crypto" id="cryptoSymbols">
+                            <option value="BTCUSDT">BTCUSDT</option>
+                            <option value="ETHUSDT">ETHUSDT</option>
+                            <option value="SOLUSDT">SOLUSDT</option>
+                            <option value="BNBUSDT">BNBUSDT</option>
+                            <option value="XRPUSDT">XRPUSDT</option>
+                            <option value="ADAUSDT">ADAUSDT</option>
+                            <option value="DOGEUSDT">DOGEUSDT</option>
+                            <option value="AVAXUSDT">AVAXUSDT</option>
+                        </optgroup>
+                        <optgroup label="Stocks" id="stockSymbols" style="display:none;">
+                            <option value="AAPL">AAPL</option>
+                            <option value="TSLA">TSLA</option>
+                            <option value="GOOGL">GOOGL</option>
+                            <option value="MSFT">MSFT</option>
+                            <option value="NVDA">NVDA</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <label>Interval</label>
+                    <select id="intervalSelect">
+                        <option value="1m">1 Minute</option>
+                        <option value="5m">5 Minutes</option>
+                        <option value="15m">15 Minutes</option>
+                        <option value="1h">1 Hour</option>
+                        <option value="1d">1 Day</option>
+                    </select>
+                </div>
+                <div class="control-buttons">
+                    <button class="btn-action start" id="btnStartBot"><i class="fas fa-play"></i> Start Bot</button>
+                    <button class="btn-action stop" id="btnStopBot"><i class="fas fa-stop"></i> Stop</button>
+                    <button class="btn-action stop-all" id="btnStopAll"><i class="fas fa-ban"></i> Stop All</button>
+                    <button class="btn-action panic" id="btnPanicSell"><i class="fas fa-skull-crossbones"></i>
+                        PANIC</button>
+                </div>
+            </div>
+            <div class="settings-row">
+                <div class="field-group">
+                    <label>Position Size (%)</label>
+                    <input type="number" id="settingPositionSize" value="10" min="1" max="100">
+                </div>
+                <div class="field-group">
+                    <label>Stop Loss (%)</label>
+                    <input type="number" id="settingStopLoss" value="2" min="0.1" max="50" step="0.1">
+                </div>
+                <div class="field-group">
+                    <label>Take Profit (%)</label>
+                    <input type="number" id="settingTakeProfit" value="6" min="0.1" max="100" step="0.1">
+                </div>
+                <div class="field-group">
+                    <label>Max Quantity</label>
+                    <input type="number" id="maxQuantity" value="1.0" min="0.001" step="0.001">
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 2: Running Bots -->
+        <div class="section-card" id="sectionRunningBots">
+            <div class="section-header">
+                <div>
+                    <span class="section-label">The Fleet</span>
+                    <h2>RUNNING BOTS <span id="botCount"
+                            style="color:var(--accent); font-family:var(--font-mono);">0</span></h2>
+                </div>
+                <button class="btn-action stop-all" id="btnRefreshBots" style="padding:6px 12px; font-size:10px;"
+                    onclick="loadAndRenderBots()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+            <div class="bot-card-grid" id="runningBotsGrid">
+                <div class="no-bots-message">No bots running. Start one from the Command Deck above.</div>
+            </div>
+        </div>
+
+        <!-- SECTION 3: Custom Strategy Builder -->
+        <div class="section-card" id="sectionStrategyBuilder">
+            <div class="section-header">
+                <div>
+                    <span class="section-label">The Forge</span>
+                    <h2>CUSTOM STRATEGY BUILDER</h2>
+                </div>
+            </div>
+            <div class="strategy-builder">
+                <div class="builder-sidebar">
+                    <div class="field-group">
+                        <label>Strategy Name</label>
+                        <input type="text" id="customStratName" placeholder="e.g. My RSI Momentum">
+                    </div>
+                    <div class="field-group">
+                        <label>Indicators</label>
+                        <div class="indicator-chips" id="indicatorChips">
+                            <span class="indicator-chip" data-indicator="rsi">RSI</span>
+                            <span class="indicator-chip" data-indicator="macd">MACD</span>
+                            <span class="indicator-chip" data-indicator="bollinger">Bollinger</span>
+                            <span class="indicator-chip" data-indicator="vwap">VWAP</span>
+                            <span class="indicator-chip" data-indicator="volume">Volume</span>
+                            <span class="indicator-chip" data-indicator="ema">EMA Cross</span>
+                        </div>
+                    </div>
+                    <div class="builder-actions">
+                        <button class="btn-action start" onclick="saveCustomStrategy()" style="flex:1;">
+                            <i class="fas fa-save"></i> Save Strategy
+                        </button>
+                    </div>
+                    <!-- Saved Custom Strategies -->
+                    <div>
+                        <label
+                            style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; font-weight:600; margin-bottom:8px; display:block;">Your
+                            Strategies</label>
+                        <div id="savedStrategiesList" class="saved-strategies-list">
+                            <div class="no-bots-message" style="padding:16px;">No custom strategies yet.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="conditions-panel">
+                    <!-- Buy Conditions -->
+                    <div class="condition-group">
+                        <h4><span class="dot-buy"></span> BUY Conditions</h4>
+                        <div id="buyConditions">
+                            <div class="condition-row">
+                                <select class="cond-indicator">
+                                    <option value="rsi">RSI</option>
+                                    <option value="macd">MACD Histogram</option>
+                                    <option value="price_vs_vwap">Price vs VWAP</option>
+                                    <option value="volume_ratio">Volume Ratio</option>
+                                    <option value="bb_pctb">Bollinger %B</option>
+                                </select>
+                                <select class="cond-operator">
+                                    <option value="<">&lt; Below</option>
+                                    <option value=">">&gt; Above</option>
+                                    <option value="cross_above">↑ Crosses Above</option>
+                                    <option value="cross_below">↓ Crosses Below</option>
+                                </select>
+                                <input type="number" class="cond-value" placeholder="30" value="30">
+                            </div>
+                        </div>
+                        <button class="btn-add-condition" onclick="addConditionRow('buyConditions')">+ Add Buy
+                            Condition</button>
+                    </div>
+
+                    <!-- Sell Conditions -->
+                    <div class="condition-group">
+                        <h4><span class="dot-sell"></span> SELL Conditions</h4>
+                        <div id="sellConditions">
+                            <div class="condition-row">
+                                <select class="cond-indicator">
+                                    <option value="rsi">RSI</option>
+                                    <option value="macd">MACD Histogram</option>
+                                    <option value="price_vs_vwap">Price vs VWAP</option>
+                                    <option value="volume_ratio">Volume Ratio</option>
+                                    <option value="bb_pctb">Bollinger %B</option>
+                                </select>
+                                <select class="cond-operator">
+                                    <option value=">">&gt; Above</option>
+                                    <option value="<">&lt; Below</option>
+                                    <option value="cross_above">↑ Crosses Above</option>
+                                    <option value="cross_below">↓ Crosses Below</option>
+                                </select>
+                                <input type="number" class="cond-value" placeholder="70" value="70">
+                            </div>
+                        </div>
+                        <button class="btn-add-condition" onclick="addConditionRow('sellConditions')">+ Add Sell
+                            Condition</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════
+         FOOTER
+         ═══════════════════════════════════════ -->
+    <footer class="footer">
+        <div class="footer-left">
+            <div class="status-item">
+                <span class="dot-online"></span>
+                SYSTEM: <span class="accent-text">OPERATIONAL</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-clock"></i>
+                UTC: <span id="footerTime">00:00:00</span>
+            </div>
+        </div>
+        <div class="footer-center">
+            <div class="performance-bar">
+                <span>LATENCY: <span class="p-val">14ms</span></span>
+                <span class="divider"></span>
+                <span>UPTIME: <span id="uptime" class="p-val">0d 0h 0m</span></span>
+            </div>
+        </div>
+        <div class="footer-right">
+            <div class="engine-info">
+                GOATBOT ENGINE <span class="v-tag">v2.4.0-PRO</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal"
+        style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:2000; align-items:center; justify-content:center; backdrop-filter:blur(8px);">
+        <div class="glass-panel" style="width:400px; padding:32px; border-radius:24px;">
+            <h3 style="margin-bottom:24px;">Advanced Settings</h3>
+            <div class="field-group" style="margin-bottom:16px;">
+                <label>Strategy Confluence</label>
+                <input type="number" class="field-input" id="settingConfluence" value="3">
+            </div>
+            <div class="field-group" style="margin-bottom:16px;">
+                <label>Position Size (%)</label>
+                <input type="number" class="field-input" id="settingPositionSize" value="10">
+            </div>
+            <div class="field-group" style="margin-bottom:24px;">
+                <label>Stop Loss (%)</label>
+                <input type="number" class="field-input" id="settingStopLoss" value="2">
+            </div>
+            <div style="display:flex; gap:12px;">
+                <button class="btn-execute buy" style="flex:1; margin:0;" onclick="saveSettings()">Save</button>
+                <button class="btn-execute sell" style="flex:1; margin:0; background:#334155;"
+                    onclick="closeSettingsModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Logout Modal (GoatBot Styled) -->
+    <div id="logoutModal" class="modal"
+        style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:3000; align-items:center; justify-content:center; backdrop-filter:blur(10px);">
+        <div class="glass-panel"
+            style="width:360px; padding:40px; border-radius:32px; text-align:center; border: 1px solid var(--accent);">
+            <div style="font-size:48px; margin-bottom:24px; color:var(--accent);">🐐</div>
+            <h2 style="font-size:31px; margin-bottom:8px; font-weight:900;">Logout?</h2>
+            <p style="color:var(--text-secondary); margin-bottom:32px; font-size:14px;">Are you sure you want to
+                terminate your GoatBot session?</p>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+                <button class="btn-execute buy" style="margin:0; width:100%;" id="confirmLogout">TERMINATE
+                    SESSION</button>
+                <button class="btn-execute sell"
+                    style="margin:0; width:100%; background:rgba(255,255,255,0.05); color:var(--text-primary); border:1px solid var(--glass-border);"
+                    id="cancelLogout">STAY CONNECTED</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/v2/paper_app.js?v=2"></script>
+    <style>
+        /* Small utility additions for the switch and modal */
+        .switch input:checked+.slider {
+            background-color: var(--accent);
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        .switch input:checked+.slider:before {
+            transform: translateX(16px);
+        }
+
+        .tab-content.hidden {
+            display: none;
+        }
+    </style>
+</body>
+
+</html>

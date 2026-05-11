@@ -27,16 +27,16 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.data.historical_loader import HistoricalLoader
-from src.data.data_provider import AlphaVantageProvider
-from src.data.crypto_provider import BinanceCryptoProvider, LiveCryptoFeed
-from src.indicators.technical import TechnicalIndicators
-from src.indicators.custom import CustomIndicators
-from src.strategy.ta_strategy import TAStrategy
-from src.execution.brokers.paper_trader import PaperTrader
-from src.execution.order_manager import OrderManager
-from src.engine.ichimoku_auto_trader import IchimokuAutoTrader, TradingState
-from src.reports.trading_report import TradingReportGenerator
+from shared.providers.historical_loader import HistoricalLoader
+from shared.providers.data_provider import AlphaVantageProvider
+from shared.providers.crypto_provider import BinanceCryptoProvider, LiveCryptoFeed
+from shared.logic.indicators.technical import TechnicalIndicators
+from shared.logic.indicators.custom import CustomIndicators
+from shared.logic.strategy.ta_strategy import TAStrategy
+from v1.engine.execution.brokers.paper_trader import PaperTrader
+from v1.engine.execution.order_manager import OrderManager
+from v1.engine.core.ichimoku_auto_trader import IchimokuAutoTrader, TradingState
+from shared.logic.reports.trading_report import TradingReportGenerator
 
 # Currency symbol
 CURRENCY = "₹"

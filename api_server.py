@@ -9,9 +9,9 @@ except ImportError:
     sys.exit(1)
 
 """
-GodBotTrade API Server
-==========exe
-V2 routes live in api_v2.py.  Both are registered as Flask Blueprints.
+GoatBotTrade API Server
+=======================
+V2 routes live in api_v2.py. Both are registered as Flask Blueprints.
 """
 
 from flask import Flask, jsonify, request, send_from_directory, redirect, url_for
@@ -20,17 +20,20 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import random
 import string
-from src.database.db_manager import db_manager
-from src.services.trade_logger import get_trade_logger
-from src.services.system_state import get_system_state  # <--- SystemState import
-from src.v2.bot_manager_v2 import bot_manager_v2
+from shared.database.db_manager import db_manager
+from shared.services.trade_logger import get_trade_logger
+from shared.services.system_state import get_system_state  # <--- SystemState import
+from v2.engine.bot_manager_v2 import bot_manager_v2
+from shared.config.settings import is_v1_enabled
 
 import sys
 import os
 import threading
 import time
 import json
-from datetime import datetime, timedelta
+import logging # Added logging import
+from datetime import datetime, timedelta, timezone
+import atexit # Added atexit import
 from pathlib import Path
 import sys
 import pandas as pd
@@ -69,12 +72,12 @@ logger.add(mysql_log_handler, level="INFO")
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.data.crypto_provider import BinanceCryptoProvider
-from src.data.stock_provider import YahooFinanceProvider
-from src.execution.brokers.paper_trader import PaperTrader
-from src.execution.order_manager import OrderManager, Order, OrderSide, OrderType
-from src.strategies.strategy_engine import StrategyEngine, get_strategy_engine
-from src.engine.bot_manager import get_bot_manager, BotManager, BotStats
+from shared.providers.crypto_provider import BinanceCryptoProvider
+from shared.providers.stock_provider import YahooFinanceProvider
+from v1.engine.execution.brokers.paper_trader import PaperTrader
+from v1.engine.execution.order_manager import OrderManager, Order, OrderSide, OrderType
+from shared.logic.strategies.strategy_engine import StrategyEngine, get_strategy_engine
+from v1.engine.core.bot_manager import get_bot_manager, BotManager, BotStats
 
 # Initialize Flask
 app = Flask(__name__, static_folder='web', static_url_path='/static')
@@ -167,8 +170,8 @@ bot_manager = get_bot_manager()
 # REGISTER V1 & V2 BLUEPRINTS
 # ============================================================
 
-from api_v1 import v1_bp, init_v1, restore_bots_on_startup, bot_watchdog_loop
-from api_v2 import v2_bp, init_v2, v2_paper_trader
+from v1.api.routes import v1_bp, init_v1, restore_bots_on_startup, bot_watchdog_loop
+from v2.api.routes import v2_bp, init_v2, v2_paper_trader
 
 init_v1(
     _socketio=socketio,
@@ -191,6 +194,22 @@ init_v2(
     _stock_provider=stock_provider,
     _system_state_fn=get_system_state,
 )
+
+# V2 SESSION INITIALIZATION (Lazy Loading Moved to BotManagerV2)
+# Recovery: Mark any stale sessions as CRASHED
+db_manager.v2_mark_crashed_sessions()
+
+# Note: Position recovery is handled automatically in api_v2.init_v2()
+
+def v2_shutdown_handler():
+    """Cleanup current V2 session on server stop."""
+    sid = system_state.get_session_id()
+    if sid:
+        logger.info(f"🛑 [V2] Marking session {sid} as STOPPED...")
+        db_manager.v2_update_session_status(sid, "STOPPED")
+
+atexit.register(v2_shutdown_handler)
+logger.info(f"🚀 V2 Institutional Engine Live (Engine: {system_state.get_engine_version()})")
 
 app.register_blueprint(v1_bp)
 app.register_blueprint(v2_bp)
@@ -254,16 +273,50 @@ def get_auto_trade_status():
 # VERSION ROUTING — V1 (Legacy) & V2 (Institutional)
 # ============================================================
 
+@app.route('/godbot_login')
+@app.route('/goatbot_login')
+@app.route('/v1/godbot_login')
+@app.route('/v1/goatbot_login')
+@app.route('/v2/godbot_login')
+@app.route('/v2/goatbot_login')
+def login_page():
+    """Serve the login page (V1)."""
+    return send_from_directory('v1/web', 'godbot_login.html')
+
+@app.route('/')
+@app.route('/godbot_home')
+@app.route('/goatbot_home')
+@app.route('/paper_dashboard')
+@app.route('/v2/home')
+@app.route('/v2/godbot_home')
+@app.route('/v2/goatbot_home')
+@app.route('/godbot_home_v2')
+@app.route('/goatbot_home_v2')
+def paper_dashboard():
+    """Serve V2 institutional terminal home."""
+    return send_from_directory('v2/web', 'godbot_home.html')
+
+@app.route('/v1/home')
+@app.route('/v1/godbot_home')
+@app.route('/v1/goatbot_home')
+def index():
+    """Serve the main frontend (V1 default)."""
+    return send_from_directory('v1/web', 'godbot_home.html')
+
 @app.route('/v1/<path:filename>')
 def serve_v1(filename):
     """Serve V1 legacy frontend files."""
-    return send_from_directory('web/v1', filename)
+    return send_from_directory('v1/web', filename)
 
 @app.route('/v2/<path:filename>')
-@login_required
 def serve_v2(filename):
     """Serve V2 institutional terminal files."""
-    return send_from_directory('web/v2', filename)
+    return send_from_directory('v2/web', filename)
+
+@app.route('/common/<path:filename>')
+def serve_common(filename):
+    """Serve shared frontend files."""
+    return send_from_directory('shared/web_common', filename)
 
 @app.route('/v1')
 @app.route('/v1/')
@@ -277,47 +330,23 @@ def v2_root():
     """Redirect to V2 home."""
     return redirect(url_for('paper_dashboard'))
 
-# Default & backward-compatible shortcuts
-@app.route('/')
-@app.route('/godbot_home')
-@app.route('/v1/home')
-@app.route('/v1/godbot_home')
-def index():
-    """Serve the main frontend (V1 default)."""
-    return send_from_directory('web/v1', 'godbot_home.html')
-
-@app.route('/godbot_login')
-@app.route('/v1/godbot_login')
-def login_page():
-    """Serve the login page (V1)."""
-    return send_from_directory('web/v1', 'godbot_login.html')
 
 @app.route('/live-settings.html')
 def live_settings():
     """Serve the live trading settings page (V1)."""
-    return send_from_directory('web/v1', 'live-settings.html')
+    return send_from_directory('v1/web', 'live-settings.html')
 
 @app.route('/report.html')
 def report_page():
     """Serve the trading report page (V1)."""
-    return send_from_directory('web/v1', 'report.html')
+    return send_from_directory('v1/web', 'report.html')
 
 @app.route('/v2_report.html')
 @app.route('/v2/report')
-@login_required
 def v2_report_page():
     """Serve the V2 institutional strategy report page."""
-    return send_from_directory('web/v2', 'report.html')
+    return send_from_directory('v2/web', 'report.html')
 
-@app.route('/paper_dashboard.html')
-@app.route('/paper_dashboard')
-@app.route('/v2/home')
-@app.route('/v2/godbot_home')
-@app.route('/godbot_home_v2')
-@login_required
-def paper_dashboard():
-    """Serve V2 institutional terminal home."""
-    return send_from_directory('web/v2', 'godbot_home.html')
 
 
 # ============================================================
@@ -583,7 +612,7 @@ def reset_paper_trading():
         v2_paper_trader.reset(user_id)
 
         # 6. Reset V2 Bot Manager stats
-        from src.v2.bot_manager_v2 import V2BotStats
+        from v2.engine.bot_manager_v2 import V2BotStats
         for bot in bot_manager_v2.bots.values():
             if bot.user_id == user_id:
                 bot.stats = V2BotStats()
@@ -616,7 +645,7 @@ def reset_v2_paper_trading():
         v2_paper_trader.reset(user_id)
 
         # Reset V2 bot stats
-        from src.v2.bot_manager_v2 import V2BotStats
+        from v2.engine.bot_manager_v2 import V2BotStats
         for bot in bot_manager_v2.bots.values():
             if bot.user_id == user_id:
                 bot.stats = V2BotStats()
@@ -691,7 +720,7 @@ def run_backtest():
             return jsonify({'success': False, 'error': 'No data available'})
 
         # Import backtester
-        from src.engine.backtester import get_backtest_engine
+        from v1.engine.core.backtester import get_backtest_engine
         engine = get_backtest_engine()
 
         # Get strategy function
@@ -864,6 +893,22 @@ def auth_status():
         })
     return jsonify({'authenticated': False})
 
+@app.route('/api/user/profile')
+@login_required
+def get_user_profile():
+    user = db_manager.get_user_by_id(current_user.id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    return jsonify({
+        'id': user['id'],
+        'public_id': user.get('public_id', '—'),
+        'username': user['username'],
+        'mobile': user['mobile'],
+        'name': user.get('name') or user['username']
+    })
+
+
 # ============================================================
 # STOCK API ENDPOINTS
 # ============================================================
@@ -925,7 +970,7 @@ def get_sentiment():
     global _sentiment_analyzer
     if _sentiment_analyzer is None:
         try:
-            from src.sentiment.news_sentiment import get_sentiment_analyzer
+            from shared.logic.sentiment.news_sentiment import get_sentiment_analyzer
             _sentiment_analyzer = get_sentiment_analyzer()
         except Exception as e:
             logger.error(f"Failed to load sentiment analyzer: {e}")
@@ -965,12 +1010,12 @@ def news_websocket_loop():
     logger.info("📰 Starting News WebSocket background loop")
 
     # Use localized import to avoid circular dependency
-    from src.sentiment.news_sentiment import get_sentiment_analyzer
+    from shared.logic.sentiment.news_sentiment import get_sentiment_analyzer
     analyzer = get_sentiment_analyzer()
 
     while True:
         try:
-            # Fetch recent news for the current market
+            # Fetch recent news for the ACTIVE market
             market = current_market or 'crypto'
             news = analyzer.get_recent_news(limit=10, market=market)
 
@@ -988,13 +1033,66 @@ def news_websocket_loop():
 news_thread = threading.Thread(target=news_websocket_loop, daemon=True)
 news_thread.start()
 
+def calculate_live_pulse(market, symbol):
+    """Calculate an accurate momentum pulse score (0-100) from real technical data."""
+    try:
+        # 1. Fetch data based on market type
+        provider = crypto_provider if market == 'crypto' else stock_provider
+        interval = '1m' if market == 'crypto' else '1m' # Simplified for pulse
+        
+        # Get enough data for indicators (need ~100 bars for EMA/MACD)
+        df = None
+        if market == 'crypto':
+            df = provider.get_historical_klines(symbol, interval, limit=100)
+        else:
+            df = provider.get_historical_data(symbol, interval, period='1d') # Yahoo needs 'period'
+            
+        if df is None or df.empty or len(df) < 20:
+            return 50 # Default middle-ground if data fails
+
+        # 2. Run Technical Indicators (Reuse engine logic)
+        engine = get_strategy_engine()
+        df = engine.get_indicators(df)
+        
+        # 3. Calculate Weighted Score
+        last_row = df.iloc[-1]
+        rsi = last_row.get('rsi', 50)
+        macd = last_row.get('macd', 0)
+        macd_hist = last_row.get('macd_hist', 0)
+        price = last_row['close']
+        sma20 = last_row.get('sma20', price)
+        
+        # Start at 50
+        score = 50
+        
+        # RSI Influence (Max +/- 25)
+        # Above 70 is overbought but high momentum strength
+        if rsi > 70: score += 15
+        elif rsi < 30: score -= 15
+        elif rsi > 55: score += 5
+        elif rsi < 45: score -= 5
+        
+        # MACD Influence (Max +/- 15)
+        if macd_hist > 0: score += 10
+        else: score -= 10
+        
+        # SMA20 Relationship (Max +/- 10)
+        if price > sma20: score += 10
+        else: score -= 10
+        
+        return max(5, min(95, score)) # Keep within 5-95 range
+        
+    except Exception as e:
+        logger.error(f"Error calculating live pulse for {symbol}: {e}")
+        return 50
+
 def intelligence_loop():
     """Background thread to generate market pulse and AI insights."""
     import random
 
     pulse_labels = [
         "EXTREME FEAR", "FEARFUL", "NEUTRAL",
-        "BULLISH VOLATILITY", "EXTREME GREED"
+        "BULLISH MOMENTUM", "EXTREME GREED"
     ]
 
     ai_templates = {
@@ -1056,23 +1154,37 @@ def intelligence_loop():
 
     while True:
         try:
-            # 1. Calculate Pulse (Demo logic based on current symbol)
-            pulse_score = random.randint(30, 85) # Base range
+            logger.info("🧠 Running intelligence loop...")
+            # 1. Fetch current global state
+            # In a real scenario, we'd track the symbol most users are looking at
+            # For now, we use the global current_symbol
+            market = current_market
+            symbol = current_symbol
+            
+            # 2. Calculate Real Pulse
+            pulse_score = calculate_live_pulse(market, symbol)
 
-            # 2. Pick AI Thought
+            # 3. Pick AI Thought based on real data
             mood = 'neutral'
-            if pulse_score > 70: mood = 'bullish'
-            elif pulse_score < 40: mood = 'bearish'
-
+            if pulse_score > 65: mood = 'bullish'
+            elif pulse_score < 35: mood = 'bearish'
+            
+            # Additional context for insights
             thought = random.choice(ai_templates[mood])
+            
+            # Replace placeholder mentions with real symbol
+            thought = thought.replace("BTC", symbol).replace("Market", f"{symbol} market")
 
-            # 3. Emit updates
-            socketio.emit('market_intel', {
-                'pulse_score': pulse_score,
+            # 4. Emit updates
+            payload = {
+                'score': int(pulse_score),
+                'momentum': int(pulse_score),
                 'pulse_label': pulse_labels[min(int(pulse_score / 20), 4)],
-                'ai_thought': thought,
+                'insights': [thought],
                 'timestamp': datetime.now().strftime("%H:%M:%S")
-            })
+            }
+            socketio.emit('market_intel', payload)
+            logger.info(f"🧠 Emitted market_intel: {payload}")
 
             time.sleep(15) # Update every 15 seconds
         except Exception as e:
@@ -1163,7 +1275,7 @@ def get_active_symbols():
 
     # 3. From active bots (ensure bot_manager is accessible)
     try:
-        from src.engine.bot_manager import get_bot_manager
+        from v1.engine.core.bot_manager import get_bot_manager
         bm = get_bot_manager()
         for bot in bm.bots.values():
             if bm.is_running(bot.bot_id):
@@ -1263,7 +1375,23 @@ def price_stream():
             time.sleep(2)
 
 
-@socketio.on('connect')
+@socketio.on('set_symbol')
+def handle_set_symbol(data):
+    """Update global state for live data loops based on user selection."""
+    global current_symbol, current_market
+    symbol = data.get('symbol')
+    market = data.get('market')
+    if symbol:
+        current_symbol = symbol
+        logger.info(f"📍 Global symbol updated to: {current_symbol}")
+    if market:
+        current_market = market
+        logger.info(f"📍 Global market updated to: {current_market}")
+    
+    # Trigger immediate pulse update if possible
+    emit('symbol_updated', {'symbol': current_symbol, 'market': current_market})
+
+@socketio.on('join_bot')
 def handle_connect():
     """Handle client connection with user rooms and streaming."""
     sid = request.sid
@@ -1325,6 +1453,16 @@ def handle_symbol_change(data):
     emit('symbol_changed', {'symbol': new_symbol})
     logger.info(f"🔄 Symbol changed to {new_symbol} for sid {sid}")
 
+@socketio.on('join_ticker_rooms')
+def handle_join_ticker_rooms(data):
+    """Join multiple ticker rooms for the Market Watch list."""
+    sid = request.sid
+    symbols = data.get('symbols', [])
+    for s in symbols:
+        room = f"ticker_{s.upper()}"
+        join_room(room)
+    logger.info(f"📡 Sid {sid} joined {len(symbols)} ticker rooms for Market Watch")
+
 @socketio.on('change_market')
 def handle_market_change(data):
     """Change the trading market and update subscriptions."""
@@ -1352,18 +1490,37 @@ def handle_market_change(data):
 # ============================================================
 
 if __name__ == '__main__':
-    print("⚡ GodBotTrade Server starting...")
-    print("📊 Open http://localhost:5050 in your browser")
+    print("⚡ GoatBotTrade Server starting...")
+    
+    # STARTUP BANNER (Legacy/Institutional Enforcement)
+    logger.info("====================================")
+    logger.info("Trading Mode: V2 Institutional Engine")
+    if not is_v1_enabled():
+        logger.info("V1 Trading Engine: DISABLED")
+        logger.info("Strategy Source: V2 ONLY")
+    else:
+        logger.warning("V1 Trading Engine: ENABLED (Legacy Mode)")
+    logger.info("====================================")
+
+    print("📊 V2 Institutional Dashboard: http://localhost:5050")
+    print("🚀 V2 Mode: ACTIVE (Modular Pipeline)")
     print("🪙 Crypto: 24/7 live data from Binance")
     print("📈 Stocks: Yahoo Finance (market hours)")
+    print("🚀 Target Port: 5050")
 
     # Restore any previously running bots
-    restore_bots_on_startup()
+    if is_v1_enabled():
+        restore_bots_on_startup()
+    else:
+        logger.info("🛡️ Skipping V1 bot restore (Engine Disabled)")
 
     # Start the bot watchdog in a background thread
-    watchdog_thread = threading.Thread(target=bot_watchdog_loop, daemon=True)
-    watchdog_thread.start()
+    if is_v1_enabled():
+        watchdog_thread = threading.Thread(target=bot_watchdog_loop, daemon=True)
+        watchdog_thread.start()
+    else:
+        logger.info("🛡️ Skipping V1 bot watchdog (Engine Disabled)")
 
     # Get port from environment variable for cloud deployment (Railway/Heroku/etc)
     port = int(os.getenv('PORT', 5050))
-    socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=False, allow_unsafe_werkzeug=True)

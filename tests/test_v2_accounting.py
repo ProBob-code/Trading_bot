@@ -7,9 +7,9 @@ from typing import Dict, List
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.v2.execution.paper_trader_v2 import PaperTraderV2
-from src.v2.execution.execution_engine import ExecutionEngine, CommissionModel
-from src.v2.analytics.strategy_analytics import StrategyAnalytics
+from v2.engine.execution.paper_trader_v2 import PaperTraderV2
+from v2.engine.execution.execution_engine import ExecutionEngine, CommissionModel
+from v2.engine.analytics.strategy_analytics import StrategyAnalytics
 
 class TestV2Accounting(unittest.TestCase):
     def setUp(self):

@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GodBotTrade V2 — Strategy Performance Report</title>
+    <meta name="description"
+        content="V2 Institutional multi-strategy performance report with rankings, expectancy, and risk metrics.">
+    <style>
+        /* ═══ V2 Institutional Theme — Deep Navy & Teal ═══ */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a1929;
+            --bg-secondary: #001e3c;
+            --bg-card: #132f4c;
+            --bg-card-hover: #173a5e;
+            --text-primary: #ffffff;
+            --text-secondary: #b2bac2;
+            --accent: #00bcd4;
+            --accent-glow: rgba(0, 188, 212, 0.15);
+            --green: #00e676;
+            --red: #ff3d00;
+            --gold: #ffc107;
+            --border: #1e4976;
+            --border-accent: rgba(0, 188, 212, 0.3);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            background-image:
+                radial-gradient(circle at 20% 30%, rgba(0, 188, 212, 0.04) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(0, 114, 229, 0.04) 0%, transparent 50%);
+        }
+
+        /* ═══ HEADER ═══ */
+        .report-header {
+            background: var(--bg-secondary);
+            border-bottom: 2px solid var(--accent);
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo-text {
+            font-size: 1.3rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00d4ff, #00bcd4);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .v2-badge {
+            background: linear-gradient(135deg, #00bcd4, #0072e5);
+            color: white;
+            font-size: 0.6rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            letter-spacing: 1px;
+        }
+
+        .report-title {
+            font-size: 1.1rem;
+            font-weight: 300;
+            color: var(--text-secondary);
+        }
+
+        .back-btn {
+            background: var(--bg-card);
+            color: var(--accent);
+            border: 1px solid var(--border);
+            padding: 8px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .back-btn:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent);
+        }
+
+        /* ═══ CONTROLS ═══ */
+        .report-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 32px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .control-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .report-controls select,
+        .report-controls input {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .report-controls input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+        }
+
+        .quick-filters {
+            display: flex;
+            gap: 4px;
+        }
+
+        .quick-filters button {
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-filters button:hover,
+        .quick-filters button.active {
+            background: var(--bg-card-hover);
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .report-controls .refresh-btn {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .refresh-btn:hover {
+            transform: scale(1.02);
+        }
+
+        .report-controls .refresh-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* ═══ PAGINATION ═══ */
+        .pagination-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            padding: 24px;
+            border-top: 1px solid var(--border);
+        }
+
+        .pagination-controls button {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .pagination-controls button:hover:not(:disabled) {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .pagination-controls button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ═══ MAIN CONTENT ═══ */
+        .report-body {
+            padding: 24px 32px;
+        }
+
+        /* ═══ SUMMARY CARDS ═══ */
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .summary-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .summary-card:hover {
+            border-color: var(--border-accent);
+            box-shadow: 0 4px 20px var(--accent-glow);
+        }
+
+        .summary-card .label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .summary-card .value {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .summary-card .value.positive {
+            color: var(--green);
+        }
+
+        .summary-card .value.negative {
+            color: var(--red);
+        }
+
+        .summary-card .value.accent {
+            color: var(--accent);
+        }
+
+        /* ═══ SECTION HEADERS ═══ */
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .section-title .icon {
+            font-size: 1.2rem;
+        }
+
+        /* ═══ STRATEGY PERFORMANCE MATRIX ═══ */
+        .strategy-matrix {
+            margin-bottom: 40px;
+        }
+
+        .matrix-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-card);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .matrix-table th {
+            background: var(--bg-secondary);
+            color: var(--accent);
+            padding: 14px 16px;
+            text-align: left;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            white-space: nowrap;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .matrix-table td {
+            padding: 12px 16px;
+            font-size: 0.85rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .matrix-table tr:hover td {
+            background: var(--bg-card-hover);
+        }
+
+        .matrix-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .strategy-name {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .rank-badge {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 24px;
+            font-weight: 700;
+            font-size: 0.75rem;
+            color: #000;
+        }
+
+        .rank-1 {
+            background: var(--gold);
+        }
+
+        .rank-2 {
+            background: #c0c0c0;
+        }
+
+        .rank-3 {
+            background: #cd7f32;
+        }
+
+        .rank-other {
+            background: var(--border);
+            color: var(--text-secondary);
+        }
+
+        /* ═══ TRADE LOG ═══ */
+        .trade-log {
+            margin-bottom: 40px;
+        }
+
+        .trade-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-card);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .trade-table th {
+            background: var(--bg-secondary);
+            color: var(--accent);
+            padding: 12px 14px;
+            text-align: left;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            white-space: nowrap;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .trade-table td {
+            padding: 10px 14px;
+            font-size: 0.8rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        .trade-table tr:hover td {
+            background: var(--bg-card-hover);
+        }
+
+        .trade-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .side-buy {
+            color: var(--green);
+            font-weight: 600;
+        }
+
+        .side-sell {
+            color: var(--red);
+            font-weight: 600;
+        }
+
+        .pnl-positive {
+            color: var(--green);
+            font-weight: 600;
+        }
+
+        .pnl-negative {
+            color: var(--red);
+            font-weight: 600;
+        }
+
+        /* ═══ EMPTY STATE ═══ */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state .icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+        }
+
+        .empty-state .msg {
+            font-size: 1rem;
+        }
+
+        /* ═══ LOADING ═══ */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ═══ RESPONSIVE ═══ */
+        @media (max-width: 768px) {
+            .report-header {
+                flex-direction: column;
+                gap: 10px;
+                padding: 12px 16px;
+            }
+
+            .report-body {
+                padding: 16px;
+            }
+
+            .summary-cards {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .matrix-table,
+            .trade-table {
+                font-size: 0.75rem;
+            }
+
+            .matrix-table th,
+            .matrix-table td,
+            .trade-table th,
+            .trade-table td {
+                padding: 8px 10px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <header class="report-header">
+        <div class="header-left">
+            <div>
+                <span class="logo-text">GodBotTrade</span>
+                <span class="v2-badge">V2 INSTITUTIONAL</span>
+            </div>
+            <span class="report-title">Strategy Performance Report</span>
+        </div>
+        <a href="/godbot_home_v2" class="back-btn">← Back to Dashboard</a>
+    </header>
+
+    <!-- CONTROLS -->
+    <div class="report-controls">
+        <div class="control-group">
+            <select id="strategyFilter" onchange="loadAllReportData()">
+                <option value="">All Strategies</option>
+                <option value="ichimoku">Strategy 1 (Ichimoku)</option>
+                <option value="bollinger">Strategy 2 (Bollinger)</option>
+                <option value="macd_rsi">Strategy 3 (MACD RSI)</option>
+                <option value="ml_forecast">Strategy 4 (ML Forecast)</option>
+                <option value="combined">Strategy 5 (Combined)</option>
+            </select>
+
+            <select id="sessionFilter" onchange="handleSessionChange()">
+                <option value="">All Sessions</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <input type="datetime-local" id="fromDate" onchange="loadAllReportData()">
+            <span style="color: var(--text-secondary); font-size: 0.8rem;">to</span>
+            <input type="datetime-local" id="toDate" onchange="loadAllReportData()">
+        </div>
+
+        <div class="quick-filters" id="quickFilters">
+            <button onclick="setQuickFilter('today')">Today</button>
+            <button onclick="setQuickFilter('24h')">24h</button>
+            <button onclick="setQuickFilter('7d')">7D</button>
+            <button onclick="setQuickFilter('30d')">30D</button>
+            <button onclick="setQuickFilter('all')" class="active">All</button>
+        </div>
+
+        <button class="refresh-btn" onclick="loadAllReportData()">↻ Refresh</button>
+    </div>
+
+    <!-- BODY -->
+    <div class="report-body">
+
+        <!-- SUMMARY CARDS -->
+        <div class="summary-cards" id="summaryCards">
+            <div class="summary-card">
+                <div class="label">Account Equity</div>
+                <div class="value accent" id="cardEquity">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Total P&L</div>
+                <div class="value" id="cardPnl">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Total Trades</div>
+                <div class="value accent" id="cardTrades">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Win Rate</div>
+                <div class="value" id="cardWinRate">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Best Strategy</div>
+                <div class="value accent" id="cardBestStrategy">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Max Drawdown</div>
+                <div class="value" id="cardDrawdown">—</div>
+            </div>
+        </div>
+
+        <!-- STRATEGY PERFORMANCE MATRIX -->
+        <div class="strategy-matrix">
+            <div class="section-title">
+                <span class="icon">📊</span>
+                <span>Strategy Performance Matrix</span>
+            </div>
+            <div id="matrixContainer">
+                <div class="loading"><span class="spinner"></span> Loading strategy data...</div>
+            </div>
+        </div>
+
+        <!-- TRADE LOG -->
+        <div class="trade-log">
+            <div class="section-title">
+                <span class="icon">📒</span>
+                <span>V2 Trade Ledger</span>
+                <span id="tradeTotalCount"
+                    style="margin-left: auto; font-size: 0.8rem; color: var(--text-secondary);"></span>
+            </div>
+            <div id="tradeLogContainer" style="min-height: 200px;">
+                <div class="loading"><span class="spinner"></span> Loading trades...</div>
+            </div>
+            <div class="pagination-controls" id="paginationControls">
+                <button id="prevBtn" onclick="changePage(-1)">← Previous</button>
+                <div class="page-info" id="pageInfo">Page 1 of 1</div>
+                <button id="nextBtn" onclick="changePage(1)">Next →</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * V2 Report Page — Strategy Performance & Trade Ledger
+         */
+
+        const STRATEGY_NAMES = {
+            'ichimoku': 'Strategy 1 (Ichimoku)',
+            'bollinger': 'Strategy 2 (Bollinger)',
+            'macd_rsi': 'Strategy 3 (MACD RSI)',
+            'ml_forecast': 'Strategy 4 (ML Forecast)',
+            'combined': 'Strategy 5 (Combined)'
+        };
+
+        function fmt$(val) {
+            const n = parseFloat(val) || 0;
+            return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
+        function fmtPct(val, decimals = 2) {
+            const n = parseFloat(val) || 0;
+            return `${n >= 0 ? '+' : ''}${n.toFixed(decimals)}%`;
+        }
+
+        function pnlClass(val) {
+            const n = parseFloat(val) || 0;
+            return n >= 0 ? 'positive' : 'negative';
+        }
+
+        // ═══ STATE ═══
+        let currentSessionId = null;
+        let autoRefreshInterval = null;
+        let tradeOffset = 0;
+        const tradeLimit = 50;
+        let totalTrades = 0;
+
+        window.onload = initPage;
+
+        async function initPage() {
+            await Promise.all([
+                loadSessions(),
+                fetchCurrentSession()
+            ]);
+
+            // Default to current session on first load
+            if (currentSessionId) {
+                document.getElementById('sessionFilter').value = currentSessionId;
+            }
+
+            await loadAllReportData();
+            startAutoRefresh();
+        }
+        // ═══ DATA LOADING ═══
+
+        async function loadAllReportData(resetPagination = false) {
+            await Promise.all([
+                loadAccount(),
+                loadStrategyMatrix(),
+                loadTradeHistory(resetPagination)
+            ]);
+        }
+
+        async function fetchCurrentSession() {
+            try {
+                const res = await fetch('/api/v2/current-session');
+                const data = await res.json();
+                if (data.success) {
+                    currentSessionId = data.session_id;
+                }
+            } catch (e) {
+                console.error('Failed to fetch current session:', e);
+            }
+        }
+
+        async function loadSessions() {
+            try {
+                const res = await fetch('/api/v2/sessions');
+                const data = await res.json();
+                if (data.success) {
+                    const select = document.getElementById('sessionFilter');
+                    const currentVal = select.value;
+                    select.innerHTML = '<option value="">All Sessions</option>';
+
+                    data.sessions.forEach(s => {
+                        const dateStr = s.start_time ? new Date(s.start_time).toLocaleString(undefined, {
+                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                        }) : 'Unknown';
+                        const opt = document.createElement('option');
+                        opt.value = s.session_id;
+
+                        const pnl = parseFloat(s.total_pnl || 0);
+                        const pnlSymbol = pnl >= 0 ? '+' : '';
+                        const statusBadge = s.status === 'ACTIVE' ? '🟢' : '⚪';
+
+                        opt.textContent = `${statusBadge} ${s.session_id} (${dateStr}) — ${s.total_trades} trades — ${pnlSymbol}${pnl.toFixed(2)} PNL`;
+                        select.appendChild(opt);
+                    });
+
+                    if (currentVal) select.value = currentVal;
+                }
+            } catch (e) {
+                console.error('Failed to load sessions:', e);
+            }
+        }
+
+        function handleSessionChange() {
+            // Clear dates when session is selected to avoid conflict
+            if (document.getElementById('sessionFilter').value) {
+                document.getElementById('fromDate').value = '';
+                document.getElementById('toDate').value = '';
+                resetQuickFilterButtons('all');
+            }
+            loadAllReportData(true);
+        }
+
+        function setQuickFilter(type) {
+            resetQuickFilterButtons(type);
+            const now = new Date();
+            let fromDate = null;
+
+            if (type === 'today') {
+                fromDate = new Date();
+                fromDate.setHours(0, 0, 0, 0);
+            } else if (type === '24h') {
+                fromDate = new Date(now - 24 * 60 * 60 * 1000);
+            } else if (type === '7d') {
+                fromDate = new Date(now - 7 * 24 * 60 * 60 * 1000);
+            } else if (type === '30d') {
+                fromDate = new Date(now - 30 * 24 * 60 * 60 * 1000);
+            }
+
+            if (fromDate) {
+                const offset = fromDate.getTimezoneOffset() * 60000;
+                const localISODate = new Date(fromDate - offset).toISOString().slice(0, 16);
+                const nowISO = new Date(now - offset).toISOString().slice(0, 16);
+                document.getElementById('fromDate').value = localISODate;
+                document.getElementById('toDate').value = nowISO;
+                // Clear session filter
+                document.getElementById('sessionFilter').value = '';
+            } else {
+                document.getElementById('fromDate').value = '';
+                document.getElementById('toDate').value = '';
+            }
+
+            loadAllReportData(true);
+        }
+
+        function resetQuickFilterButtons(activeType) {
+            document.querySelectorAll('.quick-filters button').forEach(btn => {
+                btn.classList.remove('active');
+                if (activeType === 'all' && btn.textContent.toLowerCase() === 'all') btn.classList.add('active');
+                else if (btn.textContent.toLowerCase().includes(activeType)) btn.classList.add('active');
+            });
+        }
+
+        function getFilterParams() {
+            const strategy = document.getElementById('strategyFilter').value;
+            const session = document.getElementById('sessionFilter').value;
+            const fromDate = document.getElementById('fromDate').value;
+            const toDate = document.getElementById('toDate').value;
+
+            let params = new URLSearchParams();
+            if (strategy) params.append('strategy', strategy);
+            if (session) params.append('session_id', session);
+            if (fromDate) params.append('start_date', new Date(fromDate).toISOString());
+            if (toDate) params.append('end_date', new Date(toDate).toISOString());
+
+            return params.toString();
+        }
+
+        function startAutoRefresh() {
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = setInterval(() => {
+                const session = document.getElementById('sessionFilter').value;
+                // Refresh if current session is selected or if viewing "All" without date filters
+                if (session === currentSessionId || (!session && !document.getElementById('fromDate').value)) {
+                    loadAllReportData();
+                    loadSessions(); // Update trade counts in dropdown
+                }
+            }, 10000);
+        }
+
+        async function loadAccount() {
+            try {
+                const res = await fetch('/api/v2/account');
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('cardEquity').textContent = fmt$(data.equity || data.total_value || 100000);
+                    const pnl = data.pnl || 0;
+                    const pnlEl = document.getElementById('cardPnl');
+                    pnlEl.textContent = fmt$(pnl);
+                    pnlEl.className = `value ${pnlClass(pnl)}`;
+                }
+            } catch (e) {
+                console.error('Failed to load account:', e);
+            }
+        }
+
+        async function loadStrategyMatrix() {
+            const container = document.getElementById('matrixContainer');
+            const params = getFilterParams();
+            try {
+                // Fetch both metrics and ranking
+                const [metricsRes, rankingRes] = await Promise.all([
+                    fetch(`/api/v2/reports/strategy-benchmark?${params}`),
+                    fetch(`/api/v2/reports/strategy-ranking?${params}`)
+                ]);
+                const metricsData = await metricsRes.json();
+                const rankingData = await rankingRes.json();
+
+                const metrics = metricsData.metrics || [];
+                const ranking = rankingData.ranking || [];
+
+                if (metrics.length === 0 && ranking.length === 0) {
+                    container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📭</div>
+                        <div class="msg">No strategy data yet. Start trading to see performance metrics.</div>
+                    </div>`;
+                    // Set summary cards for empty state
+                    document.getElementById('cardTrades').textContent = '0';
+                    document.getElementById('cardWinRate').textContent = '—';
+                    document.getElementById('cardBestStrategy').textContent = '—';
+                    document.getElementById('cardDrawdown').textContent = '—';
+                    return;
+                }
+
+                // Build lookup: strategy → rank
+                const rankMap = {};
+                ranking.forEach((r, i) => {
+                    rankMap[r.strategy || r.name] = i + 1;
+                });
+
+                // Sort metrics by rank (or by total_pnl if unranked)
+                const sorted = [...metrics].sort((a, b) => {
+                    const rA = rankMap[a.strategy] || 999;
+                    const rB = rankMap[b.strategy] || 999;
+                    return rA - rB;
+                });
+
+                // Aggregate totals for summary cards
+                let totalTrades = 0, totalWins = 0, totalLosses = 0, totalPnl = 0;
+                let bestPnl = -Infinity, bestStrategy = '—', worstDD = 0;
+
+                sorted.forEach(m => {
+                    totalTrades += (m.total_trades || 0);
+                    totalWins += (m.wins || 0);
+                    totalLosses += (m.losses || 0);
+                    totalPnl += (m.total_pnl || 0);
+                    if ((m.total_pnl || 0) > bestPnl) {
+                        bestPnl = m.total_pnl || 0;
+                        bestStrategy = STRATEGY_NAMES[m.strategy] || m.strategy;
+                    }
+                    if ((m.max_drawdown_pct || 0) > worstDD) {
+                        worstDD = m.max_drawdown_pct || 0;
+                    }
+                });
+
+                // Update summary cards
+                document.getElementById('cardTrades').textContent = totalTrades;
+                const winRate = totalTrades > 0 ? ((totalWins / totalTrades) * 100) : 0;
+                const wrEl = document.getElementById('cardWinRate');
+                wrEl.textContent = `${winRate.toFixed(1)}%`;
+                wrEl.className = `value ${winRate >= 50 ? 'positive' : 'negative'}`;
+                document.getElementById('cardBestStrategy').textContent = bestStrategy;
+                const ddEl = document.getElementById('cardDrawdown');
+                ddEl.textContent = `-${worstDD.toFixed(2)}%`;
+                ddEl.className = `value ${worstDD > 5 ? 'negative' : 'positive'}`;
+
+                // Also update total P&L if not set by account
+                const pnlEl = document.getElementById('cardPnl');
+                if (pnlEl.textContent === '—') {
+                    pnlEl.textContent = fmt$(totalPnl);
+                    pnlEl.className = `value ${pnlClass(totalPnl)}`;
+                }
+
+                // Render table
+                let html = `<table class="matrix-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Strategy</th>
+                        <th>Trades</th>
+                        <th>Wins</th>
+                        <th>Losses</th>
+                        <th>Win Rate</th>
+                        <th>Total P&L</th>
+                        <th>Expectancy</th>
+                        <th>Profit Factor</th>
+                        <th>Sharpe</th>
+                        <th>Sortino</th>
+                        <th>Max DD</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+                sorted.forEach(m => {
+                    const rank = rankMap[m.strategy] || '—';
+                    const wr = m.total_trades > 0 ? ((m.wins / m.total_trades) * 100).toFixed(1) : '—';
+                    const pnl = m.total_pnl || 0;
+                    const exp = m.expectancy || 0;
+                    const pf = m.profit_factor || 0;
+
+                    html += `<tr>
+                    <td>${typeof rank === 'number' ? rankBadge(rank) : rank}</td>
+                    <td class="strategy-name">${STRATEGY_NAMES[m.strategy] || m.strategy}</td>
+                    <td>${m.total_trades || 0}</td>
+                    <td style="color: var(--green)">${m.wins || 0}</td>
+                    <td style="color: var(--red)">${m.losses || 0}</td>
+                    <td class="${parseFloat(wr) >= 50 ? 'pnl-positive' : 'pnl-negative'}">${wr}%</td>
+                    <td class="${pnlClass(pnl)}">${fmt$(pnl)}</td>
+                    <td class="${pnlClass(exp)}">${exp.toFixed(3)}</td>
+                    <td>${pf.toFixed(2)}</td>
+                    <td>${(m.sharpe_ratio || 0).toFixed(2)}</td>
+                    <td>${(m.sortino_ratio || 0).toFixed(2)}</td>
+                    <td class="pnl-negative">-${(m.max_drawdown_pct || 0).toFixed(2)}%</td>
+                </tr>`;
+                });
+
+                html += '</tbody></table>';
+                container.innerHTML = html;
+
+            } catch (e) {
+                console.error('Failed to load strategy matrix:', e);
+                container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><div class="msg">Error loading strategy data</div></div>`;
+            }
+        }
+
+        async function loadTradeHistory(resetOffset = false) {
+            if (resetOffset) tradeOffset = 0;
+            const container = document.getElementById('tradeLogContainer');
+            const params = getFilterParams();
+            const url = `/api/v2/trades?${params}&limit=${tradeLimit}&offset=${tradeOffset}`;
+
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (data.success) {
+                    totalTrades = data.total;
+                    document.getElementById('tradeTotalCount').textContent = `Stored Trades: ${totalTrades}`;
+                    renderTradeLedger(data.trades);
+                    updatePaginationUI();
+                }
+            } catch (e) {
+                console.error('Failed to load trades:', e);
+                container.innerHTML = `<div class="error">Failed to load trades: ${e}</div>`;
+            }
+        } // Added missing closing brace here
+
+        function updatePaginationUI() {
+            const totalPages = Math.ceil(totalTrades / tradeLimit) || 1;
+            const currentPage = Math.floor(tradeOffset / tradeLimit) + 1;
+
+            document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+            document.getElementById('prevBtn').disabled = tradeOffset === 0;
+            document.getElementById('nextBtn').disabled = (tradeOffset + tradeLimit) >= totalTrades;
+
+            // Hide pagination if zero trades
+            document.getElementById('paginationControls').style.display = totalTrades > 0 ? 'flex' : 'none';
+        }
+
+        function changePage(delta) {
+            tradeOffset += delta * tradeLimit;
+            if (tradeOffset < 0) tradeOffset = 0;
+            loadTradeHistory(false);
+
+            // Smooth scroll to top of log
+            document.querySelector('.trade-log').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderTradeLedger(trades) {
+            const container = document.getElementById('tradeLogContainer');
+            if (trades.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📭</div>
+                        <div class="msg">No V2 trades recorded yet.</div>
+                    </div>`;
+                return;
+            }
+
+            let html = `<table class="trade-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Trade ID</th>
+                        <th>Symbol</th>
+                        <th>Strategy</th>
+                        <th>Type</th>
+                        <th>Direction</th>
+                        <th>Side</th>
+                        <th>Qty</th>
+                        <th>Entry Price</th>
+                        <th>Fill Price</th>
+                        <th>Duration</th>
+                        <th>Spread</th>
+                        <th>Slippage</th>
+                        <th>Commission</th>
+                        <th>Leverage</th>
+                        <th>Realized P&L</th>
+                        <th>Net P&L</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            // Format duration in human-readable form
+            function fmtDuration(seconds) {
+                if (!seconds && seconds !== 0) return '—';
+                if (seconds < 60) return `${Math.round(seconds)}s`;
+                if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+                const h = Math.floor(seconds / 3600);
+                const m = Math.floor((seconds % 3600) / 60);
+                return `${h}h ${m}m`;
+            }
+
+            const closedTrades = trades.filter(t => (t.trade_type || t.type) === 'CLOSE');
+
+            trades.forEach(t => {
+                const ts = t.timestamp ? new Date(t.timestamp).toLocaleString() : '—';
+                const side = (t.side || '').toUpperCase();
+                const sideClass = side.includes('BUY') ? 'side-buy' : 'side-sell';
+                const rpnl = t.realized_pnl ?? 0;
+                const npnl = t.net_pnl ?? t.realized_pnl ?? 0;
+                const tradeType = t.trade_type || t.type || '—';
+                const direction = t.direction || t.position_side || '—';
+                const tradeId = t.trade_id ? t.trade_id.slice(-12) : '—';
+
+                html += `<tr>
+                    <td>${ts}</td>
+                    <td style="font-family:monospace;font-size:0.75rem;color:var(--text-secondary)">${tradeId}</td>
+                    <td style="color: var(--text-primary); font-weight:500">${t.symbol || '—'}</td>
+                    <td>${STRATEGY_NAMES[t.strategy] || t.strategy || '—'}</td>
+                    <td><span style="color:${tradeType === 'CLOSE' ? '#f59e0b' : '#60a5fa'}">${tradeType}</span></td>
+                    <td>${direction}</td>
+                    <td class="${sideClass}">${side}</td>
+                    <td>${(t.quantity || 0).toFixed(4)}</td>
+                    <td>${t.entry_price ? fmt$(t.entry_price) : '—'}</td>
+                    <td>${fmt$(t.fill_price)}</td>
+                    <td>${fmtDuration(t.duration_seconds)}</td>
+                    <td>${(t.spread_pct || 0).toFixed(3)}%</td>
+                    <td>${(t.slippage_pct || 0).toFixed(3)}%</td>
+                    <td>${fmt$(t.commission)}</td>
+                    <td>${(t.leverage || 1)}×</td>
+                    <td class="${pnlClass(rpnl)}">${fmt$(rpnl)}</td>
+                    <td class="${pnlClass(npnl)}">${fmt$(npnl)}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+
+            // Trade Duration Analytics Summary
+            const existingSummary = document.getElementById('tradeDurationSummary');
+            if (existingSummary) existingSummary.remove();
+
+            if (closedTrades.length > 0) {
+                const durations = closedTrades.map(t => t.duration_seconds).filter(d => d !== undefined && d !== null);
+                if (durations.length > 0) {
+                    const avgDuration = durations.reduce((a, b) => a + b, 0) / durations.length;
+                    const maxDuration = Math.max(...durations);
+                    const minDuration = Math.min(...durations);
+
+                    const summaryHtml = `
+                        <div id="tradeDurationSummary" style="display: flex; gap: 20px; margin-top: 20px; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                            <div style="flex: 1;">
+                                <div style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 5px;">Avg Trade Duration</div>
+                                <div style="color: var(--text-primary); font-size: 1.2rem; font-weight: 600;">${fmtDuration(avgDuration)}</div>
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 5px;">Longest Trade</div>
+                                <div style="color: var(--text-primary); font-size: 1.2rem; font-weight: 600;">${fmtDuration(maxDuration)}</div>
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 5px;">Shortest Trade</div>
+                                <div style="color: var(--text-primary); font-size: 1.2rem; font-weight: 600;">${fmtDuration(minDuration)}</div>
+                            </div>
+                        </div>`;
+                    container.insertAdjacentHTML('afterend', summaryHtml);
+                }
+            }
+        }
+
+        // ═══ EVENTS ═══
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Auth check
+            try {
+                const authRes = await fetch('/api/auth/status');
+                const authData = await authRes.json();
+                if (!authData.authenticated || !authData.user.is_verified) {
+                    window.location.href = 'godbot_login';
+                    return;
+                }
+            } catch (err) {
+                window.location.href = 'godbot_login';
+                return;
+            }
+
+            initPage();
+        });
+    </script>
+</body>
+
+</html>
