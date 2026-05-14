@@ -97,6 +97,7 @@ class DatabaseManager:
             logger.info("🌐 database_manager: Using Cloudflare D1 Proxy.")
             self.use_sqlite = True # D1 uses SQLite syntax
             self._init_db()
+            self.cleanup_old_data()
             return
             
         # Retry logic: Attempt to connect to MySQL 3 times before failing back to SQLite
@@ -135,6 +136,7 @@ class DatabaseManager:
             self.sqlite_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_bot.db")
             
         self._init_db()
+        self.cleanup_old_data()
 
     def _detect_config(self):
         """Prioritize environment variables (Railway default vs Local custom)."""
@@ -281,6 +283,27 @@ class DatabaseManager:
                     conn.close()
         except Exception as e:
             logger.debug(f"Error during safe close: {e}")
+
+    def cleanup_old_data(self, days_logs=7, days_news=30):
+        """Clean up old logs and news data to optimize storage."""
+        logger.info(f"🧹 database_manager: Cleaning up old data (Logs < {days_logs}d, News < {days_news}d)...")
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            if self.use_sqlite:
+                self._execute(cursor, "DELETE FROM system_logs WHERE timestamp < datetime('now', ?)", (f"-{days_logs} days",))
+                self._execute(cursor, "DELETE FROM news_sentiment WHERE created_at < datetime('now', ?)", (f"-{days_news} days",))
+            else:
+                self._execute(cursor, "DELETE FROM system_logs WHERE timestamp < NOW() - INTERVAL %s DAY", (days_logs,))
+                self._execute(cursor, "DELETE FROM news_sentiment WHERE created_at < NOW() - INTERVAL %s DAY", (days_news,))
+                
+            conn.commit()
+            logger.info("✅ Database cleanup complete.")
+        except Exception as e:
+            logger.error(f"❌ Database cleanup failed: {e}")
+        finally:
+            self._safe_close(conn, cursor)
 
     def _init_db(self):
         """Initialize database with required tables."""
