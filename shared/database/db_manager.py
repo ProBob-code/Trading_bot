@@ -8,14 +8,98 @@ import sqlite3
 import time
 import random
 import string
+import requests
+
+
+class D1ProxyConnection:
+    def __init__(self, url: str, secret: str):
+        self.url = url
+        self.secret = secret
+        
+    def cursor(self, dictionary=False):
+        return D1ProxyCursor(self.url, self.secret)
+        
+    def commit(self):
+        pass # D1 commits automatically
+        
+    def close(self):
+        pass
+
+
+class D1ProxyCursor:
+    def __init__(self, url: str, secret: str):
+        self.url = url
+        self.secret = secret
+        self.results = []
+        self.current_idx = 0
+        self.lastrowid = None
+        
+    def execute(self, query: str, params: Any = None):
+        headers = {
+            "Authorization": f"Bearer {self.secret}",
+            "Content-Type": "application/json"
+        }
+        
+        # Determine method based on query type
+        method = "all"
+        if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "CREATE", "DROP")):
+            method = "run"
+            
+        payload = {
+            "query": query,
+            "params": params or [],
+            "method": method
+        }
+        
+        try:
+            response = requests.post(self.url, headers=headers, json=payload, timeout=10)
+            if response.status_code != 200:
+                logger.error(f"❌ D1 Proxy Error ({response.status_code}): {response.text}")
+                raise Exception(f"D1 Proxy Error: {response.text}")
+                
+            data = response.json()
+            
+            if method == "run":
+                self.results = []
+                meta = data.get("meta", {})
+                self.lastrowid = meta.get("last_row_id")
+            else:
+                self.results = data.get("results", [])
+                meta = data.get("meta", {})
+                self.lastrowid = meta.get("last_row_id")
+                
+            self.current_idx = 0
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to execute query via D1 Proxy: {e}")
+            raise e
+        
+    def fetchone(self):
+        if self.current_idx < len(self.results):
+            row = self.results[self.current_idx]
+            self.current_idx += 1
+            return row
+        return None
+        
+    def fetchall(self):
+        return self.results
+        
+    def close(self):
+        pass
 
 
 class DatabaseManager:
     def __init__(self):
         self._detect_config()
         
+        # Check if D1 Proxy is enabled
+        if self.use_d1_proxy:
+            logger.info("🌐 database_manager: Using Cloudflare D1 Proxy.")
+            self.use_sqlite = True # D1 uses SQLite syntax
+            self._init_db()
+            return
+            
         # Retry logic: Attempt to connect to MySQL 3 times before failing back to SQLite
-        # This gives the MySQL container time to start up if running via docker-compose
         max_retries = 3
         retry_delay = 2
         
@@ -35,7 +119,6 @@ class DatabaseManager:
                 logger.info("✅ MySQL connection verified.")
                 break
             except Error as e:
-                # Handle specific errors for clearer feedback
                 if e.errno == 1045:
                     logger.error(f"❌ MySQL Access Denied (Check credentials): {e}")
                 elif e.errno == 2003:
@@ -55,8 +138,15 @@ class DatabaseManager:
 
     def _detect_config(self):
         """Prioritize environment variables (Railway default vs Local custom)."""
-        # Railway provides MYSQL* by default
-        # Local setups often use DB_*
+        self.use_d1_proxy = False
+        self.proxy_url = os.getenv('DB_PROXY_URL')
+        self.proxy_secret = os.getenv('DB_PROXY_SECRET')
+        
+        if self.proxy_url:
+            self.use_d1_proxy = True
+            logger.info(f"🔍 database_config: D1 Proxy enabled at {self.proxy_url}")
+            return
+            
         self.host = (os.getenv('MYSQLHOST') or os.getenv('DB_HOST') or 'localhost').strip()
         
         port_str = (os.getenv('MYSQLPORT') or os.getenv('DB_PORT') or '3306').strip()
@@ -72,7 +162,10 @@ class DatabaseManager:
         logger.info(f"🔍 database_config: {self.host}:{self.port} user={self.user} db={self.database}")
 
     def _get_connection(self):
-        """Create a new database connection (MySQL or SQLite)."""
+        """Create a new database connection (MySQL, SQLite, or D1 Proxy)."""
+        if self.use_d1_proxy:
+            return D1ProxyConnection(self.proxy_url, self.proxy_secret)
+            
         if self.use_sqlite:
             conn = sqlite3.connect(self.sqlite_path)
             conn.row_factory = sqlite3.Row
@@ -87,7 +180,6 @@ class DatabaseManager:
                 database=self.database
             )
         except Error as e:
-            # If database doesn't exist (1049), try creating it
             if e.errno == 1049:
                 logger.info(f"🛠️ Database '{self.database}' not found. Attempting to create it...")
                 try:
@@ -107,7 +199,6 @@ class DatabaseManager:
                     logger.error(f"❌ Failed to create database: {create_err}")
                     raise create_err
             
-            # For other errors, log specifically
             if e.errno == 1045:
                 logger.error("❌ MySQL Authentication failed (1045). Check DB_USER/DB_PASSWORD.")
             elif e.errno == 2003:
