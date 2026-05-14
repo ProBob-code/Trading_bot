@@ -1,3 +1,8 @@
 name = "trading-bot-v2"
 pages_build_output_dir = "v2/web"
 compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "trading_bot_v2"
+database_name = "trading_bot_v2"
+database_id = "b4f7ba58-2f2a-48e9-b61a-8520274e5040"
