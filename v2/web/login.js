@@ -56,7 +56,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 signupForm.classList.add('hidden');
                 otpForm.classList.remove('hidden');
                 formTitle.textContent = 'Verify OTP';
-                successMsg.textContent = 'Code sent! Check your system logs (Simulation).';
+                
+                if (data._demo_otp) {
+                    successMsg.textContent = `Code sent! [DEMO MODE] Your OTP is: ${data._demo_otp}`;
+                    console.log(`[DEMO MODE] Received OTP: ${data._demo_otp}`);
+                    
+                    // Auto-fill the OTP input boxes
+                    const otpChars = data._demo_otp.split('');
+                    otpInputs.forEach((input, idx) => {
+                        if (otpChars[idx]) input.value = otpChars[idx];
+                    });
+                } else {
+                    successMsg.textContent = 'Code sent! Check your system logs.';
+                }
                 successMsg.classList.remove('hidden');
             } else {
                 showError(data.error);
