@@ -280,8 +280,8 @@ def get_auto_trade_status():
 @app.route('/v2/godbot_login')
 @app.route('/v2/goatbot_login')
 def login_page():
-    """Serve the login page (V1)."""
-    return send_from_directory('v1/web', 'godbot_login.html')
+    """Serve the login page (V2 institutional)."""
+    return send_from_directory('v2/web', 'godbot_login.html')
 
 @app.route('/')
 @app.route('/godbot_home')
@@ -317,6 +317,15 @@ def serve_v2(filename):
 def serve_common(filename):
     """Serve shared frontend files."""
     return send_from_directory('shared/web_common', filename)
+
+@app.route('/<path:filename>')
+def serve_root_static(filename):
+    """Catch-all: serve V2 web files at root level.
+    This is needed because godbot_home.html uses relative paths
+    (e.g. styles.css, paper_app.js, assets/logo.svg) which resolve
+    to the root when the page is served from / or /godbot_home.
+    """
+    return send_from_directory('v2/web', filename)
 
 @app.route('/v1')
 @app.route('/v1/')

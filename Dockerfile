@@ -1,4 +1,4 @@
-# Dockerfile for GodBotTrade Backend
+# Dockerfile for GoatBotTrade Backend
 # ================================
 
 # Use slim python image for efficiency
@@ -18,18 +18,22 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python dependencies
+# Install python dependencies (cached layer — only rebuilds if requirements.txt changes)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project files
 COPY . .
 
-# Create directory for logs and configs if they don't exist
+# Create directory for logs if it doesn't exist
 RUN mkdir -p logs
 
-# Expose the API port
+# Expose the API port (Railway uses PORT env var)
 EXPOSE 5050
+
+# Health check for Railway
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-5050}/api/stats || exit 1
 
 # Run the server
 CMD ["python", "api_server.py"]
