@@ -284,6 +284,10 @@ def login_page():
     return send_from_directory('v2/web', 'godbot_login.html')
 
 @app.route('/')
+def landing_page():
+    """Serve the landing page/website."""
+    return send_from_directory('v2/web', 'index.html')
+
 @app.route('/godbot_home')
 @app.route('/goatbot_home')
 @app.route('/paper_dashboard')

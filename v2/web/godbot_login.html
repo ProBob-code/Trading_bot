@@ -1,222 +1,429 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GodBotTrade - Secure Login</title>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;800&display=swap"
-        rel="stylesheet">
-    <link rel="stylesheet" href="/v1_styles.css">
+    <title>GoatBot Trade — Secure Authentication</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Outfit:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
+        :root {
+            --bg-base: #020617;
+            --bg-surface: rgba(15, 23, 42, 0.45);
+            --bg-surface-focus: rgba(30, 41, 59, 0.7);
+            
+            --accent: #00FFB2;        /* Neon Green */
+            --accent-glow: rgba(0, 255, 178, 0.4);
+            --accent-pink: #FF3366;   /* Crimson Pink */
+            --accent-blue: #00F0FF;   /* Cyber Blue */
+            
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+            
+            --font-display: 'Orbitron', sans-serif;
+            --font-sans: 'Outfit', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: var(--font-sans);
             height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             overflow: hidden;
-            background: radial-gradient(circle at center, #1a1a2e 0%, #0f0f1a 100%);
+            position: relative;
         }
 
+        /* ── DYNAMIC CYBER BACKGROUND ── */
+        .ambient-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            overflow: hidden;
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.12;
+            animation: float 25s infinite ease-in-out;
+        }
+
+        .blob-1 {
+            top: -20%;
+            left: -10%;
+            width: 500px;
+            height: 500px;
+            background: var(--accent);
+        }
+
+        .blob-2 {
+            bottom: -20%;
+            right: -10%;
+            width: 600px;
+            height: 600px;
+            background: var(--accent-pink);
+            animation-delay: -5s;
+        }
+
+        .blob-3 {
+            top: 30%;
+            left: 40%;
+            width: 400px;
+            height: 400px;
+            background: var(--accent-blue);
+            animation-delay: -10s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(30px, 30px) scale(1.1); }
+        }
+
+        .cyber-grid {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+            background-size: 40px 40px;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* ── GLASSMORPHIC CONTAINER ── */
         .auth-container {
             width: 100%;
-            max-width: 420px;
-            background: rgba(30, 30, 46, 0.9);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            max-width: 440px;
+            background: var(--bg-surface);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 24px;
-            padding: 40px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            animation: fadeIn 0.5s ease-out;
+            padding: 48px;
+            box-shadow: 0 20px 80px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+            animation: cardEntrance 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
-        @keyframes fadeIn {
+        @keyframes cardEntrance {
             from {
                 opacity: 0;
-                transform: translateY(20px);
+                transform: translateY(30px) scale(0.98);
             }
-
             to {
                 opacity: 1;
-                transform: translateY(0);
+                transform: translateY(0) scale(1);
             }
         }
 
+        .auth-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-blue));
+        }
+
+        /* ── HEADER ── */
         .auth-header {
             text-align: center;
-            margin-bottom: 32px;
+            margin-bottom: 36px;
         }
 
         .brand {
-            font-family: 'Outfit', sans-serif;
-            font-size: 32px;
-            font-weight: 800;
-            background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
-            display: block;
+            font-family: var(--font-display);
+            font-size: 26px;
+            font-weight: 900;
+            letter-spacing: 1px;
+            color: var(--text-main);
+            margin-bottom: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand span {
+            color: var(--accent);
+            text-shadow: 0 0 15px var(--accent-glow);
         }
 
         .auth-title {
-            color: var(--text-primary);
-            font-size: 24px;
-            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 15px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
         }
 
+        /* ── FORM GROUPS ── */
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 24px;
+            position: relative;
         }
 
         .form-label {
             display: block;
-            color: var(--text-secondary);
+            color: var(--text-main);
             font-size: 14px;
+            font-weight: 600;
             margin-bottom: 8px;
-            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+
+        .input-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 15px;
+            pointer-events: none;
+            transition: color 0.3s ease;
         }
 
         .form-input {
             width: 100%;
-            padding: 12px 16px;
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 14px 16px 14px 46px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 12px;
-            color: white;
-            font-size: 16px;
-            transition: all 0.2s;
+            color: var(--text-main);
+            font-size: 15px;
+            font-family: var(--font-sans);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
         }
 
         .form-input:focus {
             outline: none;
-            border-color: #00d2ff;
-            box-shadow: 0 0 0 4px rgba(0, 210, 255, 0.1);
+            border-color: var(--accent);
+            background: rgba(0, 0, 0, 0.5);
+            box-shadow: 0 0 0 4px rgba(0, 255, 178, 0.08), inset 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
+        .form-input:focus ~ .input-icon {
+            color: var(--accent);
+        }
+
+        /* ── BUTTONS ── */
         .btn-auth {
             width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+            padding: 16px;
+            background: var(--accent);
+            color: var(--bg-base);
             border: none;
             border-radius: 12px;
-            color: white;
-            font-weight: 700;
-            font-size: 16px;
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: 14px;
+            letter-spacing: 1px;
             cursor: pointer;
-            transition: all 0.2s;
-            margin-top: 10px;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 20px rgba(0, 255, 178, 0.15);
+            margin-top: 12px;
         }
 
         .btn-auth:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 20px -5px rgba(0, 210, 255, 0.4);
+            box-shadow: 0 8px 30px var(--accent-glow);
+            background: #ffffff;
         }
 
+        .btn-auth:active {
+            transform: translateY(0);
+        }
+
+        /* ── SWITCHER / LINK ── */
         .auth-switcher {
             text-align: center;
-            margin-top: 24px;
-            color: var(--text-secondary);
+            margin-top: 28px;
+            color: var(--text-muted);
             font-size: 14px;
         }
 
         .auth-link {
-            color: #00d2ff;
+            color: var(--accent);
             text-decoration: none;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
+            transition: color 0.3s ease;
         }
 
         .auth-link:hover {
+            color: #ffffff;
             text-decoration: underline;
         }
 
         .hidden {
-            display: none;
+            display: none !important;
         }
 
+        /* ── OTP INPUTS ── */
         .otp-grid {
             display: grid;
             grid-template-columns: repeat(6, 1fr);
-            gap: 10px;
-            margin-bottom: 20px;
+            gap: 8px;
+            margin-bottom: 24px;
         }
 
         .otp-input {
             width: 100%;
-            height: 50px;
+            height: 52px;
             text-align: center;
             font-size: 20px;
             font-weight: 700;
-            background: rgba(0, 0, 0, 0.3);
-            border: 2px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            color: white;
+            font-family: var(--font-mono);
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            color: var(--accent);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
+        .otp-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(0, 255, 178, 0.08);
+        }
+
+        /* ── MESSAGES ── */
         .error-msg {
-            color: #ff4d4d;
+            background: rgba(255, 51, 102, 0.08);
+            border: 1px solid rgba(255, 51, 102, 0.2);
+            color: var(--accent-pink);
+            padding: 12px;
+            border-radius: 10px;
             font-size: 13px;
-            margin-bottom: 15px;
+            font-weight: 600;
+            margin-bottom: 20px;
             text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         .success-msg {
-            color: #00ff88;
-            font-size: 14px;
+            background: rgba(0, 255, 178, 0.08);
+            border: 1px solid rgba(0, 255, 178, 0.2);
+            color: var(--accent);
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 20px;
             text-align: center;
-            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
     </style>
 </head>
-
 <body>
+
+    <!-- Cyberpunk interactive ambient visualizer elements -->
+    <div class="ambient-bg">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+    <div class="cyber-grid"></div>
+
     <div class="auth-container">
         <div class="auth-header">
-            <span class="brand">GodBotTrade</span>
+            <a href="/" class="brand" style="text-decoration:none;">
+                <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent);"></i>
+                GoatBot<span>Trade</span>
+            </a>
             <h2 class="auth-title" id="formTitle">Welcome Back</h2>
         </div>
 
-        <div id="errorMsg" class="error-msg hidden"></div>
-        <div id="successMsg" class="success-msg hidden"></div>
+        <div id="errorMsg" class="error-msg hidden">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span></span>
+        </div>
+        <div id="successMsg" class="success-msg hidden">
+            <i class="fa-solid fa-circle-check"></i>
+            <span></span>
+        </div>
 
-        <!-- LOGIN FORM -->
+        <!-- 1. LOGIN FORM -->
         <form id="loginForm">
             <div class="form-group">
                 <label class="form-label">Username</label>
-                <input type="text" id="loginUsername" class="form-input" placeholder="Enter username" required>
+                <div class="input-wrapper">
+                    <input type="text" id="loginUsername" class="form-input" placeholder="Enter username" required>
+                    <i class="fa-solid fa-user input-icon"></i>
+                </div>
             </div>
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" id="loginPassword" class="form-input" placeholder="••••••••" required>
+                <div class="input-wrapper">
+                    <input type="password" id="loginPassword" class="form-input" placeholder="••••••••" required>
+                    <i class="fa-solid fa-lock input-icon"></i>
+                </div>
             </div>
-            <button type="submit" class="btn-auth">Sign In</button>
+            <button type="submit" class="btn-auth">SIGN IN</button>
             <div class="auth-switcher">
-                Don't have an account? <span class="auth-link" onclick="toggleAuth('signup')">Sign Up</span>
+                New trader? <span class="auth-link" onclick="toggleAuth('signup')">Sign Up</span>
             </div>
         </form>
 
-        <!-- SIGNUP FORM (MOBILE) -->
+        <!-- 2. SIGNUP FORM (MOBILE) -->
         <form id="signupForm" class="hidden">
             <div class="form-group">
                 <label class="form-label">Mobile Number</label>
-                <input type="tel" id="signupMobile" class="form-input" placeholder="+91 98765 43210" required>
-                <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
-                    We'll send a 6-digit verification code to your mobile.
+                <div class="input-wrapper">
+                    <input type="tel" id="signupMobile" class="form-input" placeholder="+91 98765 43210" required>
+                    <i class="fa-solid fa-phone input-icon"></i>
+                </div>
+                <p style="font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height: 1.4;">
+                    We will send a 6-digit verification code to initialize your sandbox.
                 </p>
             </div>
-            <button type="submit" class="btn-auth">Send OTP</button>
+            <button type="submit" class="btn-auth">SEND OTP</button>
             <div class="auth-switcher">
-                Already verified? <span class="auth-link" onclick="toggleAuth('login')">Log In</span>
+                Already registered? <span class="auth-link" onclick="toggleAuth('login')">Log In</span>
             </div>
         </form>
 
-        <!-- OTP VERIFICATION FORM -->
+        <!-- 3. OTP VERIFICATION FORM -->
         <form id="otpForm" class="hidden">
-            <div id="otpInstructions"
-                style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px; text-align: center;">
-                Enter the code sent to <span id="displayMobile" style="color: white; font-weight: 600;"></span>
+            <div id="otpInstructions" style="color: var(--text-muted); font-size: 14px; margin-bottom: 24px; text-align: center; line-height: 1.4;">
+                Enter authorization key sent to <span id="displayMobile" style="color: #ffffff; font-weight: 700;"></span>
             </div>
             <div class="otp-grid">
                 <input type="text" maxlength="1" class="otp-input" required>
@@ -228,17 +435,22 @@
             </div>
             <div class="form-group">
                 <label class="form-label">Choose Username</label>
-                <input type="text" id="finalUsername" class="form-input" placeholder="e.g. trading_pro" required>
+                <div class="input-wrapper">
+                    <input type="text" id="finalUsername" class="form-input" placeholder="e.g. trading_pro" required>
+                    <i class="fa-solid fa-user-tag input-icon"></i>
+                </div>
             </div>
             <div class="form-group">
                 <label class="form-label">Set Password</label>
-                <input type="password" id="finalPassword" class="form-input" placeholder="••••••••" required>
+                <div class="input-wrapper">
+                    <input type="password" id="finalPassword" class="form-input" placeholder="••••••••" required>
+                    <i class="fa-solid fa-lock-open input-icon"></i>
+                </div>
             </div>
-            <button type="submit" class="btn-auth">Verify & Complete</button>
+            <button type="submit" class="btn-auth">VERIFY & REGISTER</button>
         </form>
     </div>
 
     <script src="/login.js"></script>
 </body>
-
 </html>
