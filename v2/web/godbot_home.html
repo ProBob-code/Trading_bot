@@ -70,8 +70,9 @@
              HEADER (COMMAND BAR)
              ═══════════════════════════════════════ -->
         <header class="header">
-            <div class="header-left">
-                <span class="header-brand-text">GoatBot <span class="accent-text">Trade</span></span>
+            <div class="header-left" style="display: flex; align-items: center; gap: 12px;">
+                <img src="/logo.svg" alt="GoatBot Logo" style="height: 32px; width: 32px; object-fit: contain; filter: drop-shadow(0 0 6px rgba(0, 255, 178, 0.3));">
+                <span class="header-brand-text" style="font-size: 20px; font-weight: 800; letter-spacing: 0.5px;">GoatBot <span class="accent-text">Trade</span></span>
                 <div class="market-nav">
                     <button class="nav-pill active" data-market="crypto" onclick="switchAsset('crypto')">Crypto</button>
                     <button class="nav-pill" data-market="stocks" onclick="switchAsset('stocks')">Stocks</button>

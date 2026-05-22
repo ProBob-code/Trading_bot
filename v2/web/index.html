@@ -3,27 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GoatBot Trade V2 — Institutional Systematic Trading Engine</title>
+    <title>GoatBot Trade V2 — The Quantitative Alchemical Trading Tool</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Outfit:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
         :root {
-            --bg-base: #020617;
-            --bg-surface: rgba(15, 23, 42, 0.6);
-            --bg-surface-hover: rgba(30, 41, 59, 0.8);
-            --border-glow: rgba(0, 255, 178, 0.15);
+            --bg-base: #010409;
+            --bg-surface: rgba(13, 20, 38, 0.4);
+            --bg-surface-hover: rgba(22, 35, 64, 0.6);
+            --border-glow: rgba(0, 255, 178, 0.25);
             
-            --accent: #00FFB2;        /* Neon Green */
-            --accent-glow: rgba(0, 255, 178, 0.4);
-            --accent-pink: #FF3366;   /* Crimson Pink */
-            --accent-blue: #00F0FF;   /* Cyber Blue */
+            --accent: #00FFB2;        /* Cyber Green */
+            --accent-glow: rgba(0, 255, 178, 0.45);
+            --accent-pink: #FF3366;   /* Cyber Crimson */
+            --accent-blue: #00F0FF;   /* Neon Ice Blue */
+            --accent-gold: #FFD700;   /* Premium Gold */
             
             --text-main: #F8FAFC;
             --text-muted: #94A3B8;
@@ -37,6 +38,22 @@
             box-sizing: border-box;
             margin: 0;
             padding: 0;
+            scroll-behavior: smooth;
+        }
+
+        /* Standard scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg-base);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 255, 178, 0.2);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
         }
 
         body {
@@ -47,7 +64,7 @@
             line-height: 1.6;
         }
 
-        /* ── BACKGROUND ANIMATIONS ── */
+        /* ── DYNAMIC MATRIX BACKGROUND ── */
         .ambient-bg {
             position: fixed;
             top: 0;
@@ -62,43 +79,43 @@
         .blob {
             position: absolute;
             border-radius: 50%;
-            filter: blur(100px);
-            opacity: 0.15;
+            filter: blur(120px);
+            opacity: 0.14;
             animation: float 20s infinite ease-in-out;
         }
 
-        .blob-green {
+        .blob-1 {
             top: -10%;
-            left: 10%;
-            width: 400px;
-            height: 400px;
+            left: 15%;
+            width: 550px;
+            height: 550px;
             background: var(--accent);
         }
 
-        .blob-pink {
-            bottom: 10%;
-            right: 10%;
-            width: 500px;
-            height: 500px;
+        .blob-2 {
+            bottom: -10%;
+            right: 15%;
+            width: 600px;
+            height: 600px;
             background: var(--accent-pink);
             animation-delay: -5s;
         }
 
-        .blob-blue {
-            top: 40%;
-            left: 50%;
-            width: 350px;
-            height: 350px;
+        .blob-3 {
+            top: 35%;
+            left: 45%;
+            width: 450px;
+            height: 450px;
             background: var(--accent-blue);
             animation-delay: -10s;
         }
 
         @keyframes float {
             0%, 100% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(50px, 40px) scale(1.1); }
+            50% { transform: translate(60px, 40px) scale(1.1); }
         }
 
-        /* Grid overlay */
+        /* Neon Grid background overlay */
         .cyber-grid {
             position: fixed;
             top: 0;
@@ -106,9 +123,9 @@
             width: 100%;
             height: 100%;
             background-image: 
-                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-            background-size: 50px 50px;
+                linear-gradient(rgba(0, 255, 178, 0.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 178, 0.015) 1px, transparent 1px);
+            background-size: 60px 60px;
             z-index: -1;
             pointer-events: none;
         }
@@ -116,31 +133,47 @@
         /* ── HEADER / NAVIGATION ── */
         header {
             width: 100%;
-            padding: 24px 80px;
+            padding: 16px 80px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: rgba(2, 6, 23, 0.7);
-            backdrop-filter: blur(12px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(1, 4, 9, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(0, 255, 178, 0.1);
             position: sticky;
             top: 0;
-            z-index: 100;
+            z-index: 1000;
         }
 
-        .logo {
+        .logo-container {
             display: flex;
             align-items: center;
-            gap: 12px;
-            font-family: var(--font-display);
-            font-weight: 900;
-            font-size: 22px;
-            letter-spacing: 1px;
-            color: var(--text-main);
+            gap: 14px;
             text-decoration: none;
         }
 
-        .logo span {
+        .logo-img {
+            height: 44px;
+            width: 44px;
+            object-fit: contain;
+            filter: drop-shadow(0 0 8px var(--accent-glow));
+            transition: transform 0.4s ease;
+        }
+
+        .logo-container:hover .logo-img {
+            transform: rotate(360deg);
+        }
+
+        .logo-text {
+            font-family: var(--font-display);
+            font-weight: 900;
+            font-size: 24px;
+            letter-spacing: 1.5px;
+            color: var(--text-main);
+        }
+
+        .logo-text span {
             color: var(--accent);
             text-shadow: 0 0 10px var(--accent-glow);
         }
@@ -148,7 +181,7 @@
         nav {
             display: flex;
             align-items: center;
-            gap: 32px;
+            gap: 36px;
         }
 
         nav a {
@@ -156,163 +189,226 @@
             text-decoration: none;
             font-weight: 600;
             font-size: 15px;
+            letter-spacing: 0.5px;
             transition: all 0.3s ease;
         }
 
         nav a:hover {
             color: var(--accent);
+            text-shadow: 0 0 8px var(--accent-glow);
         }
 
         .btn-terminal {
             font-family: var(--font-display);
             font-weight: 800;
             font-size: 13px;
-            letter-spacing: 0.5px;
+            letter-spacing: 1px;
             color: var(--bg-base);
             background: var(--accent);
-            padding: 10px 24px;
-            border-radius: 6px;
-            border: none;
+            padding: 12px 28px;
+            border-radius: 8px;
+            border: 1px solid var(--accent);
             cursor: pointer;
             text-decoration: none;
-            box-shadow: 0 0 15px var(--accent-glow);
+            box-shadow: 0 0 20px rgba(0, 255, 178, 0.25);
             transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .btn-terminal:hover {
             transform: translateY(-2px);
-            box-shadow: 0 0 25px var(--accent-glow);
+            box-shadow: 0 0 35px var(--accent-glow);
             background: #ffffff;
+            border-color: #ffffff;
         }
 
         /* ── HERO SECTION ── */
         .hero {
-            min-height: calc(100vh - 90px);
+            min-height: calc(100vh - 80px);
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             text-align: center;
-            padding: 0 24px;
+            padding: 80px 24px;
             position: relative;
         }
 
-        .badge {
+        .hero-logo-large {
+            height: 120px;
+            width: 120px;
+            object-fit: contain;
+            margin-bottom: 28px;
+            filter: drop-shadow(0 0 25px var(--accent-glow));
+            animation: pulseLogo 3s infinite ease-in-out;
+        }
+
+        @keyframes pulseLogo {
+            0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px var(--accent-glow)); }
+            50% { transform: scale(1.06); filter: drop-shadow(0 0 45px var(--accent-glow)); }
+        }
+
+        .badge-premium {
             font-family: var(--font-display);
             font-size: 11px;
             font-weight: 800;
             letter-spacing: 2px;
             color: var(--accent);
             background: rgba(0, 255, 178, 0.08);
-            border: 1px solid rgba(0, 255, 178, 0.2);
-            padding: 6px 16px;
+            border: 1px solid rgba(0, 255, 178, 0.25);
+            padding: 6px 18px;
             border-radius: 100px;
-            margin-bottom: 24px;
+            margin-bottom: 28px;
             text-transform: uppercase;
             box-shadow: 0 0 15px rgba(0, 255, 178, 0.05);
         }
 
         .hero h1 {
             font-family: var(--font-display);
-            font-size: 64px;
+            font-size: 68px;
             font-weight: 900;
             line-height: 1.1;
             letter-spacing: -2px;
-            margin-bottom: 20px;
-            max-width: 1000px;
+            margin-bottom: 24px;
+            max-width: 1050px;
         }
 
         .hero h1 span {
             background: linear-gradient(135deg, var(--accent) 30%, var(--accent-blue) 100%);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
         .hero p {
             color: var(--text-muted);
-            font-size: 19px;
-            max-width: 650px;
-            margin-bottom: 40px;
+            font-size: 21px;
+            max-width: 750px;
+            margin-bottom: 44px;
             font-weight: 400;
         }
 
-        .cta-group {
+        .cta-container {
             display: flex;
-            gap: 20px;
-            margin-bottom: 60px;
+            gap: 24px;
+            margin-bottom: 80px;
+            z-index: 10;
         }
 
-        .btn-primary {
+        .btn-cta-glow {
             font-family: var(--font-display);
             font-weight: 800;
-            font-size: 15px;
-            letter-spacing: 0.5px;
+            font-size: 16px;
+            letter-spacing: 1px;
             color: var(--bg-base);
             background: var(--accent);
-            padding: 16px 36px;
-            border-radius: 8px;
+            padding: 18px 44px;
+            border-radius: 10px;
             border: none;
             cursor: pointer;
             text-decoration: none;
-            box-shadow: 0 0 20px var(--accent-glow);
+            box-shadow: 0 0 30px var(--accent-glow);
             transition: all 0.3s ease;
         }
 
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 0 35px var(--accent-glow);
+        .btn-cta-glow:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 0 45px var(--accent-glow);
             background: #ffffff;
         }
 
-        .btn-secondary {
+        .btn-cta-outline {
             font-family: var(--font-display);
             font-weight: 800;
-            font-size: 15px;
-            letter-spacing: 0.5px;
+            font-size: 16px;
+            letter-spacing: 1px;
             color: var(--text-main);
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 16px 36px;
-            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 18px 44px;
+            border-radius: 10px;
             cursor: pointer;
             text-decoration: none;
             transition: all 0.3s ease;
         }
 
-        .btn-secondary:hover {
+        .btn-cta-outline:hover {
             background: rgba(255, 255, 255, 0.08);
-            border-color: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        /* ── DEFINING OUR IDENTITY (TOOL, NOT ACADEMY) ── */
+        .identity-banner {
+            width: 100%;
+            padding: 40px 80px;
+            background: linear-gradient(90deg, rgba(0, 255, 178, 0.05) 0%, rgba(0, 240, 255, 0.05) 100%);
+            border-top: 1px solid rgba(0, 255, 178, 0.15);
+            border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+            margin-bottom: 60px;
+        }
+
+        .identity-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 40px;
+        }
+
+        .identity-title {
+            flex: 1;
+            font-family: var(--font-display);
+            font-size: 26px;
+            font-weight: 800;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            line-height: 1.3;
+        }
+
+        .identity-text {
+            flex: 1.8;
+            font-size: 17px;
+            color: var(--text-main);
+            border-left: 3px solid var(--accent-blue);
+            padding-left: 28px;
+            line-height: 1.7;
+        }
+
+        .identity-text strong {
+            color: var(--accent-blue);
+            font-weight: 700;
         }
 
         /* ── TICKER BAR ── */
         .ticker-bar {
             width: 100%;
-            background: rgba(15, 23, 42, 0.4);
+            background: rgba(13, 20, 38, 0.5);
             border-top: 1px solid rgba(255, 255, 255, 0.05);
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 16px 0;
+            padding: 18px 0;
             overflow: hidden;
             display: flex;
         }
 
         .ticker-wrapper {
             display: flex;
-            animation: ticker 30s linear infinite;
+            animation: ticker 35s linear infinite;
             gap: 60px;
-            padding-left: 50px;
+            padding-left: 60px;
         }
 
         .ticker-item {
             display: flex;
             align-items: center;
-            gap: 12px;
-            font-size: 14px;
+            gap: 14px;
+            font-size: 15px;
             font-weight: 600;
         }
 
         .ticker-symbol {
             font-family: var(--font-display);
-            font-weight: 700;
+            font-weight: 800;
         }
 
         .ticker-price {
@@ -320,7 +416,7 @@
         }
 
         .ticker-change {
-            font-weight: 700;
+            font-weight: 800;
         }
 
         .change-up { color: var(--accent); }
@@ -331,7 +427,7 @@
             100% { transform: translateX(-50%); }
         }
 
-        /* ── SECTION CORE ── */
+        /* ── SECTION STYLE ── */
         section {
             padding: 120px 80px;
             max-width: 1400px;
@@ -345,16 +441,16 @@
 
         .section-header h2 {
             font-family: var(--font-display);
-            font-size: 40px;
+            font-size: 44px;
             font-weight: 900;
             letter-spacing: -1px;
-            margin-bottom: 16px;
+            margin-bottom: 20px;
         }
 
         .section-header p {
             color: var(--text-muted);
-            font-size: 18px;
-            max-width: 600px;
+            font-size: 19px;
+            max-width: 700px;
             margin: 0 auto;
         }
 
@@ -362,18 +458,20 @@
         .features-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 30px;
+            gap: 36px;
         }
 
         .glass-card {
             background: var(--bg-surface);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 16px;
-            padding: 40px;
-            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 20px;
+            padding: 44px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             position: relative;
             overflow: hidden;
+            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05);
         }
 
         .glass-card::before {
@@ -383,55 +481,55 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: linear-gradient(135deg, transparent 50%, rgba(0, 255, 178, 0.03) 100%);
+            background: linear-gradient(135deg, transparent 50%, rgba(0, 255, 178, 0.025) 100%);
             pointer-events: none;
             transition: all 0.4s ease;
         }
 
         .glass-card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-8px);
             border-color: var(--border-glow);
-            box-shadow: 0 10px 30px rgba(0, 255, 178, 0.03);
+            box-shadow: 0 12px 40px rgba(0, 255, 178, 0.04), inset 0 1px 1px rgba(255, 255, 255, 0.1);
             background: var(--bg-surface-hover);
         }
 
         .glass-card:hover::before {
-            opacity: 0.8;
+            opacity: 1;
         }
 
         .card-icon {
-            width: 54px;
-            height: 54px;
-            background: rgba(0, 255, 178, 0.08);
-            border: 1px solid rgba(0, 255, 178, 0.2);
-            border-radius: 12px;
+            width: 60px;
+            height: 60px;
+            background: rgba(0, 255, 178, 0.07);
+            border: 1px solid rgba(0, 255, 178, 0.25);
+            border-radius: 14px;
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: 22px;
+            font-size: 24px;
             color: var(--accent);
-            margin-bottom: 28px;
+            margin-bottom: 32px;
             box-shadow: 0 0 15px rgba(0, 255, 178, 0.05);
         }
 
         .glass-card h3 {
             font-family: var(--font-display);
-            font-size: 20px;
+            font-size: 22px;
             font-weight: 800;
-            margin-bottom: 16px;
+            margin-bottom: 18px;
             letter-spacing: -0.5px;
         }
 
         .glass-card p {
             color: var(--text-muted);
-            font-size: 15px;
-            line-height: 1.6;
+            font-size: 16px;
+            line-height: 1.65;
         }
 
-        /* ── STRATEGIES SECTION ── */
+        /* ── STRATEGIES ROW ── */
         .strategies-row {
             display: flex;
-            gap: 60px;
+            gap: 80px;
             align-items: center;
         }
 
@@ -440,37 +538,37 @@
         }
 
         .strategies-right {
-            flex: 1.2;
+            flex: 1.3;
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
+            gap: 24px;
         }
 
         .strategies-left h2 {
             font-family: var(--font-display);
-            font-size: 44px;
+            font-size: 46px;
             font-weight: 900;
-            line-height: 1.1;
+            line-height: 1.15;
             margin-bottom: 24px;
         }
 
         .strategies-left p {
             color: var(--text-muted);
-            font-size: 18px;
-            margin-bottom: 32px;
+            font-size: 19px;
+            margin-bottom: 36px;
         }
 
         .strat-card {
-            padding: 30px;
-            border-radius: 12px;
+            padding: 32px;
+            border-radius: 16px;
         }
 
         .strat-card h4 {
             font-family: var(--font-display);
-            font-size: 16px;
+            font-size: 17px;
             font-weight: 800;
             color: var(--accent);
-            margin-bottom: 12px;
+            margin-bottom: 14px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -479,12 +577,113 @@
         .strat-card .stat-badge {
             font-family: var(--font-mono);
             font-size: 11px;
-            background: rgba(0, 255, 178, 0.1);
-            padding: 2px 8px;
-            border-radius: 4px;
+            background: rgba(0, 255, 178, 0.12);
+            padding: 3px 10px;
+            border-radius: 5px;
+            color: #ffffff;
+            border: 1px solid rgba(0, 255, 178, 0.2);
         }
 
-        /* ── CTA FULL BANNER ── */
+        /* ── TERMINAL VISUAL PREVIEW ── */
+        .terminal-preview-container {
+            max-width: 1100px;
+            margin: 60px auto 0;
+            border: 1px solid rgba(0, 255, 178, 0.2);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(0, 255, 178, 0.05);
+            background: #090d16;
+        }
+
+        .terminal-bar {
+            height: 48px;
+            background: #0f1522;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+        }
+
+        .terminal-circles {
+            display: flex;
+            gap: 8px;
+        }
+
+        .terminal-circle {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .tc-red { background: #ef4444; }
+        .tc-yellow { background: #f59e0b; }
+        .tc-green { background: #10b981; }
+
+        .terminal-tab {
+            font-family: var(--font-display);
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--accent);
+            letter-spacing: 1px;
+            background: rgba(0, 255, 178, 0.05);
+            padding: 6px 16px;
+            border-radius: 6px;
+            border: 1px solid rgba(0, 255, 178, 0.15);
+        }
+
+        .terminal-body {
+            padding: 40px;
+            font-family: var(--font-mono);
+            font-size: 14px;
+            line-height: 1.7;
+            color: #e2e8f0;
+        }
+
+        .term-accent { color: var(--accent); }
+        .term-blue { color: var(--accent-blue); }
+        .term-pink { color: var(--accent-pink); }
+        .term-gold { color: var(--accent-gold); }
+        .term-muted { color: var(--text-muted); }
+
+        /* ── FAQ SECTION ── */
+        .faq-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .faq-item {
+            background: rgba(13, 20, 38, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 16px;
+            padding: 36px;
+        }
+
+        .faq-item h3 {
+            font-family: var(--font-sans);
+            font-size: 19px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .faq-item h3 i {
+            color: var(--accent-blue);
+        }
+
+        .faq-item p {
+            color: var(--text-muted);
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        /* ── CALL TO ACTION BANNER ── */
         .cta-banner {
             margin: 60px auto 120px;
             text-align: center;
@@ -493,13 +692,14 @@
         }
 
         .cta-box {
-            background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(2, 6, 23, 0.9) 100%);
-            border: 1px solid rgba(0, 255, 178, 0.2);
-            border-radius: 24px;
+            background: linear-gradient(135deg, rgba(13, 20, 38, 0.9) 0%, rgba(1, 4, 9, 0.95) 100%);
+            border: 1px solid rgba(0, 255, 178, 0.25);
+            border-radius: 28px;
             padding: 80px 40px;
             backdrop-filter: blur(20px);
-            box-shadow: 0 0 50px rgba(0, 255, 178, 0.05);
-            max-width: 1000px;
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 0 60px rgba(0, 255, 178, 0.07), inset 0 1px 2px rgba(255, 255, 255, 0.05);
+            max-width: 1050px;
             margin: 0 auto;
             position: relative;
             overflow: hidden;
@@ -508,47 +708,51 @@
         .cta-box::after {
             content: '';
             position: absolute;
-            bottom: -50px;
-            right: -50px;
-            width: 200px;
-            height: 200px;
+            bottom: -80px;
+            right: -80px;
+            width: 250px;
+            height: 250px;
             background: var(--accent);
-            filter: blur(100px);
-            opacity: 0.1;
+            filter: blur(120px);
+            opacity: 0.12;
         }
 
         .cta-box h2 {
             font-family: var(--font-display);
-            font-size: 42px;
+            font-size: 46px;
             font-weight: 900;
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
 
         .cta-box p {
             color: var(--text-muted);
-            font-size: 18px;
-            max-width: 600px;
-            margin: 0 auto 40px;
+            font-size: 19px;
+            max-width: 650px;
+            margin: 0 auto 44px;
         }
 
         /* ── FOOTER ── */
         footer {
             border-top: 1px solid rgba(255, 255, 255, 0.05);
-            background: rgba(2, 6, 23, 0.9);
+            background: rgba(1, 4, 9, 0.95);
             padding: 48px 80px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
-        .footer-logo {
+        .footer-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
             font-family: var(--font-display);
             font-weight: 800;
-            font-size: 18px;
+            font-size: 20px;
             color: var(--text-main);
+            text-decoration: none;
         }
 
-        .footer-logo span {
+        .footer-brand span {
             color: var(--accent);
         }
 
@@ -559,7 +763,7 @@
 
         .footer-links {
             display: flex;
-            gap: 24px;
+            gap: 28px;
         }
 
         .footer-links a {
@@ -573,13 +777,16 @@
             color: var(--accent);
         }
 
-        /* Responsive */
+        /* ── RESPONSIVE DESIGN ── */
         @media (max-width: 1024px) {
-            header { padding: 24px 40px; }
+            header { padding: 16px 40px; }
             section { padding: 80px 40px; }
             .features-grid { grid-template-columns: repeat(2, 1fr); }
-            .strategies-row { flex-direction: column; gap: 40px; }
-            .hero h1 { font-size: 48px; }
+            .strategies-row { flex-direction: column; gap: 50px; }
+            .hero h1 { font-size: 52px; }
+            .identity-content { flex-direction: column; gap: 20px; }
+            .identity-text { border-left: none; border-top: 2px solid var(--accent-blue); padding-left: 0; padding-top: 20px; }
+            .faq-grid { grid-template-columns: 1fr; }
             footer { padding: 40px; flex-direction: column; gap: 24px; text-align: center; }
         }
 
@@ -587,88 +794,104 @@
             .features-grid { grid-template-columns: 1fr; }
             .strategies-right { grid-template-columns: 1fr; }
             nav { display: none; }
+            .cta-container { flex-direction: column; width: 100%; max-width: 320px; }
+            .hero h1 { font-size: 38px; }
         }
     </style>
 </head>
 <body>
 
-    <!-- Ambient background floating blobs -->
+    <!-- Ambient Grid Background -->
     <div class="ambient-bg">
-        <div class="blob blob-green"></div>
-        <div class="blob blob-pink"></div>
-        <div class="blob blob-blue"></div>
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
     </div>
     <div class="cyber-grid"></div>
 
     <!-- Header Navigation -->
     <header>
-        <a href="#" class="logo">
-            <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent);"></i>
-            GoatBot<span>Trade</span>
+        <a href="#" class="logo-container">
+            <img src="/logo.svg" alt="GoatBot V2 Logo" class="logo-img">
+            <span class="logo-text">GoatBot<span>Trade</span></span>
         </a>
         <nav>
-            <a href="#features">Features</a>
-            <a href="#strategies">Strategies</a>
-            <a href="#about">Systems</a>
+            <a href="#about">The Purpose</a>
+            <a href="#features">The Tools</a>
+            <a href="#strategies">The Strategies</a>
+            <a href="#faq">FAQ</a>
             <a href="/godbot_login" class="btn-terminal">ACCESS TERMINAL</a>
         </nav>
     </header>
 
     <!-- Hero Section -->
     <main class="hero">
-        <div class="badge">Engine v2.0 Live</div>
-        <h1>Systematic <span>Algorithmic Trading</span><br>For Institutional Traders</h1>
-        <p>Deploy high-frequency strategies, leverage quantitative multi-model forecasts, and execute trades with milliseconds precision on a robust serverless architecture.</p>
+        <img src="/logo.svg" alt="GoatBot Premium Logo" class="hero-logo-large">
+        <div class="badge-premium">Quantitative Toolset V2.0</div>
+        <h1>Deploy Institutional <span>Systematic Edge</span><br>With Milliseconds Precision</h1>
+        <p>Anyone can trade when armed with the right tools. GoatBot V2 provides raw quantitative machinery, automated strategies, and instant technical guidance to capture absolute alpha.</p>
         
-        <div class="cta-group">
-            <a href="/godbot_login" class="btn-primary">ACCESS TERMINAL</a>
-            <a href="#features" class="btn-secondary">LEARN MORE</a>
+        <div class="cta-container">
+            <a href="/godbot_login" class="btn-cta-glow">ACCESS CORE TERMINAL</a>
+            <a href="#about" class="btn-cta-outline">EXPLORE CORE PURPOSE</a>
         </div>
     </main>
+
+    <!-- Identity Statement (Tool, Not Academy) -->
+    <div class="identity-banner" id="about">
+        <div class="identity-content">
+            <div class="identity-title">
+                We are a Systematic Trading Tool.<br>Not a theoretical academy.
+            </div>
+            <div class="identity-text">
+                GoatBot Trade V2 has <strong>no courses, no theories, and no generic trading lessons</strong>. We believe that anyone can trade successfully if they are given professional execution engines, custom indicators, and automated assistance. Our platform is a <strong>highly specialized quantitative sandbox built to execute trades and analyze regimes</strong>. You bring the capital, we provide the ultimate tool.
+            </div>
+        </div>
+    </div>
 
     <!-- Real-time market ticker -->
     <div class="ticker-bar">
         <div class="ticker-wrapper">
             <div class="ticker-item">
                 <span class="ticker-symbol">BTC/USDT</span>
-                <span class="ticker-price">$67,238.50</span>
-                <span class="ticker-change change-up">+2.45%</span>
+                <span class="ticker-price">$67,429.50</span>
+                <span class="ticker-change change-up"><i class="fa-solid fa-caret-up"></i> +2.78%</span>
             </div>
             <div class="ticker-item">
                 <span class="ticker-symbol">ETH/USDT</span>
-                <span class="ticker-price">$3,492.12</span>
-                <span class="ticker-change change-up">+1.80%</span>
+                <span class="ticker-price">$3,512.40</span>
+                <span class="ticker-change change-up"><i class="fa-solid fa-caret-up"></i> +1.92%</span>
             </div>
             <div class="ticker-item">
                 <span class="ticker-symbol">SOL/USDT</span>
-                <span class="ticker-price">$178.65</span>
-                <span class="ticker-change change-down">-0.92%</span>
+                <span class="ticker-price">$180.12</span>
+                <span class="ticker-change change-down"><i class="fa-solid fa-caret-down"></i> -0.45%</span>
             </div>
             <div class="ticker-item">
-                <span class="ticker-symbol">AAPL</span>
-                <span class="ticker-price">$189.84</span>
-                <span class="ticker-change change-up">+0.54%</span>
+                <span class="ticker-symbol">NVDA</span>
+                <span class="ticker-price">$942.30</span>
+                <span class="ticker-change change-up"><i class="fa-solid fa-caret-up"></i> +3.12%</span>
             </div>
             <div class="ticker-item">
                 <span class="ticker-symbol">EUR/USD</span>
-                <span class="ticker-price">1.0845</span>
-                <span class="ticker-change change-down">-0.12%</span>
+                <span class="ticker-price">1.0856</span>
+                <span class="ticker-change change-down"><i class="fa-solid fa-caret-down"></i> -0.08%</span>
             </div>
-            <!-- Duplicate for infinite scrolling effect -->
+            <!-- Duplication for infinite loop -->
             <div class="ticker-item">
                 <span class="ticker-symbol">BTC/USDT</span>
-                <span class="ticker-price">$67,238.50</span>
-                <span class="ticker-change change-up">+2.45%</span>
+                <span class="ticker-price">$67,429.50</span>
+                <span class="ticker-change change-up"><i class="fa-solid fa-caret-up"></i> +2.78%</span>
             </div>
             <div class="ticker-item">
                 <span class="ticker-symbol">ETH/USDT</span>
-                <span class="ticker-price">$3,492.12</span>
-                <span class="ticker-change change-up">+1.80%</span>
+                <span class="ticker-price">$3,512.40</span>
+                <span class="ticker-change change-up"><i class="fa-solid fa-caret-up"></i> +1.92%</span>
             </div>
             <div class="ticker-item">
                 <span class="ticker-symbol">SOL/USDT</span>
-                <span class="ticker-price">$178.65</span>
-                <span class="ticker-change change-down">-0.92%</span>
+                <span class="ticker-price">$180.12</span>
+                <span class="ticker-change change-down"><i class="fa-solid fa-caret-down"></i> -0.45%</span>
             </div>
         </div>
     </div>
@@ -676,25 +899,25 @@
     <!-- Features Section -->
     <section id="features">
         <div class="section-header">
-            <h2>Built For Professional Trading</h2>
-            <p>Engineered with institutional-grade technology to give systematic retail traders absolute edge and reliability.</p>
+            <h2>The Quantitative Toolset</h2>
+            <p>Every feature in GoatBot V2 is designed to optimize statistical execution, reduce cognitive bias, and deliver supreme market insights instantly.</p>
         </div>
         
         <div class="features-grid">
             <div class="glass-card">
                 <div class="card-icon"><i class="fa-solid fa-chart-line"></i></div>
-                <h3>Advanced TV Charts</h3>
-                <p>Fully integrated TradingView chart systems with dynamic multi-timeframe switching from 1m to 1D, overlaying key systemic indicators.</p>
+                <h3>Unified Charting Widget</h3>
+                <p>Fully integrated with advanced TradingView charts. Switch timeframes from 1m to 1D instantly on the cockpit header, overlaying real-time systematic indicators.</p>
             </div>
             <div class="glass-card">
                 <div class="card-icon"><i class="fa-solid fa-brain"></i></div>
-                <h3>AI Insights & Pulse</h3>
-                <p>Advanced natural language market intelligence scoring and fear/greed technical analysis generated dynamically every 15 seconds.</p>
+                <h3>Quantitative AI Pulse</h3>
+                <p>Advanced natural language NLP pipeline analyzing financial feeds and news to score macro-sentiment, fear, and greed metrics every 15 seconds.</p>
             </div>
             <div class="glass-card">
-                <div class="card-icon"><i class="fa-solid fa-shield-halved"></i></div>
-                <h3>Stochastic Risk Control</h3>
-                <p>Sophisticated risk models ensuring precise position sizing, dynamic stop-loss, and multi-factor portfolio allocations.</p>
+                <div class="card-icon"><i class="fa-solid fa-gears"></i></div>
+                <h3>Dynamic Cockpit Engine</h3>
+                <p>Seamless toggle controls to run automated strategies or execute manual positions with exact stop-loss and profit-target risk constraints.</p>
             </div>
         </div>
     </section>
@@ -703,51 +926,107 @@
     <section id="strategies">
         <div class="strategies-row">
             <div class="strategies-left">
-                <h2>Multi-Model systematic Systematic Engine</h2>
-                <p>Deploy five pre-compiled strategies optimized for dynamic market regimes, including machine learning time-series forecasters.</p>
-                <a href="/godbot_login" class="btn-primary">DEPLOY STRATEGY</a>
+                <h2>Pre-Compiled Strategy Engine</h2>
+                <p>GoatBot V2 hosts five algorithmic engines pre-modeled for different market conditions, ranging from machine learning models to volatility expansion indicators.</p>
+                <a href="/godbot_login" class="btn-cta-glow">DEPLOY SYSTEMATIC STRATEGY</a>
             </div>
             <div class="strategies-right">
                 <div class="glass-card strat-card">
-                    <h4>ML Forecast <span class="stat-badge">AI/LSTM</span></h4>
-                    <p>Uses long short-term memory recurrent neural networks to predict next-bar directional breakout.</p>
+                    <h4>ML LSTM Predictor <span class="stat-badge">AI Model</span></h4>
+                    <p>Uses Long Short-Term Memory neural networks to calculate next-bar probability of trend expansion.</p>
                 </div>
                 <div class="glass-card strat-card">
-                    <h4>Ichimoku Follow <span class="stat-badge">Trend</span></h4>
-                    <p>Captures macro-regime sweeps using Senkou cloud breaks and dynamic Kijun-sen trailing.</p>
+                    <h4>Ichimoku Cloud Sweep <span class="stat-badge">Trend</span></h4>
+                    <p>Captures major macro breakouts based on Senkou cloud spans and Tenkan/Kijun cross signals.</p>
                 </div>
                 <div class="glass-card strat-card">
                     <h4>Bollinger Arbitrage <span class="stat-badge">Mean Rev</span></h4>
-                    <p>Executes mean reversion sweeps when asset pricing stretches beyond 3-standard deviations.</p>
+                    <p>Enforces dynamic mean reversion orders when prices violate extreme standard deviations.</p>
                 </div>
                 <div class="glass-card strat-card">
-                    <h4>Combined Confluence <span class="stat-badge">Confluence</span></h4>
-                    <p>Validates overlapping signals across MACD, RSI, and SMA before firing execution packets.</p>
+                    <h4>Combined Confluence <span class="stat-badge">Multi-Factor</span></h4>
+                    <p>Aggregates RSI, MACD, and EMA crosses to ensure high-probability trend alignment.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Final Call to Action -->
+    <!-- Interactive Terminal Visual Preview -->
+    <section>
+        <div class="section-header">
+            <h2>The Cockpit Console</h2>
+            <p>A peek inside our premium web terminal showing real-time calculations and quantitative updates.</p>
+        </div>
+        
+        <div class="terminal-preview-container">
+            <div class="terminal-bar">
+                <div class="terminal-circles">
+                    <span class="terminal-circle tc-red"></span>
+                    <span class="terminal-circle tc-yellow"></span>
+                    <span class="terminal-circle tc-green"></span>
+                </div>
+                <div class="terminal-tab">goatbot_v2_core.py</div>
+                <div style="width: 30px;"></div>
+            </div>
+            <div class="terminal-body">
+                <p><span class="term-muted">[2026-05-23 01:31:19]</span> <span class="term-accent">INFO:</span> Initializing GoatBot Systematic Engine V2.0...</p>
+                <p><span class="term-muted">[2026-05-23 01:31:20]</span> <span class="term-accent">INFO:</span> Connecting to database: mysql.railway.internal:3306 [SUCCESS]</p>
+                <p><span class="term-muted">[2026-05-23 01:31:21]</span> <span class="term-accent">INFO:</span> Neural network state loaded: LSTM weights calibrated.</p>
+                <p><span class="term-muted">[2026-05-23 01:31:22]</span> <span class="term-blue">SOCKET:</span> Live WS feed initialized for <span class="term-gold">BTCUSDT</span>, <span class="term-gold">ETHUSDT</span>, <span class="term-gold">SOLUSDT</span></p>
+                <p><span class="term-muted">[2026-05-23 01:31:23]</span> <span class="term-pink">STRATEGY:</span> Combined Confluence evaluating regime: <span class="term-accent">BULLISH EXPANSION</span></p>
+                <p><span class="term-muted">[2026-05-23 01:31:24]</span> <span class="term-accent">SYS_STATUS:</span> Cockpit is hot. Waiting for trigger packets...</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq">
+        <div class="section-header">
+            <h2>Frequently Answered</h2>
+            <p>Everything you need to know about our systematic software framework.</p>
+        </div>
+        
+        <div class="faq-grid">
+            <div class="faq-item">
+                <h3><i class="fa-solid fa-question-circle"></i> Is GoatBot Trade V2 a course or academy?</h3>
+                <p>Absolutely not. We are 100% a trading tool. We do not sell video courses, PDFs, or trading classes. We provide a state-of-the-art software dashboard that contains live charts, quantitative neural network algorithms, AI sentiment indicators, and systematic execution capabilities.</p>
+            </div>
+            <div class="faq-item">
+                <h3><i class="fa-solid fa-question-circle"></i> Can anybody trade with GoatBot?</h3>
+                <p>Yes. Many people fail at trading because they lack discipline, trade emotionally, or have zero technical guidance. GoatBot solves this by giving you pre-calculated mathematical strategies and precise risk parameters (like stop losses) so you trade with the exact same tools as hedge funds.</p>
+            </div>
+            <div class="faq-item">
+                <h3><i class="fa-solid fa-question-circle"></i> How are strategies executed?</h3>
+                <p>You can toggle manual mode to execute trades with one-click using the dynamic Buy/Sell buttons in our cockpit, or toggle automated bot execution to let our algorithms monitor prices and manage positions based on chosen mathematical parameters.</p>
+            </div>
+            <div class="faq-item">
+                <h3><i class="fa-solid fa-question-circle"></i> Is this platform hosted on the cloud?</h3>
+                <p>Yes. The backend runs on a highly secure, persistent server structure deployed directly on Railway. It keeps monitoring feeds, news, and WebSocket updates 24/7 without slowing down your own computer.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Call to Action -->
     <section class="cta-banner">
         <div class="cta-box">
-            <h2>Ready to Deploy the Edge?</h2>
-            <p>Access the V2 institutional dashboard and manage your systematic portfolio in a highly resilient environment.</p>
-            <a href="/godbot_login" class="btn-primary" style="padding: 18px 48px; font-size: 16px;">LAUNCH TERMINAL</a>
+            <h2>Deploy the Power Tool Today</h2>
+            <p>Stop studying theories. Gain access to the ultimate quantitative terminal and begin deploying systematic edge with immediate statistical guidance.</p>
+            <a href="/godbot_login" class="btn-cta-glow" style="padding: 20px 56px; font-size: 17px;">LAUNCH QUANTITATIVE COCKPIT</a>
         </div>
     </section>
 
     <!-- Footer -->
     <footer>
-        <div class="footer-logo">
+        <a href="#" class="footer-brand">
+            <img src="/logo.svg" alt="GoatBot Logo" style="height: 32px; width: 32px; object-fit: contain;">
             GoatBot<span>Trade</span>
-        </div>
+        </a>
         <div class="footer-rights">
-            &copy; 2026 GoatBot Trade. All rights reserved.
+            &copy; 2026 GoatBot Trade. All rights reserved. Professional Systematic Tool.
         </div>
         <div class="footer-links">
-            <a href="#">Privacy Policy</a>
-            <a href="#">Terms of Service</a>
+            <a href="#">Security Protocol</a>
+            <a href="#">Terms of Use</a>
             <a href="/godbot_login">Terminal</a>
         </div>
     </footer>
