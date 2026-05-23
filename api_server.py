@@ -360,6 +360,21 @@ def v2_report_page():
     """Serve the V2 institutional strategy report page."""
     return send_from_directory('v2/web', 'report.html')
 
+@app.route('/v2/live')
+def v2_live_page():
+    """Serve the V2 institutional live trade console."""
+    return send_from_directory('v2/web', 'live.html')
+
+@app.route('/v2/portfolio')
+def v2_portfolio_page():
+    """Serve the V2 institutional portfolio asset manager."""
+    return send_from_directory('v2/web', 'portfolio.html')
+
+@app.route('/v2/profile')
+def v2_profile_page():
+    """Serve the V2 institutional risk/profile config."""
+    return send_from_directory('v2/web', 'profile.html')
+
 
 
 # ============================================================

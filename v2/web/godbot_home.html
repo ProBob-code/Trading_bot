@@ -252,10 +252,15 @@
             </div>
 
             <div class="panel glass-panel terminal-card" style="margin-top:0;">
-                <div style="padding: 0 16px; margin-bottom: 8px;">
+                <div style="padding: 0 16px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
                     <span
-                        style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">The
-                        Cockpit</span>
+                        style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1.5px; display: flex; align-items: center; gap: 6px; font-weight: 700;">
+                        The Cockpit
+                        <i class="fa-solid fa-circle-question" id="cockpitVisionBtn" style="cursor: pointer; color: var(--accent); font-size: 11px; transition: color 0.3s; vertical-align: middle;" title="View Cockpit Vision & Mechanics" onclick="toggleCockpitVisionModal(true)"></i>
+                    </span>
+                    <span style="font-size: 8px; color: var(--accent); font-weight: 800; letter-spacing: 0.5px; background: rgba(0, 255, 178, 0.08); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(0, 255, 178, 0.15); text-transform: uppercase; font-family: 'Orbitron', sans-serif;">
+                        Tactical Execution Command
+                    </span>
                 </div>
                 <div class="terminal-tabs" id="positionTabs">
                     <button class="tab-btn active" data-tab="open">Positions</button>
@@ -705,6 +710,60 @@
                     style="margin:0; width:100%; background:rgba(255,255,255,0.05); color:var(--text-primary); border:1px solid var(--glass-border);"
                     id="cancelLogout">STAY CONNECTED</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════
+         COCKPIT VISION MODAL
+         ═══════════════════════════════════════ -->
+    <div class="modal-backdrop hidden" id="cockpitVisionModal">
+        <div class="glass-panel" style="max-width: 580px; width: 90%; padding: 32px; border-radius: 20px; border: 1px solid var(--accent); box-shadow: 0 20px 80px rgba(0, 255, 178, 0.15); z-index: 10001; position: relative;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="font-family:'Orbitron', sans-serif; font-size:18px; color:var(--accent); letter-spacing:1px; display:flex; align-items:center; gap:10px; text-transform: uppercase;">
+                    <i class="fa-solid fa-circle-nodes"></i> Cockpit Vision & Mechanics
+                </h3>
+                <i class="fa-solid fa-xmark" style="cursor:pointer; color:var(--text-muted); font-size:18px; transition:color 0.3s;" onclick="toggleCockpitVisionModal(false)"></i>
+            </div>
+            
+            <p style="font-size:13px; color:var(--text-primary); line-height:1.6; margin-bottom:18px;">
+                <strong>The Cockpit</strong> is GoatBot V2's command center. It acts as the tactical execution sandbox where simulated parameters, indicators, and historical logs are aggregated into one single, transparent risk workspace.
+            </p>
+            
+            <div style="display:flex; flex-direction:column; gap:14px; margin-bottom:24px;">
+                <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); padding:14px; border-radius:10px; display:flex; gap:12px; align-items:flex-start;">
+                    <i class="fa-solid fa-list-check" style="color:var(--accent); font-size:16px; margin-top:2px;"></i>
+                    <div>
+                        <h4 style="font-size:13px; font-weight:700; color:#fff; margin-bottom:4px;">Positions Tab</h4>
+                        <p style="font-size:11px; color:var(--text-muted); line-height:1.4;">Tracks open trades with real-time unrealized P&L calculations. You can instantly manage stop losses or execute a panic liquidation via the close buttons.</p>
+                    </div>
+                </div>
+                
+                <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); padding:14px; border-radius:10px; display:flex; gap:12px; align-items:flex-start;">
+                    <i class="fa-solid fa-clock-rotate-left" style="color:var(--accent); font-size:16px; margin-top:2px;"></i>
+                    <div>
+                        <h4 style="font-size:13px; font-weight:700; color:#fff; margin-bottom:4px;">History Tab</h4>
+                        <p style="font-size:11px; color:var(--text-muted); line-height:1.4;">An immutable ledger displaying all past trades. It acts as an audit trail to measure closed profits, entry/exit efficiency, and platform statistics.</p>
+                    </div>
+                </div>
+
+                <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); padding:14px; border-radius:10px; display:flex; gap:12px; align-items:flex-start;">
+                    <i class="fa-solid fa-tower-broadcast" style="color:var(--accent); font-size:16px; margin-top:2px;"></i>
+                    <div>
+                        <h4 style="font-size:13px; font-weight:700; color:#fff; margin-bottom:4px;">Signals Tab</h4>
+                        <p style="font-size:11px; color:var(--text-muted); line-height:1.4;">Real-time feed showing dynamic Buy/Sell indicators generated by active quantitative engines (Neural Networks, Bollinger, and Ichimoku).</p>
+                    </div>
+                </div>
+
+                <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); padding:14px; border-radius:10px; display:flex; gap:12px; align-items:flex-start;">
+                    <i class="fa-solid fa-chart-pie" style="color:var(--accent); font-size:16px; margin-top:2px;"></i>
+                    <div>
+                        <h4 style="font-size:13px; font-weight:700; color:#fff; margin-bottom:4px;">Portfolio Tab</h4>
+                        <p style="font-size:11px; color:var(--text-muted); line-height:1.4;">Live risk analytics showing your win-rate, total closed metrics, profit factor, Sharpe ratios, and drawdowns to optimize capital sizing.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <button class="btn-execute buy" style="margin:0; width:100%;" onclick="toggleCockpitVisionModal(false)">ACKNOWLEDGE & CONTINUE</button>
         </div>
     </div>
 
