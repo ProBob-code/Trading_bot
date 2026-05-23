@@ -274,7 +274,9 @@ const ChartManager = {
         if (i === '1m') return '1';
         if (i === '5m') return '5';
         if (i === '15m') return '15';
+        if (i === '30m') return '30';
         if (i === '1h') return '60';
+        if (i === '4h') return '240';
         if (i === '1d') return 'D';
         return i;
     }

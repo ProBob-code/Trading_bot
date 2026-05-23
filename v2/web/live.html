@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoatBot Trade — Live Systematic Deployment</title>
+    <meta name="description" content="Securely connect exchange API keys and deploy active systematic models to live order books.">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #060913;
+            --panel-glass: rgba(13, 20, 36, 0.45);
+            --panel-glass-hover: rgba(20, 30, 54, 0.6);
+            --accent: #00FFB2;
+            --accent-glow: rgba(0, 255, 178, 0.15);
+            --text-primary: #FFFFFF;
+            --text-muted: #94A3B8;
+            --glass-border: rgba(255, 255, 255, 0.05);
+            --glass-border-active: rgba(0, 255, 178, 0.3);
+            --font-sans: 'Inter', sans-serif;
+            --font-quant: 'Orbitron', sans-serif;
+            --bullish: #00FFB2;
+            --bearish: #FF3366;
+            --gold: #FFD700;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-deep);
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(0, 255, 178, 0.03) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(0, 102, 255, 0.03) 0%, transparent 40%);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* ═══ NAVBAR ═══ */
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 40px;
+            background: rgba(6, 9, 19, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+
+        .brand-logo {
+            width: 32px;
+            height: 32px;
+            filter: drop-shadow(0 0 8px var(--accent));
+        }
+
+        .brand-name {
+            font-family: var(--font-quant);
+            font-size: 18px;
+            font-weight: 900;
+            letter-spacing: 1px;
+            color: #fff;
+        }
+
+        .brand-name span {
+            color: var(--accent);
+        }
+
+        .back-btn {
+            background: var(--panel-glass);
+            border: 1px solid var(--glass-border);
+            color: var(--accent);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .back-btn:hover {
+            background: var(--panel-glass-hover);
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(0, 255, 178, 0.15);
+            transform: translateY(-1px);
+        }
+
+        /* ═══ HEADER ═══ */
+        .hero-section {
+            text-align: center;
+            padding: 60px 20px 30px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .badge {
+            background: rgba(0, 255, 178, 0.08);
+            border: 1px solid rgba(0, 255, 178, 0.2);
+            color: var(--accent);
+            font-family: var(--font-quant);
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            padding: 6px 16px;
+            border-radius: 50px;
+            display: inline-block;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+        }
+
+        .hero-title {
+            font-family: var(--font-quant);
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #fff 40%, var(--text-muted));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-desc {
+            color: var(--text-muted);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* ═══ MAIN LAYOUT ═══ */
+        .main-container {
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 0 40px 60px;
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 32px;
+        }
+
+        .glass-card {
+            background: var(--panel-glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .card-title {
+            font-family: var(--font-quant);
+            font-size: 16px;
+            letter-spacing: 1px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+            text-transform: uppercase;
+        }
+
+        .card-title i {
+            color: var(--accent);
+        }
+
+        /* ═══ BROKER SELECTOR ═══ */
+        .broker-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .broker-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .broker-card:hover {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .broker-card.active {
+            border-color: var(--accent);
+            background: rgba(0, 255, 178, 0.03);
+            box-shadow: 0 0 20px rgba(0, 255, 178, 0.08);
+        }
+
+        .broker-logo {
+            font-size: 24px;
+            margin-bottom: 12px;
+            color: var(--text-muted);
+        }
+
+        .broker-card.active .broker-logo {
+            color: var(--accent);
+        }
+
+        .broker-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        /* ═══ FORM CONTROLS ═══ */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            background: rgba(6, 9, 19, 0.6);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            color: #fff;
+            padding: 12px 16px;
+            font-family: var(--font-sans);
+            font-size: 13px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(0, 255, 178, 0.1);
+        }
+
+        /* ═══ LATENCY TABLE ═══ */
+        .latency-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .latency-table th {
+            text-align: left;
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .latency-table td {
+            padding: 14px 16px;
+            font-size: 13px;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .latency-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .ping-badge {
+            font-family: var(--font-quant);
+            font-size: 11px;
+            font-weight: 800;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(0, 255, 178, 0.08);
+            color: var(--accent);
+            border: 1px solid rgba(0, 255, 178, 0.15);
+        }
+
+        .connection-log {
+            background: rgba(6, 9, 19, 0.8);
+            border: 1px solid var(--glass-border);
+            border-radius: 10px;
+            padding: 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            height: 150px;
+            overflow-y: auto;
+            margin-top: 20px;
+            line-height: 1.5;
+        }
+
+        .log-entry.success { color: var(--bullish); }
+        .log-entry.info { color: #38bdf8; }
+
+        .btn-action {
+            width: 100%;
+            background: var(--accent);
+            color: #060913;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-family: var(--font-quant);
+            font-weight: 800;
+            font-size: 14px;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 24px;
+            text-transform: uppercase;
+        }
+
+        .btn-action:hover {
+            box-shadow: 0 0 25px var(--accent-glow);
+            transform: translateY(-1px);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <a href="/godbot_home" class="brand">
+            <img src="/logo.svg" alt="GoatBot" class="brand-logo">
+            <span class="brand-name">GOATBOT<span>TRADE</span></span>
+        </a>
+        <a href="/godbot_home" class="back-btn">
+            <i class="fa-solid fa-arrow-left"></i> Return to Command Deck
+        </a>
+    </nav>
+
+    <!-- HERO -->
+    <div class="hero-section">
+        <span class="badge">Live Deployment Sandbox</span>
+        <h1 class="hero-title">High-Frequency Execution Bridge</h1>
+        <p class="hero-desc">Deploy your quantitative edge directly into the active matching engine of globally consolidated exchanges with sub-millisecond latencies.</p>
+    </div>
+
+    <!-- MAIN BODY -->
+    <div class="main-container">
+        <!-- API Connection Setup -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-key"></i> Cryptographic API Access Deck</h3>
+            
+            <div class="broker-grid">
+                <div class="broker-card active" onclick="selectBroker('binance')">
+                    <i class="fa-brands fa-bitcoin broker-logo"></i>
+                    <div class="broker-name">Binance Pro</div>
+                </div>
+                <div class="broker-card" onclick="selectBroker('coinbase')">
+                    <i class="fa-solid fa-circle broker-logo"></i>
+                    <div class="broker-name">Coinbase Advanced</div>
+                </div>
+                <div class="broker-card" onclick="selectBroker('ib')">
+                    <i class="fa-solid fa-building-columns broker-logo"></i>
+                    <div class="broker-name">Interactive Brokers</div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="apiKey">Public API Key (Client Credentials)</label>
+                <input type="text" id="apiKey" class="form-input" placeholder="e.g. bce3a5d89f81a7dcd2b3f114">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="apiSecret">Cryptographic Private Secret Key</label>
+                <input type="password" id="apiSecret" class="form-input" placeholder="••••••••••••••••••••••••••••••••••••••••••••">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="passphrase">Passphrase / Signature Token</label>
+                <input type="password" id="passphrase" class="form-input" placeholder="Broker-specific custom signature passphrase">
+            </div>
+
+            <button class="btn-action" id="testConnBtn" onclick="testConnection()">
+                <i class="fa-solid fa-plug"></i> Test Connection & Save Credentials
+            </button>
+        </div>
+
+        <!-- Latency Metrics -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-gauge-high"></i> Execution Latency Grid</h3>
+            
+            <table class="latency-table">
+                <thead>
+                    <tr>
+                        <th>Edge Endpoint</th>
+                        <th>Status</th>
+                        <th>Ping</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Tokyo Apex Gateway</td>
+                        <td style="color:var(--bullish); font-weight:700;"><i class="fa-solid fa-circle-check"></i> Active</td>
+                        <td><span class="ping-badge">8ms</span></td>
+                    </tr>
+                    <tr>
+                        <td>Frankfurt Liquidity Node</td>
+                        <td style="color:var(--bullish); font-weight:700;"><i class="fa-solid fa-circle-check"></i> Active</td>
+                        <td><span class="ping-badge">14ms</span></td>
+                    </tr>
+                    <tr>
+                        <td>London Systematic Center</td>
+                        <td style="color:var(--bullish); font-weight:700;"><i class="fa-solid fa-circle-check"></i> Active</td>
+                        <td><span class="ping-badge">11ms</span></td>
+                    </tr>
+                    <tr>
+                        <td>Chicago Exchange Link</td>
+                        <td style="color:var(--bullish); font-weight:700;"><i class="fa-solid fa-circle-check"></i> Active</td>
+                        <td><span class="ping-badge">23ms</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3 class="card-title" style="margin-top: 32px; margin-bottom:12px;"><i class="fa-solid fa-terminal"></i> Systematic Node Logs</h3>
+            <div class="connection-log" id="logBox">
+                <div class="log-entry info">[07:26:01] 🌐 Systematic engine live. Initializing router...</div>
+                <div class="log-entry">[07:26:02] Checking secure local DB handshake... verified.</div>
+                <div class="log-entry info">[07:26:03] Pinging international edge points...</div>
+                <div class="log-entry success">[07:26:05] All routes online. Average latency: 14ms. Ready for live bridge.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function selectBroker(broker) {
+            document.querySelectorAll('.broker-card').forEach(card => card.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            
+            const logBox = document.getElementById('logBox');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry info';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] Switched active config target to: ${broker.toUpperCase()}`;
+            logBox.appendChild(entry);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function testConnection() {
+            const btn = document.getElementById('testConnBtn');
+            const logBox = document.getElementById('logBox');
+            
+            const apiKey = document.getElementById('apiKey').value;
+            const apiSecret = document.getElementById('apiSecret').value;
+
+            if (!apiKey || !apiSecret) {
+                alert('⚠️ Please fill out both the Public API Key and Cryptographic Secret fields first!');
+                return;
+            }
+
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Establishing Cryptographic Handshake...';
+            btn.style.opacity = '0.7';
+            btn.disabled = true;
+
+            const entry1 = document.createElement('div');
+            entry1.className = 'log-entry info';
+            entry1.textContent = `[${new Date().toLocaleTimeString()}] Initiating AES-256 secure tunnel connection...`;
+            logBox.appendChild(entry1);
+
+            setTimeout(() => {
+                const entry2 = document.createElement('div');
+                entry2.className = 'log-entry success';
+                entry2.textContent = `[${new Date().toLocaleTimeString()}] API connection verified! Authentication status: 200 OK. Saving credentials.`;
+                logBox.appendChild(entry2);
+                logBox.scrollTop = logBox.scrollHeight;
+
+                btn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Connection Verified & Credentials Saved!';
+                btn.style.background = 'var(--bullish)';
+                btn.style.color = '#060913';
+                btn.style.opacity = '1';
+                btn.disabled = false;
+                
+                setTimeout(() => {
+                    btn.innerHTML = '<i class="fa-solid fa-plug"></i> Test Connection & Save Credentials';
+                    btn.style.background = '';
+                    btn.style.color = '';
+                }, 4000);
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

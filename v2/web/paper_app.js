@@ -408,6 +408,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkSystemStatus();
     initSearch(); // New: Global Search
     initAssetSwitcher(); // New: Asset Switcher
+    initEventListeners(); // Wired up: Market tabs, symbol changes, interval selector
+    initSidebarNav(); // Wired up: Sidebar page switching and routing
 
     // Auto-refresh loops
     setInterval(() => {

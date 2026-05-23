@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoatBot Trade — Master Profile Settings</title>
+    <meta name="description" content="Securely configure master risk bounds, user credentials, panic switches, and multi-factor credentials.">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #060913;
+            --panel-glass: rgba(13, 20, 36, 0.45);
+            --panel-glass-hover: rgba(20, 30, 54, 0.6);
+            --accent: #00FFB2;
+            --accent-glow: rgba(0, 255, 178, 0.15);
+            --text-primary: #FFFFFF;
+            --text-muted: #94A3B8;
+            --glass-border: rgba(255, 255, 255, 0.05);
+            --font-sans: 'Inter', sans-serif;
+            --font-quant: 'Orbitron', sans-serif;
+            --bullish: #00FFB2;
+            --bearish: #FF3366;
+            --gold: #FFD700;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-deep);
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(0, 255, 178, 0.03) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(0, 102, 255, 0.03) 0%, transparent 40%);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* ═══ NAVBAR ═══ */
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 40px;
+            background: rgba(6, 9, 19, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+
+        .brand-logo {
+            width: 32px;
+            height: 32px;
+            filter: drop-shadow(0 0 8px var(--accent));
+        }
+
+        .brand-name {
+            font-family: var(--font-quant);
+            font-size: 18px;
+            font-weight: 900;
+            letter-spacing: 1px;
+            color: #fff;
+        }
+
+        .brand-name span {
+            color: var(--accent);
+        }
+
+        .back-btn {
+            background: var(--panel-glass);
+            border: 1px solid var(--glass-border);
+            color: var(--accent);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .back-btn:hover {
+            background: var(--panel-glass-hover);
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(0, 255, 178, 0.15);
+            transform: translateY(-1px);
+        }
+
+        /* ═══ HERO ═══ */
+        .hero-section {
+            text-align: center;
+            padding: 60px 20px 30px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .badge {
+            background: rgba(0, 255, 178, 0.08);
+            border: 1px solid rgba(0, 255, 178, 0.2);
+            color: var(--accent);
+            font-family: var(--font-quant);
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            padding: 6px 16px;
+            border-radius: 50px;
+            display: inline-block;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+        }
+
+        .hero-title {
+            font-family: var(--font-quant);
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #fff 40%, var(--text-muted));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-desc {
+            color: var(--text-muted);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* ═══ MAIN LAYOUT ═══ */
+        .main-container {
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 0 40px 60px;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 32px;
+        }
+
+        .glass-card {
+            background: var(--panel-glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .card-title {
+            font-family: var(--font-quant);
+            font-size: 16px;
+            letter-spacing: 1px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+            text-transform: uppercase;
+        }
+
+        .card-title i {
+            color: var(--accent);
+        }
+
+        /* ═══ FORM CONTROLS ═══ */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            background: rgba(6, 9, 19, 0.6);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            color: #fff;
+            padding: 12px 16px;
+            font-family: var(--font-sans);
+            font-size: 13px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(0, 255, 178, 0.1);
+        }
+
+        /* ═══ PANIC CONTROLS ═══ */
+        .panic-box {
+            background: rgba(255, 51, 102, 0.03);
+            border: 1px solid rgba(255, 51, 102, 0.2);
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 24px;
+        }
+
+        .panic-title {
+            font-family: var(--font-quant);
+            color: var(--bearish);
+            font-size: 14px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+
+        .panic-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.5;
+            margin-bottom: 16px;
+        }
+
+        /* ═══ SESSION TABLE ═══ */
+        .session-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .session-table th {
+            text-align: left;
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .session-table td {
+            padding: 14px 16px;
+            font-size: 13px;
+            border-bottom: 1px solid var(--glass-border);
+            color: var(--text-muted);
+        }
+
+        .session-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .session-ip {
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+
+        .btn-action {
+            width: 100%;
+            background: var(--accent);
+            color: #060913;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-family: var(--font-quant);
+            font-weight: 800;
+            font-size: 14px;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 24px;
+            text-transform: uppercase;
+        }
+
+        .btn-action:hover {
+            box-shadow: 0 0 25px var(--accent-glow);
+            transform: translateY(-1px);
+        }
+
+        .btn-panic-action {
+            width: 100%;
+            background: var(--bearish);
+            color: #fff;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-family: var(--font-quant);
+            font-weight: 800;
+            font-size: 14px;
+            letter-spacing: 1.5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+        }
+
+        .btn-panic-action:hover {
+            box-shadow: 0 0 25px rgba(255, 51, 102, 0.2);
+            transform: translateY(-1px);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <a href="/godbot_home" class="brand">
+            <img src="/logo.svg" alt="GoatBot" class="brand-logo">
+            <span class="brand-name">GOATBOT<span>TRADE</span></span>
+        </a>
+        <a href="/godbot_home" class="back-btn">
+            <i class="fa-solid fa-arrow-left"></i> Return to Command Deck
+        </a>
+    </nav>
+
+    <!-- HERO -->
+    <div class="hero-section">
+        <span class="badge">Master Safety Controls</span>
+        <h1 class="hero-title">Risk & Security Profile</h1>
+        <p class="hero-desc">Manage your authentication details, security settings, and global systematic override thresholds.</p>
+    </div>
+
+    <!-- MAIN BODY -->
+    <div class="main-container">
+        <!-- Profile Config -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-user-gear"></i> Credential Sandbox</h3>
+            
+            <div class="form-group">
+                <label class="form-label" for="username">Authorized Operator ID</label>
+                <input type="text" id="username" class="form-input" value="Bob Jacob" readonly style="opacity: 0.7;">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="email">Alert Notification Email</label>
+                <input type="email" id="email" class="form-input" value="bob.jacob@goatbot.trade">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="currentPass">Current Access Password</label>
+                <input type="password" id="currentPass" class="form-input" placeholder="••••••••••••">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 24px;">
+                <label class="form-label" for="newPass">New Access Password</label>
+                <input type="password" id="newPass" class="form-input" placeholder="Enter new highly secure password">
+            </div>
+
+            <button class="btn-action" onclick="saveProfile()">
+                <i class="fa-solid fa-circle-check"></i> Commit Operator Settings
+            </button>
+        </div>
+
+        <!-- Risk & Security -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-shield-halved"></i> Global Risk Shield</h3>
+            
+            <div class="form-group">
+                <label class="form-label" style="display:flex; justify-content:space-between;">
+                    <span>Systemic Master Stop Loss</span>
+                    <span style="color:var(--bearish); font-family:var(--font-quant);" id="maxLossVal">8%</span>
+                </label>
+                <input type="range" class="form-range" style="width:100%; accent-color:var(--bearish);" min="2" max="25" value="8" oninput="updateMaxLoss(this.value)">
+                <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); margin-top:6px;">
+                    <span>2% Drawdown Limit</span>
+                    <span>25% Max Drawdown</span>
+                </div>
+            </div>
+
+            <div class="panic-box">
+                <div class="panic-title"><i class="fa-solid fa-triangle-exclamation"></i> Master Panic Switch</div>
+                <p class="panic-desc">Activating the panic switch instantly cancels all active systematic models, terminates all order execution loops, and liquidates all open simulated positions to stablecoin assets.</p>
+                <button class="btn-panic-action" onclick="triggerMasterPanic()">
+                    <i class="fa-solid fa-radiation"></i> Execute Global Liquidation
+                </button>
+            </div>
+
+            <h3 class="card-title" style="margin-top: 36px; margin-bottom: 12px;"><i class="fa-solid fa-clock-rotate-left"></i> Security Auditing Trails</h3>
+            <table class="session-table">
+                <thead>
+                    <tr>
+                        <th>Terminal IP</th>
+                        <th>Device Info</th>
+                        <th>Auth Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="session-ip">192.168.1.104</td>
+                        <td>Linux (Firefox x64)</td>
+                        <td style="color:var(--bullish); font-weight:700;"><i class="fa-solid fa-shield"></i> Active</td>
+                    </tr>
+                    <tr>
+                        <td class="session-ip">104.28.254.12</td>
+                        <td>iOS (Safari Mobile)</td>
+                        <td><span style="color:var(--text-muted);">Expired</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function updateMaxLoss(val) {
+            document.getElementById('maxLossVal').textContent = `${val}%`;
+        }
+
+        function saveProfile() {
+            alert('✅ Operator profile credentials and notification paths successfully updated!');
+        }
+
+        function triggerMasterPanic() {
+            const confirmVal = confirm('⚠️ WARNING: You are triggering a GLOBAL SYSTEMIC PANIC SWITCH. This will immediately close all active trading models, terminate all execution pings, and sell all simulated assets to stablecoins. Are you absolutely certain you wish to proceed?');
+            if (confirmVal) {
+                alert('🚨 GLOBAL PANIC SWITCH INITIATED: All active models stopped. Positions liquidated successfully.');
+            }
+        }
+    </script>
+</body>
+</html>
