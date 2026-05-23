@@ -2493,15 +2493,17 @@ function renderOpenPositions() {
     const openBody = document.getElementById('openPositionsBody');
     if (!openBody) return;
 
-    if (positionsData.open.length === 0) {
+    if (!positionsData.open || positionsData.open.length === 0) {
         openBody.innerHTML = '<tr class="empty-row"><td colspan="6" style="text-align:center; padding:40px; color:var(--text-muted);">No active positions found</td></tr>';
     } else {
         openBody.innerHTML = positionsData.open.map(pos => {
-            const currentPrice = pos.current_price || pos.avg_price;
+            const currentPrice = parseFloat(pos.current_price || pos.avg_price || 0);
+            const avgPrice = parseFloat(pos.avg_price || 0);
+            const qty = parseFloat(pos.qty || pos.quantity || 0);
             const isShort = pos.side === 'SHORT' || pos.side === 'SELL';
-            const netPnl = pos.net_pnl || 0;
-            const netPnlPct = pos.avg_price > 0
-                ? (isShort ? (1 - currentPrice / pos.avg_price) : (currentPrice / pos.avg_price - 1)) * 100
+            const netPnl = parseFloat(pos.net_pnl || 0);
+            const netPnlPct = avgPrice > 0
+                ? (isShort ? (1 - currentPrice / avgPrice) : (currentPrice / avgPrice - 1)) * 100
                 : 0;
             const pnlClass = netPnl >= 0 ? 'p-positive' : 'p-negative';
             const sideClass = !isShort ? 'p-positive' : 'p-negative';
@@ -2509,9 +2511,9 @@ function renderOpenPositions() {
             return `
                 <tr>
                     <td><strong>${pos.symbol}</strong></td>
-                    <td class="${sideClass}">${pos.side}</td>
-                    <td>${pos.qty.toFixed(4)}</td>
-                    <td style="font-family:var(--font-mono);">$${pos.avg_price.toLocaleString()}</td>
+                    <td class="${sideClass}">${pos.side || 'LONG'}</td>
+                    <td>${qty.toFixed(4)}</td>
+                    <td style="font-family:var(--font-mono);">$${avgPrice.toLocaleString()}</td>
                     <td class="${pnlClass}" style="font-weight:700;">
                         $${netPnl.toFixed(2)} (${netPnlPct >= 0 ? '+' : ''}${netPnlPct.toFixed(2)}%)
                     </td>
@@ -2528,13 +2530,13 @@ function renderClosedPositions() {
     const body = document.getElementById('tradeHistoryBody');
     if (!body) return;
 
-    if (positionsData.closed.length === 0) {
+    if (!positionsData.closed || positionsData.closed.length === 0) {
         body.innerHTML = '<tr class="empty-row"><td colspan="6" style="text-align:center; padding:40px; color:var(--text-muted);">No historical trades available</td></tr>';
     } else {
         body.innerHTML = positionsData.closed.map(pos => {
-            const pnl = pos.net_pnl ?? pos.realized_pnl ?? 0;
-            const entry = pos.entry_price || pos.entry || 0;
-            const exit = pos.exit_price || pos.exit || 0;
+            const pnl = parseFloat(pos.net_pnl ?? pos.realized_pnl ?? 0);
+            const entry = parseFloat(pos.entry_price || pos.entry || 0);
+            const exit = parseFloat(pos.exit_price || pos.exit || 0);
             const pnlPct = entry > 0 ? (pos.side === 'SHORT' ? (1 - exit/entry) : (exit/entry - 1)) * 100 : 0;
             const pnlClass = pnl >= 0 ? 'p-positive' : 'p-negative';
             const time = pos.timestamp ? new Date(pos.timestamp).toLocaleTimeString() : '--';
@@ -2543,9 +2545,9 @@ function renderClosedPositions() {
                 <tr>
                     <td style="color:var(--text-muted); font-size:11px;">${time}</td>
                     <td><strong>${pos.symbol}</strong></td>
-                    <td class="${pos.side === 'BUY' || pos.side === 'LONG' ? 'p-positive' : 'p-negative'}">${pos.side}</td>
-                    <td style="font-family:var(--font-mono);">$${parseFloat(entry).toLocaleString()}</td>
-                    <td style="font-family:var(--font-mono);">$${parseFloat(exit).toLocaleString()}</td>
+                    <td class="${pos.side === 'BUY' || pos.side === 'LONG' ? 'p-positive' : 'p-negative'}">${pos.side || 'LONG'}</td>
+                    <td style="font-family:var(--font-mono);">$${entry.toLocaleString()}</td>
+                    <td style="font-family:var(--font-mono);">$${exit.toLocaleString()}</td>
                     <td class="${pnlClass}" style="font-weight:700;">$${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)</td>
                 </tr>
             `;
