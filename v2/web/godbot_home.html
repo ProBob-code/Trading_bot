@@ -293,9 +293,9 @@
                                     <th>Time</th>
                                     <th>Symbol</th>
                                     <th>Side</th>
-                                    <th>Entry</th>
-                                    <th>Exit</th>
-                                    <th>P&L</th>
+                                    <th>Type</th>
+                                    <th>Qty</th>
+                                    <th>Price</th>
                                 </tr>
                             </thead>
                             <tbody id="tradeHistoryBody"></tbody>
@@ -326,11 +326,11 @@
                             </div>
                         </div>
                         <div id="portfolioChartContainer"
-                            style="height:150px; margin-top:20px; border-top:1px solid var(--border-color); padding-top:10px;">
+                            style="height:150px; margin-top:20px; border-top:1px solid var(--border-color); padding-top:10px; display:flex; flex-direction:column;">
                             <span
-                                style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Equity
-                                Curve (Simulated)</span>
-                            <div class="equity-placeholder"></div>
+                                style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">Equity
+                                Curve (Realized P&L)</span>
+                            <div id="equityCurve" style="flex:1; min-height:0;"></div>
                         </div>
                     </div>
                 </div>
@@ -499,6 +499,14 @@
                         <option value="1d">1 Day</option>
                     </select>
                 </div>
+                <div class="field-group">
+                    <label>Signal Sensitivity</label>
+                    <select id="sensitivitySelect">
+                        <option value="conservative" selected>🛡️ Conservative</option>
+                        <option value="balanced">⚖️ Balanced</option>
+                        <option value="aggressive">🔥 Aggressive</option>
+                    </select>
+                </div>
                 <div class="control-buttons">
                     <button class="btn-action start" id="btnStartBot"><i class="fas fa-play"></i> Start Bot</button>
                     <button class="btn-action stop" id="btnStopBot"><i class="fas fa-stop"></i> Stop</button>
@@ -506,6 +514,11 @@
                     <button class="btn-action panic" id="btnPanicSell"><i class="fas fa-skull-crossbones"></i>
                         PANIC</button>
                 </div>
+            </div>
+            <div id="sensitivityHelp" style="margin-top:10px; padding:10px 14px; border-radius:8px;
+                background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.25);
+                font-size:12px; line-height:1.5; color:var(--text-secondary);">
+                🛡️ <strong>Conservative</strong> — only high-conviction trades; sits out quiet markets. Fewest trades, highest quality. <em>New bots start here.</em>
             </div>
             <div class="settings-row">
                 <div class="field-group">
@@ -767,7 +780,8 @@
         </div>
     </div>
 
-    <script src="paper_app.js?v=2"></script>
+    <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
+    <script src="paper_app_v3.js?v=3"></script>
     <style>
         /* Small utility additions for the switch and modal */
         .switch input:checked+.slider {

@@ -49,16 +49,20 @@ class V2BotConfig:
     max_quantity: float = 1.0
     leverage: float = 1.0
     risk_pct: float = 2.0
-    
+    sensitivity: str = "conservative"  # conservative | balanced | aggressive
+
     def config_hash(self) -> str:
         """
         Compute deterministic hash of configuration.
-        
-        Includes: strategy, symbol, interval, stop_loss, take_profit, leverage, risk_pct
+
+        Includes: strategy, symbol, interval, stop_loss, take_profit, leverage,
+        risk_pct, sensitivity (so the same strategy at a different sensitivity is
+        treated as a distinct bot rather than a duplicate).
         """
         hash_input = (
             f"{self.strategy}:{self.symbol}:{self.interval}:"
-            f"{self.stop_loss}:{self.take_profit}:{self.leverage}:{self.risk_pct}"
+            f"{self.stop_loss}:{self.take_profit}:{self.leverage}:{self.risk_pct}:"
+            f"{self.sensitivity}"
         )
         return hashlib.sha256(hash_input.encode()).hexdigest()[:8]
 
@@ -103,6 +107,7 @@ class V2TradingBot:
             'interval': self.config.interval,
             'leverage': self.config.leverage,
             'risk_pct': self.config.risk_pct,
+            'sensitivity': self.config.sensitivity,
             'status': self.status.value,
             'disable_reason': self.disable_reason,
             'stats': {
@@ -183,6 +188,7 @@ class BotManagerV2:
             max_quantity=kwargs.get('max_quantity', 1.0),
             leverage=kwargs.get('leverage', 1.0),
             risk_pct=kwargs.get('risk_pct', 2.0),
+            sensitivity=kwargs.get('sensitivity', 'conservative'),
         )
         
         c_hash = config.config_hash()

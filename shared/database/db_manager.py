@@ -441,6 +441,7 @@ class DatabaseManager:
                     trade_id VARCHAR(80) PRIMARY KEY,
                     session_id VARCHAR(50),
                     user_id INT,
+                    bot_id VARCHAR(255),
                     symbol VARCHAR(20),
                     side VARCHAR(10),     -- BUY / SELL
                     action VARCHAR(20),   -- OPEN / CLOSE / REVERSAL / STOP_LOSS / TAKE_PROFIT / PARTIAL_CLOSE
@@ -667,12 +668,23 @@ class DatabaseManager:
                 # Add FK Constraint to v2_trades (MySQL)
                 try:
                     cursor.execute("""
-                        ALTER TABLE v2_trades 
-                        ADD CONSTRAINT fk_v2_session 
-                        FOREIGN KEY (session_id) 
-                        REFERENCES v2_sessions(session_id) 
+                        ALTER TABLE v2_trades
+                        ADD CONSTRAINT fk_v2_session
+                        FOREIGN KEY (session_id)
+                        REFERENCES v2_sessions(session_id)
                         ON DELETE CASCADE
                     """)
+                    conn.commit()
+                except Exception: pass
+
+                # v2_trade_ledger: bot_id for per-bot trade attribution (survives restarts)
+                try:
+                    cursor.execute("ALTER TABLE v2_trade_ledger ADD COLUMN bot_id VARCHAR(255) AFTER user_id")
+                    conn.commit()
+                except Exception: pass
+
+                try:
+                    cursor.execute("CREATE INDEX idx_ledger_bot ON v2_trade_ledger(user_id, bot_id)")
                     conn.commit()
                 except Exception: pass
             else:
@@ -752,6 +764,17 @@ class DatabaseManager:
                         cursor.execute(f"ALTER TABLE v2_positions ADD COLUMN {col[0]} {col[1]}")
                         conn.commit()
                     except Exception: pass
+
+                # v2_trade_ledger: bot_id for per-bot trade attribution (SQLite)
+                try:
+                    cursor.execute("ALTER TABLE v2_trade_ledger ADD COLUMN bot_id TEXT")
+                    conn.commit()
+                except Exception: pass
+
+                try:
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ledger_bot ON v2_trade_ledger(user_id, bot_id)")
+                    conn.commit()
+                except Exception: pass
 
             # ── Schema Versioning ──
             self._execute(cursor, '''
@@ -1247,7 +1270,7 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            self._execute(cursor, "SELECT MAX(trade_time) FROM v2_trades WHERE user_id = %s", (user_id,))
+            self._execute(cursor, "SELECT MAX(timestamp) FROM v2_trade_ledger WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
             if result and result[0]:
                 if hasattr(result[0], 'isoformat'):
@@ -1355,9 +1378,11 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            query = "SELECT COUNT(*) FROM v2_trades WHERE user_id = %s"
+            # Count from v2_trade_ledger — the table trades are actually written to
+            # (v2_save_trade). The legacy v2_trades table is never populated.
+            query = "SELECT COUNT(*) FROM v2_trade_ledger WHERE user_id = %s"
             params = [user_id]
-            
+
             if session_id:
                 query += " AND session_id = %s"
                 params.append(session_id)
@@ -1365,10 +1390,10 @@ class DatabaseManager:
                 query += " AND strategy = %s"
                 params.append(strategy)
             if start_date:
-                query += " AND trade_time >= %s"
+                query += " AND timestamp >= %s"
                 params.append(start_date)
             if end_date:
-                query += " AND trade_time <= %s"
+                query += " AND timestamp <= %s"
                 params.append(end_date)
             
             self._execute(cursor, query, tuple(params))
@@ -1376,6 +1401,38 @@ class DatabaseManager:
             return row[0] if row else 0
         finally:
             self._safe_close(conn, cursor)
+
+    def v2_get_bot_ledger_stats(self, user_id: int) -> Dict[str, Dict]:
+        """Per-bot trade counts and realized P&L from the ledger, keyed by bot_id.
+
+        Survives engine restarts (in-memory bot stats reset; the ledger doesn't),
+        so bot cards can reconcile with the persisted trade history.
+        Returns {} gracefully if the bot_id column hasn't been migrated in yet.
+        """
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor()
+            self._execute(cursor, """
+                SELECT bot_id, COUNT(*), COALESCE(SUM(pnl), 0)
+                FROM v2_trade_ledger
+                WHERE user_id = %s AND bot_id IS NOT NULL
+                GROUP BY bot_id
+            """, (user_id,))
+            stats = {}
+            for row in cursor.fetchall():
+                stats[row[0]] = {
+                    'trades': int(row[1] or 0),
+                    'realized_pnl': float(row[2] or 0),
+                }
+            return stats
+        except Exception as e:
+            # bot_id column may not exist on older schemas — degrade to in-memory stats
+            logger.debug(f"[V2-LEDGER] bot stats unavailable: {e}")
+            return {}
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
 
     def v2_save_trade(self, trade_data: Dict):
         """
@@ -1394,16 +1451,18 @@ class DatabaseManager:
                 trade_id = f"{trade_data.get('symbol', 'UNKNOWN')}_{timestamp_str}_{trade_data.get('action', 'TRADE')}_{short_uuid}"
                 trade_data['trade_id'] = trade_id
 
+            ts = trade_data.get('timestamp') or datetime.now(timezone.utc)
             query = """
                 INSERT IGNORE INTO v2_trade_ledger (
-                    trade_id, session_id, user_id, symbol, side, action, 
+                    trade_id, session_id, user_id, bot_id, symbol, side, action,
                     quantity, price, pnl, commission, strategy, timestamp
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             params = (
                 trade_data.get('trade_id'),
                 trade_data.get('session_id'),
                 trade_data.get('user_id'),
+                trade_data.get('bot_id'),
                 trade_data.get('symbol'),
                 trade_data.get('side'),
                 trade_data.get('action'),
@@ -1412,10 +1471,38 @@ class DatabaseManager:
                 trade_data.get('pnl', 0.0),
                 trade_data.get('commission', 0.0),
                 trade_data.get('strategy'),
-                trade_data.get('timestamp') or datetime.now(timezone.utc)
+                ts
             )
-            self._execute(cursor, query, params)
-            conn.commit()
+            try:
+                self._execute(cursor, query, params)
+                conn.commit()
+            except Exception as col_err:
+                # Defensive fallback: if the bot_id column isn't present yet (migration
+                # not applied), never lose the trade — persist without bot attribution.
+                logger.warning(f"⚠️ [V2-LEDGER] bot_id insert failed ({col_err}); retrying without bot_id")
+                conn.rollback()
+                legacy_query = """
+                    INSERT IGNORE INTO v2_trade_ledger (
+                        trade_id, session_id, user_id, symbol, side, action,
+                        quantity, price, pnl, commission, strategy, timestamp
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                legacy_params = (
+                    trade_data.get('trade_id'),
+                    trade_data.get('session_id'),
+                    trade_data.get('user_id'),
+                    trade_data.get('symbol'),
+                    trade_data.get('side'),
+                    trade_data.get('action'),
+                    trade_data.get('quantity'),
+                    trade_data.get('price'),
+                    trade_data.get('pnl', 0.0),
+                    trade_data.get('commission', 0.0),
+                    trade_data.get('strategy'),
+                    ts
+                )
+                self._execute(cursor, legacy_query, legacy_params)
+                conn.commit()
             logger.debug(f"📜 [V2-LEDGER] Trade saved: {trade_data['trade_id']}")
         finally:
             self._safe_close(conn, cursor)
@@ -1609,7 +1696,8 @@ class DatabaseManager:
 
     def clear_user_trades(self, user_id: int):
         """Delete all V1 trades for a user (used by paper trading reset)."""
-        conn, cursor = self._connect()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         try:
             self._execute(cursor, "DELETE FROM trades WHERE user_id = %s", (user_id,))
             conn.commit()
@@ -1618,22 +1706,31 @@ class DatabaseManager:
             self._safe_close(conn, cursor)
 
     def v2_clear_user_trades(self, user_id: int):
-        """Delete all V2 trades, metrics, and positions for a user (used by V2 paper trading reset)."""
-        conn, cursor = self._connect()
+        """Delete all V2 trades, metrics, and positions for a user (used by V2 paper trading reset).
+
+        The trade-ledger delete is committed on its own FIRST, so a later failure
+        clearing metrics/positions can never leave the ledger (and thus the trade
+        counter / History tab) populated after a reset.
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
         try:
-            self._execute(cursor, "DELETE FROM v2_trades WHERE user_id = %s", (user_id,))
-            # Also clear V2 strategy metrics
+            self._execute(cursor, "DELETE FROM v2_trade_ledger WHERE user_id = %s", (user_id,))
+            deleted = getattr(cursor, 'rowcount', -1)
+            conn.commit()
+            logger.info(f"🗑️ Cleared {deleted} V2 ledger trades for user {user_id}")
+
+            # Best-effort clear of derived state (must not resurrect ledger rows)
             try:
                 self._execute(cursor, "DELETE FROM v2_strategy_metrics WHERE user_id = %s", (user_id,))
+                conn.commit()
             except Exception:
                 pass  # Table may not exist yet
-            # Clear V2 positions
             try:
                 self._execute(cursor, "DELETE FROM v2_positions WHERE user_id = %s", (user_id,))
+                conn.commit()
             except Exception:
                 pass
-            conn.commit()
-            logger.info(f"🗑️ Cleared V2 trades + metrics + positions for user {user_id}")
         finally:
             self._safe_close(conn, cursor)
 

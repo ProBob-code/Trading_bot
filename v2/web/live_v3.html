@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoatBot Trade — Live Console</title>
+    <meta name="description" content="Live execution console: engine health, live prices, active bots and real-time fill feed.">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/satellite_v3.css">
+</head>
+<body>
+
+    <!-- HERO -->
+    <div class="hero-section">
+        <span class="badge warn">Paper Engine — Simulated Fills</span>
+        <h1 class="hero-title">Live Execution Console</h1>
+        <p class="hero-desc">Real-time engine telemetry, market prices, bot control and the live fill feed. Orders route to the V2 paper engine — a direct broker bridge is on the roadmap.</p>
+    </div>
+
+    <!-- MAIN BODY -->
+    <div class="main-container">
+
+        <!-- Engine health -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-heart-pulse"></i> Engine Telemetry
+                <span class="right" id="healthUpdated">—</span></h3>
+            <div class="stat-grid">
+                <div class="stat-tile">
+                    <div class="stat-label">Engine</div>
+                    <div class="stat-value" id="tEngine" style="font-size:15px;">—</div>
+                    <div class="stat-sub" id="tVersion">—</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Active Bots</div>
+                    <div class="stat-value" id="tBots">—</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">DB Latency</div>
+                    <div class="stat-value" id="tDbLat">—</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">API Round-Trip</div>
+                    <div class="stat-value" id="tApiLat">—</div>
+                    <div class="stat-sub">measured from this browser</div>
+                </div>
+            </div>
+            <div class="stat-sub" style="margin-top:12px;">Session: <span id="tSession" class="mono">—</span></div>
+        </div>
+
+        <!-- Live prices -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-bolt"></i> Live Market Tape
+                <span class="right">Binance · 5s poll</span></h3>
+            <div style="overflow-x:auto;">
+                <table class="data-table" id="tapeTable">
+                    <thead><tr><th>Symbol</th><th>Last</th><th>24h</th><th>24h Range</th></tr></thead>
+                    <tbody id="tapeBody">
+                        <tr><td colspan="4"><div class="empty-state">Connecting to tape…</div></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Active bots -->
+        <div class="glass-card span-2">
+            <h3 class="card-title"><i class="fa-solid fa-robot"></i> Active Trading Bots
+                <span class="right"><button class="btn-mini" id="btnStopAll">STOP ALL</button></span></h3>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead><tr><th>Bot</th><th>Symbol</th><th>Strategy</th><th>Leverage</th><th>Status</th><th>Trades</th><th>P&amp;L</th><th></th></tr></thead>
+                    <tbody id="botsBody">
+                        <tr><td colspan="8"><div class="empty-state">Loading bots…</div></td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="stat-sub" style="margin-top:10px;">Deploy new bots from the
+                <a href="/godbot_home" style="color:var(--accent);">Command Deck</a> — including the new
+                Quant Alpha Ensemble, Statistical Mean Reversion and Persistence Momentum strategies.</div>
+        </div>
+
+        <!-- Fill feed -->
+        <div class="glass-card span-2">
+            <h3 class="card-title"><i class="fa-solid fa-terminal"></i> Execution Feed
+                <span class="right">last 15 fills · 5s poll</span></h3>
+            <div class="connection-log" id="fillFeed">
+                <div class="log-entry info">Waiting for fills…</div>
+            </div>
+        </div>
+
+        <!-- Broker bridge (honest) -->
+        <div class="glass-card span-2">
+            <h3 class="card-title"><i class="fa-solid fa-key"></i> Broker Bridge</h3>
+            <div class="notice">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <strong>Not connected.</strong> Direct exchange execution (Binance / Coinbase / IBKR keys) is not
+                wired into the backend yet — every order is filled by the V2 paper engine with realistic
+                stochastic slippage. This panel intentionally does not accept API keys until server-side
+                encrypted storage ships, so credentials are never collected under false pretenses.
+            </div>
+        </div>
+    </div>
+
+    <script src="/satellite_v3.js"></script>
+    <script>
+    const TAPE_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
+
+    async function loadHealth() {
+        const t0 = performance.now();
+        const [health] = await Promise.all([V3.get('/api/v2/health')]);
+        const rtt = Math.round(performance.now() - t0);
+        if (health) {
+            const running = health.engine_status === 'running';
+            document.getElementById('tEngine').innerHTML =
+                `<span class="dot ${running ? 'on' : 'off'}"></span> ${V3.esc((health.engine_status || 'unknown').toUpperCase())}`;
+            document.getElementById('tVersion').textContent = health.engine_version || '';
+            document.getElementById('tBots').textContent = health.active_bots ?? '—';
+            document.getElementById('tDbLat').textContent =
+                (parseFloat(health.db_latency_ms) || 0).toFixed(1) + 'ms';
+            document.getElementById('tSession').textContent = health.current_session || 'none';
+        }
+        document.getElementById('tApiLat').textContent = rtt + 'ms';
+        document.getElementById('healthUpdated').textContent = 'updated ' + new Date().toLocaleTimeString();
+    }
+
+    async function loadTape() {
+        const results = await Promise.all(
+            TAPE_SYMBOLS.map(s => V3.get(`/api/v2/price/${s}`)));
+        const rows = results.map((d, i) => {
+            const sym = TAPE_SYMBOLS[i];
+            if (!d || !d.success) {
+                return `<tr><td class="sym">${sym}</td><td colspan="3" class="mono">—</td></tr>`;
+            }
+            const ch = parseFloat(d.change_pct) || 0;
+            return `<tr>
+                <td class="sym">${sym}</td>
+                <td class="mono">${V3.fmtUsd(d.price, d.price > 100 ? 2 : 4)}</td>
+                <td class="mono ${V3.pnlClass(ch)}">${V3.fmtPct(ch)}</td>
+                <td class="mono" style="opacity:.7">${V3.fmtUsd(d.low_24h, 0)} – ${V3.fmtUsd(d.high_24h, 0)}</td>
+            </tr>`;
+        }).join('');
+        document.getElementById('tapeBody').innerHTML = rows;
+    }
+
+    async function loadBots() {
+        const data = await V3.get('/api/v2/bots');
+        const body = document.getElementById('botsBody');
+        const bots = data && data.success ? (data.bots || []) : null;
+        if (bots === null) {
+            body.innerHTML = '<tr><td colspan="8"><div class="empty-state">Could not load bots</div></td></tr>';
+            return;
+        }
+        if (!bots.length) {
+            body.innerHTML = '<tr><td colspan="8"><div class="empty-state">No bots deployed. Launch one from the Command Deck.</div></td></tr>';
+            return;
+        }
+        body.innerHTML = bots.map(b => {
+            const running = (b.status || '').toLowerCase() === 'running' || b.is_running;
+            const pnl = parseFloat(b.total_pnl ?? b.pnl) || 0;
+            return `<tr>
+                <td class="mono">${V3.esc(String(b.bot_id || b.id || '—').slice(0, 12))}</td>
+                <td class="sym">${V3.esc(b.symbol || '—')}</td>
+                <td>${V3.esc(b.strategy || '—')}</td>
+                <td class="mono">${V3.fmtNum(b.leverage, 1)}×</td>
+                <td><span class="side-badge ${running ? 'long' : 'flat'}">${running ? 'RUNNING' : V3.esc((b.status || 'stopped').toUpperCase())}</span></td>
+                <td class="mono">${b.total_trades ?? b.trades ?? 0}</td>
+                <td class="mono ${V3.pnlClass(pnl)}">${(pnl >= 0 ? '+' : '') + V3.fmtUsd(pnl)}</td>
+                <td>${running ? `<button class="btn-mini" onclick="stopBot('${V3.esc(b.bot_id || b.id)}')">STOP</button>` : ''}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    async function stopBot(botId) {
+        if (!confirm(`Stop bot ${botId}?`)) return;
+        const res = await V3.post('/api/v2/stop-bot', { bot_id: botId });
+        V3.toast(res.success ? `Bot ${botId} stopped` : `Failed: ${res.error || 'unknown'}`, !!res.success);
+        loadBots();
+    }
+
+    async function loadFills() {
+        const data = await V3.get('/api/v2/trades?limit=15');
+        const feed = document.getElementById('fillFeed');
+        const trades = data && data.success ? (data.trades || []) : [];
+        if (!trades.length) {
+            feed.innerHTML = '<div class="log-entry info">No fills yet — the feed updates the moment a bot executes.</div>';
+            return;
+        }
+        feed.innerHTML = trades.map(t => {
+            const pnl = parseFloat(t.pnl) || 0;
+            const cls = pnl > 0 ? 'success' : (pnl < 0 ? 'error' : 'info');
+            const ts = t.timestamp ? new Date(t.timestamp).toLocaleTimeString() : '—';
+            return `<div class="log-entry ${cls}">[${ts}] ${V3.esc(t.action || 'TRADE')} ${V3.esc(t.side || '')} ` +
+                `${V3.fmtNum(t.quantity, 6)} ${V3.esc(t.symbol || '')} @ ${V3.fmtUsd(t.price)} ` +
+                `· ${V3.esc(t.strategy || 'manual')} · PnL ${(pnl >= 0 ? '+' : '') + V3.fmtUsd(pnl)}</div>`;
+        }).join('');
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        const user = await V3.authGate();
+        if (user === null) return;
+        V3.navbar('live');
+
+        document.getElementById('btnStopAll').addEventListener('click', async () => {
+            if (!confirm('Stop ALL running bots?')) return;
+            const res = await V3.post('/api/v2/stop-all');
+            V3.toast(res.success ? (res.message || 'All bots stopped') : `Failed: ${res.error || 'unknown'}`, !!res.success);
+            loadBots();
+        });
+
+        loadHealth(); loadTape(); loadBots(); loadFills();
+        setInterval(loadHealth, 10000);
+        setInterval(loadTape, 5000);
+        setInterval(loadBots, 10000);
+        setInterval(loadFills, 5000);
+    });
+    </script>
+</body>
+</html>

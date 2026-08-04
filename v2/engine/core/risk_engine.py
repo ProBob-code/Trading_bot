@@ -14,26 +14,31 @@ class RiskEngineV2:
         self.db = db_manager
         
     def pre_trade_gate(
-        self, 
-        user_id: int, 
-        symbol: str, 
-        side: str, 
-        signal_score: float, 
-        expected_move_pct: float, 
-        volatility_filter_result: Dict
+        self,
+        user_id: int,
+        symbol: str,
+        side: str,
+        signal_score: float,
+        expected_move_pct: float,
+        volatility_filter_result: Dict,
+        score_floor: float = 0.5,
+        estimated_cost_pct: float = 0.0004,
     ) -> Tuple[bool, str]:
         """
         Final safety check before any order is sent to the portfolio engine.
-        
+
         Rules:
-        1. Signal Quality (Score > 0.6)
+        1. Signal Quality (Score ≥ score_floor — per-bot Signal Sensitivity)
         2. Volatility Gate (Authorized by Regime/Volatility filter)
-        3. Cost-Aware Edge Filter (Expected Move > Trading Costs)
+        3. Cost-Aware Edge Filter (Expected Move > estimated_cost_pct)
+
+        score_floor / estimated_cost_pct are supplied by the pipeline from the
+        bot's sensitivity preset (default = conservative behaviour).
         """
         # 1. Signal Quality
-        if signal_score < 0.5:
-            print(f"[RISK] ❌ Rejected: score {signal_score:.2f} < 0.5")
-            return False, f"Signal score {signal_score:.2f} below threshold (0.5)"
+        if signal_score < score_floor:
+            print(f"[RISK] ❌ Rejected: score {signal_score:.2f} < {score_floor}")
+            return False, f"Signal score {signal_score:.2f} below threshold ({score_floor})"
             
         # 2. Volatility Gate
         if not volatility_filter_result.get('allowed', True):
@@ -41,8 +46,9 @@ class RiskEngineV2:
             return False, f"Volatility filter rejection: {volatility_filter_result.get('reason', 'N/A')}"
             
         # 3. Cost-Aware Edge Filter
-        # Fixed estimated costs for now (Spread: 0.02%, Comm: 0.04%, Slip: 0.04%)
-        estimated_cost_pct = 0.001  # 0.1% total round-trip
+        # Modelled round-trip cost for paper fills (spread + commission + slippage).
+        # Kept in sync with v3_quant_strategies.ROUND_TRIP_COST_PCT (0.04%) so the
+        # portfolio-level gate never rejects a signal the strategy already cleared.
         print(f"[RISK] expected_move_pct: {expected_move_pct*100:.4f}%")
         print(f"[RISK] estimated_cost_pct: {estimated_cost_pct*100:.4f}%")
         

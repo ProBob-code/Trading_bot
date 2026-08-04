@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoatBot Trade — Portfolio</title>
+    <meta name="description" content="Live portfolio: equity, open positions, capital allocation and per-strategy performance.">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/satellite_v3.css">
+</head>
+<body>
+
+    <!-- HERO -->
+    <div class="hero-section">
+        <span class="badge">Live Portfolio State</span>
+        <h1 class="hero-title">Portfolio Allocation Matrix</h1>
+        <p class="hero-desc">Real-time equity, open exposure and capital weighting — sourced directly from the paper ledger and the V2 allocation engine.</p>
+    </div>
+
+    <!-- MAIN BODY -->
+    <div class="main-container">
+
+        <!-- Equity summary -->
+        <div class="glass-card span-2">
+            <h3 class="card-title"><i class="fa-solid fa-wallet"></i> Account Equity
+                <span class="right" id="equityUpdated">—</span></h3>
+            <div class="stat-grid">
+                <div class="stat-tile">
+                    <div class="stat-label">Total Equity</div>
+                    <div class="stat-value" id="statEquity">—</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Available Margin</div>
+                    <div class="stat-value" id="statMargin">—</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Total P&amp;L</div>
+                    <div class="stat-value" id="statPnl">—</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Open Positions</div>
+                    <div class="stat-value" id="statOpenPos">—</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Total Trades</div>
+                    <div class="stat-value" id="statTrades">—</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Open positions -->
+        <div class="glass-card span-2">
+            <h3 class="card-title"><i class="fa-solid fa-layer-group"></i> Open Positions
+                <span class="right">auto-refresh 5s</span></h3>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th>
+                            <th>Mark</th><th>Lev</th><th>Margin</th><th>Unrealized P&amp;L</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positionsBody">
+                        <tr><td colspan="8"><div class="empty-state">Loading positions…</div></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Capital allocation -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-chart-pie"></i> Strategy Capital Allocation</h3>
+            <div id="allocBox">
+                <div class="empty-state">Loading allocation…</div>
+            </div>
+        </div>
+
+        <!-- Realized PnL by strategy -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-ranking-star"></i> Realized P&amp;L by Strategy
+                <span class="right">last 200 fills</span></h3>
+            <div id="stratPnlBox">
+                <div class="empty-state">Loading trade history…</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/satellite_v3.js"></script>
+    <script>
+    async function loadAccount() {
+        const [acc, posData] = await Promise.all([
+            V3.get('/api/v2/account'),
+            V3.get('/api/v2/positions'),
+        ]);
+        if (acc && acc.success) {
+            const pnl = parseFloat(acc.pnl) || 0;
+            document.getElementById('statEquity').textContent = V3.fmtUsd(acc.total_value);
+            document.getElementById('statMargin').textContent = V3.fmtUsd(acc.buying_power);
+            const pnlEl = document.getElementById('statPnl');
+            pnlEl.textContent = (pnl >= 0 ? '+' : '') + V3.fmtUsd(pnl);
+            pnlEl.className = 'stat-value ' + V3.pnlClass(pnl);
+            document.getElementById('statTrades').textContent = acc.total_trades ?? '—';
+            document.getElementById('equityUpdated').textContent =
+                'updated ' + new Date().toLocaleTimeString();
+        }
+        renderPositions(posData && posData.success ? (posData.positions || []) : null);
+    }
+
+    function renderPositions(positions) {
+        const body = document.getElementById('positionsBody');
+        if (positions === null) {
+            body.innerHTML = '<tr><td colspan="8"><div class="empty-state">Could not load positions</div></td></tr>';
+            return;
+        }
+        document.getElementById('statOpenPos').textContent = positions.length;
+        if (!positions.length) {
+            body.innerHTML = '<tr><td colspan="8"><div class="empty-state">No open positions — the engine is flat.</div></td></tr>';
+            return;
+        }
+        body.innerHTML = positions.map(p => {
+            const upnl = parseFloat(p.unrealized_pnl) || 0;
+            const upnlPct = parseFloat(p.unrealized_pnl_pct) || 0;
+            const side = String(p.side || '').toUpperCase();
+            return `<tr>
+                <td class="sym">${V3.esc(p.symbol)}</td>
+                <td><span class="side-badge ${side === 'LONG' ? 'long' : 'short'}">${V3.esc(side)}</span></td>
+                <td class="mono">${V3.fmtNum(p.quantity, 6)}</td>
+                <td class="mono">${V3.fmtUsd(p.entry_price)}</td>
+                <td class="mono">${V3.fmtUsd(p.current_price)}</td>
+                <td class="mono">${V3.fmtNum(p.leverage, 1)}×</td>
+                <td class="mono">${V3.fmtUsd(p.margin_used)}</td>
+                <td class="mono ${V3.pnlClass(upnl)}">${(upnl >= 0 ? '+' : '') + V3.fmtUsd(upnl)}
+                    <span style="opacity:.75">(${V3.fmtPct(upnlPct)})</span></td>
+            </tr>`;
+        }).join('');
+    }
+
+    async function loadAllocation() {
+        const data = await V3.get('/api/v2/portfolio/allocation');
+        const box = document.getElementById('allocBox');
+        if (!data || !data.success || !data.allocations || !Object.keys(data.allocations).length) {
+            box.innerHTML = '<div class="empty-state">No allocation data yet — deploy a bot from the Command Deck and the allocator will start weighting strategies by performance.</div>';
+            return;
+        }
+        const total = parseFloat(data.total_capital) || 1;
+        const rows = Object.entries(data.allocations).map(([strat, a]) => {
+            const cap = parseFloat(a.allocated_capital) || 0;
+            const pct = Math.max(0, Math.min(100, (cap / total) * 100));
+            const active = a.status === 'ACTIVE';
+            return `<div class="allocation-section">
+                <div class="alloc-info">
+                    <span class="alloc-name">
+                        <span class="dot ${active ? 'on' : 'off'}"></span>${V3.esc(strat)}
+                    </span>
+                    <span class="alloc-pct">${pct.toFixed(1)}% · ${V3.fmtUsd(cap, 0)}</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" style="width:${pct}%"></div>
+                </div>
+            </div>`;
+        }).join('');
+        box.innerHTML = rows + `<div class="stat-sub" style="text-align:right">
+            Active strategies: ${data.active_strategies ?? 0} ·
+            Allocated: ${V3.fmtUsd(data.allocated_capital, 0)} / ${V3.fmtUsd(total, 0)}</div>`;
+    }
+
+    async function loadStrategyPnl() {
+        const data = await V3.get('/api/v2/trades?limit=200');
+        const box = document.getElementById('stratPnlBox');
+        const trades = data && data.success ? (data.trades || []) : null;
+        if (trades === null) {
+            box.innerHTML = '<div class="empty-state">Could not load trade history</div>';
+            return;
+        }
+        if (!trades.length) {
+            box.innerHTML = '<div class="empty-state">No fills yet — realized P&amp;L will appear per strategy once trades close.</div>';
+            return;
+        }
+        const byStrat = {};
+        trades.forEach(t => {
+            const s = t.strategy || 'manual';
+            byStrat[s] = byStrat[s] || { pnl: 0, n: 0 };
+            byStrat[s].pnl += parseFloat(t.pnl) || 0;
+            byStrat[s].n += 1;
+        });
+        const maxAbs = Math.max(...Object.values(byStrat).map(v => Math.abs(v.pnl)), 1);
+        box.innerHTML = Object.entries(byStrat)
+            .sort((a, b) => b[1].pnl - a[1].pnl)
+            .map(([strat, v]) => {
+                const w = Math.max(3, Math.abs(v.pnl) / maxAbs * 100);
+                const neg = v.pnl < 0;
+                return `<div class="allocation-section">
+                    <div class="alloc-info">
+                        <span class="alloc-name">${V3.esc(strat)}
+                            <span style="color:var(--text-muted);font-weight:400">· ${v.n} fills</span></span>
+                        <span class="alloc-pct ${neg ? 'neg' : ''}">${(v.pnl >= 0 ? '+' : '') + V3.fmtUsd(v.pnl)}</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill ${neg ? 'neg' : ''}" style="width:${w}%"></div>
+                    </div>
+                </div>`;
+            }).join('');
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        const user = await V3.authGate();
+        if (user === null) return;
+        V3.navbar('portfolio');
+        loadAccount();
+        loadAllocation();
+        loadStrategyPnl();
+        setInterval(loadAccount, 5000);
+        setInterval(() => { loadAllocation(); loadStrategyPnl(); }, 30000);
+    });
+    </script>
+</body>
+</html>

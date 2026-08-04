@@ -29,7 +29,7 @@ from shared.database.db_manager import db_manager
 from v2.engine.core.risk_engine import RiskEngineV2
 from v2.engine.core.portfolio_engine import PortfolioEngineV2
 from v2.engine.core.pipeline import TradingPipelineV2
-from shared.logic.strategies.v2_strategies import REGISTRY, atr as compute_atr, compute_smart_entry, compute_atr_position_size
+from shared.logic.strategies.v3_quant_strategies import REGISTRY, atr as compute_atr, compute_smart_entry, compute_atr_position_size
 
 # TTL Cache for sessions
 _SESSIONS_CACHE = {'data': None, 'timestamp': 0}
@@ -299,31 +299,41 @@ def v2_bot_execution_loop(bot_id):
                 time.sleep(10)
                 continue
 
-            # ── New Candle Gate ──
+            current_price = price_data.get('price', 0)
+            if current_price <= 0:
+                time.sleep(5)
+                continue
+
+            # Update V2 paper trader prices EVERY iteration (for live unrealized
+            # P&L, liquidation checks, and responsive TP/SL monitoring).
+            user_id = config.user_id
+            v2_paper_trader.set_prices({symbol: current_price})
+
+            atr_series = compute_atr(df, period=14)
+            atr_value = float(atr_series.iloc[-1]) if not atr_series.empty else 0.0
+
+            # ── TP / SL Enforcement (every ~5s, independent of the candle gate) ──
+            # Positions must be protected continuously, not only once per candle.
+            if v2_pipeline.check_exit_conditions(bot_id, bot, current_price, atr_value):
+                time.sleep(5)
+                continue
+
+            # ── New Candle Gate (signal generation runs once per candle) ──
             current_candle_time = df.index[-1]
             last_time = last_candle_times.get(symbol)
             if last_time is not None and current_candle_time <= last_time:
                 # Same or old candle, wait for next check
                 time.sleep(5)
                 continue
-                
+
             last_candle_times[symbol] = current_candle_time
 
-            current_price = price_data.get('price', 0)
-            if current_price <= 0:
-                time.sleep(5)
-                continue
-
-            # Update V2 paper trader prices (for unrealized P&L and liquidation checks)
-            user_id = config.user_id
-            v2_paper_trader.set_prices({symbol: current_price})
-
             # ── Signal Generation ──
-            atr_series = compute_atr(df, period=14)
-            atr_value = float(atr_series.iloc[-1]) if not atr_series.empty else 0.0
-            
+
             logger.debug(f"🔍 [V2-BOT-{bot_id}] Analyzing {symbol} with {strategy_name}")
-            signal = strategy_engine.analyze(df, strategy=strategy_name)
+            signal = strategy_engine.analyze(
+                df, strategy=strategy_name,
+                sensitivity=getattr(config, 'sensitivity', 'conservative'))
 
             bot.stats.last_price = current_price
             bot.stats.last_signal = signal.signal
@@ -507,6 +517,7 @@ def v2_start_bot():
             max_quantity=float(data.get('max_quantity', 1.0)),
             leverage=float(data.get('leverage', 1.0)),
             risk_pct=float(data.get('risk_pct', 2.0)),
+            sensitivity=str(data.get('sensitivity', 'conservative')).lower(),
         )
 
         # Start the execution thread if bot was registered successfully
@@ -554,6 +565,20 @@ def v2_stop_bot():
 def v2_list_bots():
     """List all V2 bots for the current user."""
     bots = bot_manager_v2.get_all_bots(user_id=current_user.id)
+
+    # Enrich with persisted per-bot stats from the ledger so trade counts / realized
+    # P&L survive engine restarts (in-memory bot.stats reset on restart).
+    ledger_stats = db_manager.v2_get_bot_ledger_stats(current_user.id)
+    for b in bots:
+        ls = ledger_stats.get(b.get('bot_id'))
+        if ls:
+            stats = b.setdefault('stats', {})
+            # Ledger is authoritative for realized figures; keep the higher of the two
+            # so a fresh in-memory count during the current run is never undercounted.
+            stats['total_trades'] = max(int(stats.get('total_trades') or 0), ls['trades'])
+            stats['realized_pnl'] = ls['realized_pnl']
+            stats['total_pnl'] = ls['realized_pnl'] + float(stats.get('unrealized_pnl') or 0)
+
     return jsonify({'success': True, 'bots': bots})
 
 
@@ -763,7 +788,7 @@ def v2_strategy_benchmark():
 
 def _compute_live_metrics(user_id, strategy_filter=None, session_id=None):
     """
-    Compute strategy metrics live from the v2_trades table.
+    Compute strategy metrics live from the v2_trade_ledger table.
     Used as fallback when v2_strategy_metrics is empty/zero.
     Delegates to StrategyAnalytics.compute_metrics() for accurate institutional metrics.
     """

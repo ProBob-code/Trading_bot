@@ -1,0 +1,58 @@
+# Local always-on deployment (this machine replaces Railway for testing)
+# NEW FILE — the original docker-compose.yml is untouched.
+#
+# Usage:   docker compose -f docker-compose.local.yml up -d --build
+# Team:    http://192.168.1.8:5050  (LAN — machine must stay on)
+#
+# Notes:
+#  - Host already runs a native MySQL on 3306, so the container DB is
+#    exposed on host port 3307 (inside the Docker network it is still 3306).
+#  - MYSQL* env vars are set explicitly because they take priority over the
+#    .env file baked into the image (load_dotenv never overrides real env),
+#    otherwise the container would try to reach MYSQLHOST=localhost.
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: godbot-db
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_DATABASE=trading_bot
+      - MYSQL_ROOT_PASSWORD=probobindb
+      - MYSQL_USER=probobindb
+      - MYSQL_PASSWORD=probobindb
+    volumes:
+      - godbot_mysql_data:/var/lib/mysql
+      - ./mysql-local.cnf:/etc/mysql/conf.d/local.cnf:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pprobobindb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  godbot:
+    build: .
+    image: godbot-backend:v3
+    container_name: godbot-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "5050:5050"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=5050
+      - MYSQLHOST=mysql
+      - MYSQLPORT=3306
+      - MYSQLUSER=probobindb
+      - MYSQLPASSWORD=probobindb
+      - MYSQLDATABASE=trading_bot
+    volumes:
+      - godbot_data:/app/data
+
+volumes:
+  godbot_mysql_data:
+  godbot_data:

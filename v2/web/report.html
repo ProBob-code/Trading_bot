@@ -53,13 +53,20 @@
             backdrop-filter: blur(24px);
             -webkit-backdrop-filter: blur(24px);
             border-bottom: 1px solid var(--glass-border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        /* Inner wrapper keeps bar content aligned with the 1600px body column
+           while the bar background/border stay full-bleed. */
+        .header-inner {
+            max-width: 1600px;
+            margin: 0 auto;
             padding: 20px 40px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 100;
         }
 
         .header-left {
@@ -140,15 +147,20 @@
 
         /* ═══ CONTROLS PANEL ═══ */
         .report-controls {
+            background: rgba(10, 15, 24, 0.4);
+            border-bottom: 1px solid var(--glass-border);
+            backdrop-filter: blur(10px);
+        }
+
+        .controls-inner {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px 40px;
             display: flex;
             flex-wrap: wrap;
             gap: 16px;
             justify-content: space-between;
             align-items: center;
-            padding: 20px 40px;
-            background: rgba(10, 15, 24, 0.4);
-            border-bottom: 1px solid var(--glass-border);
-            backdrop-filter: blur(10px);
         }
 
         .control-group {
@@ -469,6 +481,7 @@
 
     <!-- NAVBAR -->
     <header class="report-header">
+      <div class="header-inner">
         <div class="header-left">
             <a href="/godbot_home" class="brand">
                 <img src="/logo.svg" alt="GoatBot" class="brand-logo">
@@ -480,10 +493,12 @@
         <a href="/godbot_home" class="back-btn">
             <i class="fa-solid fa-arrow-left"></i> Return to Command Deck
         </a>
+      </div>
     </header>
 
     <!-- CONTROLS -->
     <div class="report-controls">
+      <div class="controls-inner">
         <div class="control-group">
             <select id="strategyFilter" onchange="loadAllReportData()">
                 <option value="">All Strategies</option>
@@ -516,6 +531,7 @@
         <button class="refresh-btn" onclick="loadAllReportData()">
             <i class="fa-solid fa-arrows-rotate"></i> Refresh Matrix
         </button>
+      </div>
     </div>
 
     <!-- BODY -->
@@ -806,7 +822,7 @@
                         <div class="msg">No strategy data yet. Start trading to see performance metrics.</div>
                     </div>`;
                     // Set summary cards for empty state
-                    document.getElementById('cardTrades').textContent = '0';
+                    // (cardTrades is owned by loadTradeHistory = real ledger total)
                     document.getElementById('cardWinRate').textContent = '—';
                     document.getElementById('cardBestStrategy').textContent = '—';
                     document.getElementById('cardDrawdown').textContent = '—';
@@ -844,8 +860,7 @@
                     }
                 });
 
-                // Update summary cards
-                document.getElementById('cardTrades').textContent = totalTrades;
+                // Update summary cards (cardTrades owned by loadTradeHistory = ledger total)
                 const winRate = totalTrades > 0 ? ((totalWins / totalTrades) * 100) : 0;
                 const wrEl = document.getElementById('cardWinRate');
                 wrEl.textContent = `${winRate.toFixed(1)}%`;
@@ -927,6 +942,10 @@
                 if (data.success) {
                     totalTrades = data.total;
                     document.getElementById('tradeTotalCount').textContent = `Stored Trades: ${totalTrades}`;
+                    // TOTAL TRADES card = full ledger count (incl. open entries), so it
+                    // reconciles with the top-bar counter. The strategy matrix separately
+                    // reports closed-trade metrics and must NOT override this.
+                    document.getElementById('cardTrades').textContent = totalTrades;
                     renderTradeLedger(data.trades);
                     updatePaginationUI();
                 }
@@ -1022,12 +1041,12 @@
                     <td><span style="color:${tradeType === 'CLOSE' ? '#f59e0b' : '#3b82f6'}; font-weight:700">${tradeType}</span></td>
                     <td>${direction}</td>
                     <td class="${sideClass}">${side}</td>
-                    <td>${(t.quantity || 0).toFixed(4)}</td>
+                    <td>${(parseFloat(t.quantity) || 0).toFixed(4)}</td>
                     <td>${t.entry_price ? fmt$(t.entry_price) : '—'}</td>
                     <td>${fmt$(t.fill_price)}</td>
                     <td>${fmtDuration(t.duration_seconds)}</td>
-                    <td>${(t.spread_pct || 0).toFixed(3)}%</td>
-                    <td>${(t.slippage_pct || 0).toFixed(3)}%</td>
+                    <td>${(parseFloat(t.spread_pct) || 0).toFixed(3)}%</td>
+                    <td>${(parseFloat(t.slippage_pct) || 0).toFixed(3)}%</td>
                     <td>${fmt$(t.commission)}</td>
                     <td>${(t.leverage || 1)}×</td>
                     <td class="${pnlClass(rpnl)}">${fmt$(rpnl)}</td>

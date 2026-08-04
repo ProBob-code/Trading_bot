@@ -76,7 +76,7 @@ from shared.providers.crypto_provider import BinanceCryptoProvider
 from shared.providers.stock_provider import YahooFinanceProvider
 from v1.engine.execution.brokers.paper_trader import PaperTrader
 from v1.engine.execution.order_manager import OrderManager, Order, OrderSide, OrderType
-from shared.logic.strategies.strategy_engine import StrategyEngine, get_strategy_engine
+from shared.logic.strategies.strategy_engine_v3 import StrategyEngineV3 as StrategyEngine, get_strategy_engine
 from v1.engine.core.bot_manager import get_bot_manager, BotManager, BotStats
 
 # Initialize Flask
@@ -362,18 +362,18 @@ def v2_report_page():
 
 @app.route('/v2/live')
 def v2_live_page():
-    """Serve the V2 institutional live trade console."""
-    return send_from_directory('v2/web', 'live.html')
+    """Serve the V3 live console (live.html kept as the static-mock rollback)."""
+    return send_from_directory('v2/web', 'live_v3.html')
 
 @app.route('/v2/portfolio')
 def v2_portfolio_page():
-    """Serve the V2 institutional portfolio asset manager."""
-    return send_from_directory('v2/web', 'portfolio.html')
+    """Serve the V3 live-data portfolio (portfolio.html kept as rollback)."""
+    return send_from_directory('v2/web', 'portfolio_v3.html')
 
 @app.route('/v2/profile')
 def v2_profile_page():
-    """Serve the V2 institutional risk/profile config."""
-    return send_from_directory('v2/web', 'profile.html')
+    """Serve the V3 profile & risk page (profile.html kept as rollback)."""
+    return send_from_directory('v2/web', 'profile_v3.html')
 
 
 
@@ -742,7 +742,7 @@ def run_backtest():
         take_profit = data.get('take_profit', 10.0)
 
         # Get historical data
-        klines = crypto_provider.get_klines(symbol, interval='1h', limit=days * 24)
+        klines = crypto_provider.get_historical_klines(symbol, interval='1h', limit=min(days * 24, 1000))
 
         if klines.empty:
             return jsonify({'success': False, 'error': 'No data available'})

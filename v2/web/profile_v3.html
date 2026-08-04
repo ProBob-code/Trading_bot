@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoatBot Trade — Profile &amp; Risk</title>
+    <meta name="description" content="Operator identity, risk preferences and master safety controls.">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/satellite_v3.css">
+</head>
+<body>
+
+    <!-- HERO -->
+    <div class="hero-section">
+        <span class="badge">Master Safety Controls</span>
+        <h1 class="hero-title">Risk &amp; Security Profile</h1>
+        <p class="hero-desc">Your operator identity, risk preferences, and the master switches that halt or reset the trading engine.</p>
+    </div>
+
+    <!-- MAIN BODY -->
+    <div class="main-container">
+
+        <!-- Identity -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-user-gear"></i> Operator Identity</h3>
+            <div class="form-group">
+                <label class="form-label">Operator Name</label>
+                <input type="text" id="pfName" class="form-input" value="Loading…" readonly>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" id="pfUsername" class="form-input" value="Loading…" readonly>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Public Trader ID</label>
+                <input type="text" id="pfPublicId" class="form-input" value="Loading…" readonly>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Registered Mobile</label>
+                <input type="text" id="pfMobile" class="form-input" value="Loading…" readonly>
+            </div>
+            <div class="notice" style="margin-bottom:0;">
+                <i class="fa-solid fa-circle-info"></i>
+                Profile editing and password change are not exposed by the backend yet — these fields are
+                read-only until those endpoints ship.
+            </div>
+        </div>
+
+        <!-- Risk preferences -->
+        <div class="glass-card">
+            <h3 class="card-title"><i class="fa-solid fa-shield-halved"></i> Risk Preferences</h3>
+            <div class="form-group">
+                <label class="form-label" style="display:flex; justify-content:space-between;">
+                    <span>Max Drawdown Alert Threshold</span>
+                    <span style="color:var(--bearish); font-family:var(--font-quant);" id="maxDdVal">—</span>
+                </label>
+                <input type="range" id="maxDdSlider" style="width:100%; accent-color:var(--bearish);"
+                       min="2" max="25" value="8">
+                <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); margin-top:6px;">
+                    <span>2% tight</span><span>25% loose</span>
+                </div>
+            </div>
+            <button class="btn-action btn-secondary" id="btnSaveRisk" style="margin-top:4px;">
+                <i class="fa-solid fa-floppy-disk"></i> Save Preference (this browser)
+            </button>
+            <div class="stat-sub" style="margin-top:10px;">
+                Stored locally in this browser and shown across GoatBot pages. Engine-side hard limits
+                (1% risk/trade, ATR stops, cost gate) always apply regardless of this setting.
+            </div>
+
+            <h3 class="card-title" style="margin-top:32px;"><i class="fa-solid fa-satellite"></i> Session</h3>
+            <div class="stat-grid">
+                <div class="stat-tile">
+                    <div class="stat-label">Auth Status</div>
+                    <div class="stat-value" style="font-size:14px;" id="sessAuth">—</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Engine Session</div>
+                    <div class="stat-value" style="font-size:14px;" id="sessEngine">—</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Danger zone -->
+        <div class="glass-card span-2">
+            <h3 class="card-title"><i class="fa-solid fa-triangle-exclamation" style="color:var(--bearish);"></i> Master Controls</h3>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:20px;">
+
+                <div class="panic-box">
+                    <div class="panic-title"><i class="fa-solid fa-hand"></i> Stop All Bots</div>
+                    <p class="panic-desc">Halts every running strategy bot immediately. Open positions remain and keep tracking the market.</p>
+                    <button class="btn-action btn-danger" id="btnStopAll">Stop All Bots</button>
+                </div>
+
+                <div class="panic-box">
+                    <div class="panic-title"><i class="fa-solid fa-radiation"></i> Panic Liquidation</div>
+                    <p class="panic-desc">Market-closes every open paper position at once and stops trading loops. Use when you want to be flat NOW.</p>
+                    <button class="btn-action btn-danger" id="btnPanic">Execute Panic Sell</button>
+                </div>
+
+                <div class="panic-box">
+                    <div class="panic-title"><i class="fa-solid fa-rotate-left"></i> Reset Paper Account</div>
+                    <p class="panic-desc">Wipes paper trade history, bot stats and P&amp;L, restoring the account to its initial capital. Irreversible.</p>
+                    <button class="btn-action btn-danger" id="btnReset">Reset Paper Account</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/satellite_v3.js"></script>
+    <script>
+    const DD_KEY = 'goatbot_max_dd_pct';
+
+    function initRiskSlider() {
+        const slider = document.getElementById('maxDdSlider');
+        const label = document.getElementById('maxDdVal');
+        const saved = parseInt(localStorage.getItem(DD_KEY) || '8', 10);
+        slider.value = saved;
+        label.textContent = saved + '%';
+        slider.addEventListener('input', () => { label.textContent = slider.value + '%'; });
+        document.getElementById('btnSaveRisk').addEventListener('click', () => {
+            localStorage.setItem(DD_KEY, slider.value);
+            V3.toast(`Max drawdown alert threshold saved: ${slider.value}%`);
+        });
+    }
+
+    async function loadSession() {
+        const [auth, health] = await Promise.all([
+            V3.get('/api/auth/status'),
+            V3.get('/api/v2/health'),
+        ]);
+        document.getElementById('sessAuth').innerHTML = auth && auth.authenticated
+            ? '<span class="dot on"></span> AUTHENTICATED' : '<span class="dot off"></span> EXPIRED';
+        document.getElementById('sessEngine').textContent =
+            (health && health.current_session) ? health.current_session : 'none';
+    }
+
+    function fillProfile(user) {
+        document.getElementById('pfName').value = user.name || '—';
+        document.getElementById('pfUsername').value = user.username || '—';
+        document.getElementById('pfPublicId').value = user.public_id || '—';
+        document.getElementById('pfMobile').value = user.mobile || '—';
+    }
+
+    function wireDangerZone() {
+        document.getElementById('btnStopAll').addEventListener('click', async () => {
+            if (!confirm('Stop ALL running bots? Open positions will remain open.')) return;
+            const res = await V3.post('/api/v2/stop-all');
+            V3.toast(res.success ? (res.message || 'All bots stopped') : `Failed: ${res.error || 'unknown'}`, !!res.success);
+        });
+
+        document.getElementById('btnPanic').addEventListener('click', async () => {
+            if (!confirm('PANIC SELL: market-close ALL open positions and stop trading. Proceed?')) return;
+            const res = await V3.post('/api/panic-sell');
+            V3.toast(res.success !== false ? 'Panic liquidation executed' : `Failed: ${res.error || 'unknown'}`, res.success !== false);
+        });
+
+        document.getElementById('btnReset').addEventListener('click', async () => {
+            if (!confirm('Reset the paper account? ALL trade history, bot stats and P&L will be wiped. This cannot be undone.')) return;
+            if (!confirm('Final confirmation — wipe everything and restore initial capital?')) return;
+            const res = await V3.post('/api/paper/reset');
+            V3.toast(res.success !== false ? 'Paper account reset to initial capital' : `Failed: ${res.error || 'unknown'}`, res.success !== false);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        const user = await V3.authGate();
+        if (user === null) return;
+        V3.navbar('profile');
+        fillProfile(user || {});
+        initRiskSlider();
+        wireDangerZone();
+        loadSession();
+        setInterval(loadSession, 30000);
+    });
+    </script>
+</body>
+</html>

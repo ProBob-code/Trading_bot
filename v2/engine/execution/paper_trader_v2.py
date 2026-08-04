@@ -490,6 +490,41 @@ class PaperTraderV2:
                 pos.to_dict(self.current_prices.get(pos.symbol))
                 for pos in acc.positions.values()
             ]
+
+    def get_position(self, user_id: Optional[int], symbol: str) -> Optional[V2Position]:
+        """Return the live V2Position object for a symbol (or None).
+
+        Used by the pipeline for authoritative TP/SL checks — the in-memory
+        position carries leverage/entry data the DB row does not.
+        """
+        with self.lock:
+            return self._get_account(user_id).positions.get(symbol)
+
+    def close_position(
+        self, user_id: Optional[int], symbol: str, action: str = 'CLOSE',
+        volatility: float = 0.02, volume: float = 100e6,
+    ) -> List[Dict]:
+        """Fully close an open position at market with a labelled action.
+
+        `action` is one of CLOSE / STOP_LOSS / TAKE_PROFIT and flows through to
+        the ledger and session counters. Unlike execute_trade() with an opposite
+        side (which REVERSES into a new position), this only closes.
+        """
+        with self.lock:
+            acc = self._get_account(user_id)
+            pos = acc.positions.get(symbol)
+            if not pos or pos.quantity <= 0:
+                return [{'success': False, 'error': f'No open position for {symbol}'}]
+
+            market_price = self.current_prices.get(symbol)
+            if market_price is None or market_price <= 0:
+                return [{'success': False, 'error': f'No price available for {symbol}'}]
+
+            result = self._close_position(
+                acc, user_id, symbol, pos.quantity, pos,
+                market_price, volatility, volume, pos.strategy, action=action,
+            )
+            return [result]
     
     def get_account_info(self, user_id: Optional[int] = None) -> Dict:
         """Get V2 account info with margin tracking."""

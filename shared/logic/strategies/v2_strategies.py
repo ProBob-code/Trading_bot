@@ -926,21 +926,25 @@ def ml_forecast_strategy(df: pd.DataFrame, price: float,
         prob_up = float(_lstm_model.predict(X, verbose=0)[0, 0])
         confidence = abs(prob_up - 0.5)
 
+        # Per-bot sensitivity: min directional confidence to act on the forecast
+        params = kwargs.get('params') or {}
+        ml_conf = params.get('ml_conf', 0.15)
+
         reasons = [f"P(up)={prob_up:.3f}, confidence={confidence:.3f}"]
 
         # Confidence gate
-        if confidence < 0.15:
-            reasons.append("Below confidence threshold 0.15 — HOLD")
+        if confidence < ml_conf:
+            reasons.append(f"Below confidence threshold {ml_conf:.2f} — HOLD")
             return Signal("ml_forecast", "HOLD", 0.0, price,
                            reasons, datetime.now())
 
-        if prob_up > 0.65:
+        if prob_up > 0.5 + ml_conf:
             score = min(prob_up, 1.0)
             reasons.append(f"Strong bullish prediction ({prob_up:.1%})")
             return Signal("ml_forecast", "BUY", score, price,
                            reasons, datetime.now())
 
-        if prob_up < 0.35:
+        if prob_up < 0.5 - ml_conf:
             score = min(1.0 - prob_up, 1.0)
             reasons.append(f"Strong bearish prediction ({prob_up:.1%})")
             return Signal("ml_forecast", "SELL", score, price,

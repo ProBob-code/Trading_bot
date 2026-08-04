@@ -38,6 +38,12 @@ class TradingPipelineV2:
         strategy = config.strategy
         leverage = config.leverage
 
+        # ── 0. TP / SL enforcement (runs every tick, independent of the signal) ──
+        # Auto-close an open position the moment it reaches the bot's configured
+        # take-profit or stop-loss, so Command Deck settings are actually honored.
+        if self.check_exit_conditions(bot_id, bot, current_price, atr_value):
+            return  # position was closed this tick — no new entry
+
         # 1. State Context
         pos = self.portfolio.get_position_state(user_id, symbol)
         has_pos = pos is not None
@@ -54,10 +60,18 @@ class TradingPipelineV2:
              print("[PIPELINE] ❌ No signal generated (HOLD)")
         
         # Volatility filter check (placeholder for now, will be passed from loop)
-        vol_filter = {'allowed': True} 
-        
+        vol_filter = {'allowed': True}
+
+        # Per-bot Signal Sensitivity → risk-gate thresholds (score floor + cost bar).
+        # Keeps the portfolio-level gate in step with the strategy's own gates.
+        from shared.logic.strategies.v3_quant_strategies import (
+            resolve_sensitivity, ROUND_TRIP_COST_PCT)
+        sens = resolve_sensitivity(getattr(config, 'sensitivity', 'conservative'))
+
         allowed, reason = self.risk.pre_trade_gate(
-            user_id, symbol, signal.signal, signal_score, expected_move, vol_filter
+            user_id, symbol, signal.signal, signal_score, expected_move, vol_filter,
+            score_floor=sens['risk_floor'],
+            estimated_cost_pct=ROUND_TRIP_COST_PCT * sens['cost_mult'],
         )
         
         print(f"[PIPELINE] Risk check: {allowed} ({reason})")
@@ -86,6 +100,56 @@ class TradingPipelineV2:
             self.portfolio.sync_position(user_id, symbol, results, strategy, leverage)
             self._handle_trade_results(bot, results, signal.signal, config.max_quantity, current_price)
 
+    def check_exit_conditions(self, bot_id, bot, current_price, atr_value) -> bool:
+        """Close an open position if it hit the bot's take-profit or stop-loss.
+
+        Safe to call every loop iteration (not just on a new candle) so exits are
+        monitored continuously. Returns True if a position was closed (so the
+        caller skips new entries this tick). P&L% is read from the live position,
+        matching the leveraged percentage shown in the UI.
+        """
+        config = bot.config
+        user_id = config.user_id
+        symbol = config.symbol
+
+        pos = self.trader.get_position(user_id, symbol)
+        if not pos or pos.quantity <= 0:
+            return False
+
+        pnl_pct = pos.unrealized_pnl_pct(current_price)
+        tp = float(getattr(config, 'take_profit', 0) or 0)
+        sl = float(getattr(config, 'stop_loss', 0) or 0)
+
+        exit_action = None
+        if tp > 0 and pnl_pct >= tp:
+            exit_action = 'TAKE_PROFIT'
+        elif sl > 0 and pnl_pct <= -sl:
+            exit_action = 'STOP_LOSS'
+
+        if not exit_action:
+            return False
+
+        emoji = '🎯' if exit_action == 'TAKE_PROFIT' else '🛑'
+        logger.info(
+            f"{emoji} [V2-PIPELINE-{bot_id}] {exit_action} on {symbol}: "
+            f"pnl={pnl_pct:.2f}% (tp={tp}%, sl={sl}%) — closing {pos.quantity} @ {current_price}"
+        )
+        print(f"[PIPELINE] {emoji} {exit_action}: closing {symbol} at pnl {pnl_pct:.2f}%")
+
+        vol = atr_value / current_price if current_price > 0 else 0.02
+        results = self.trader.close_position(user_id, symbol, action=exit_action, volatility=vol)
+
+        if not results or not results[0].get('success'):
+            err = results[0].get('error') if results else 'unknown'
+            logger.warning(f"⚠️ [V2-PIPELINE-{bot_id}] {exit_action} close failed: {err}")
+            return False
+
+        close_side = results[0].get('side', '')
+        closed_qty = results[0].get('quantity', pos.quantity)
+        self.portfolio.sync_position(user_id, symbol, results, config.strategy, config.leverage)
+        self._handle_trade_results(bot, results, close_side, closed_qty, current_price)
+        return True
+
     def _handle_trade_results(self, bot, results, side, quantity, price):
         """Standardized processing for trades (stats, logs, sockets)."""
         current_session = self.db.v2_get_active_session_id()
@@ -106,6 +170,7 @@ class TradingPipelineV2:
                 'trade_id': res.get('trade_id'),
                 'session_id': current_session,
                 'user_id': bot.config.user_id,
+                'bot_id': bot.bot_id,
                 'symbol': bot.config.symbol,
                 'side': res.get('side', side),
                 'action': res.get('action', 'TRADE'),

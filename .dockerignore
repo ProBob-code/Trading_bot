@@ -1,0 +1,20 @@
+# Keep the image lean — exclude heavy/local-only artifacts
+venv/
+.git/
+.wrangler/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Logs & local databases (MySQL container is the source of truth)
+*.log
+data/*.log
+*.db
+data/*.db
+
+# Local tooling
+.devcontainer/
+.streamlit/
+node_modules/
+reports/
