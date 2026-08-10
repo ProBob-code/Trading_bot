@@ -9,45 +9,85 @@ const ChartManager = {
     currentSymbol: null,
     currentInterval: null,
 
-    /**
-     * Initialize the TradingView Advanced Chart Widget
-     * @param {string} containerId - The ID of the div container
-     * @param {string} symbol - Initial symbol (e.g., BTCUSDT)
-     */
-    init(containerId, symbol, interval) {
-        this.containerId = containerId;
-        this.currentSymbol = this.formatSymbol(symbol);
-        this.currentInterval = this.formatInterval(interval);
-        
-        if (typeof TradingView === 'undefined') {
-            console.error('[ChartManager] ❌ ERROR: TradingView library (tv.js) not loaded!');
-            const container = document.getElementById(containerId);
-            if (container) {
-                container.innerHTML = 
-                    '<div style="color: #ef4444; padding: 20px; text-align: center;">' +
-                    '❌ TradingView Library Error<br><small>Check internet connection or script source.</small></div>';
-            }
-            return;
-        }
+    // ── User-customisable chart preferences (persisted in localStorage) ──
+    // TradingView "style" codes for the main series.
+    CHART_TYPES: [
+        { id: '1',  label: 'Candles' },
+        { id: '9',  label: 'Hollow Candles' },
+        { id: '8',  label: 'Heikin Ashi' },
+        { id: '0',  label: 'Bars (OHLC)' },
+        { id: '11', label: 'Hi-Lo' },
+        { id: '2',  label: 'Line' },
+        { id: '14', label: 'Step Line' },
+        { id: '13', label: 'Line + Markers' },
+        { id: '3',  label: 'Area' },
+        { id: '15', label: 'HLC Area' },
+        { id: '10', label: 'Baseline' },
+        { id: '12', label: 'Columns' },
+        { id: '4',  label: 'Renko' },
+        { id: '5',  label: 'Kagi' },
+        { id: '6',  label: 'Point & Figure' },
+        { id: '7',  label: 'Line Break' }
+    ],
+    // `pane: true` studies get their own sub-pane and eat vertical space —
+    // that is what made the small/mobile chart look cramped, so they are OFF
+    // by default and the user opts in.
+    INDICATORS: [
+        { id: 'MASimple@tv-basicstudies', label: 'Moving Average', pane: false },
+        { id: 'BB@tv-basicstudies',       label: 'Bollinger Bands', pane: false },
+        { id: 'VWAP@tv-basicstudies',     label: 'VWAP',            pane: false },
+        { id: 'Volume@tv-basicstudies',   label: 'Volume',          pane: true  },
+        { id: 'RSI@tv-basicstudies',      label: 'RSI',             pane: true  },
+        { id: 'MACD@tv-basicstudies',     label: 'MACD',            pane: true  }
+    ],
+    PREFS_KEY: 'goatbot_chart_prefs',
+    chartType: '1',
+    studies: ['MASimple@tv-basicstudies'],
 
-        console.log(`[ChartManager] 🚀 Initializing for ${this.currentSymbol} (${this.currentInterval}) on #${containerId}`);
-
+    /** Load saved chart preferences (chart type + indicators). */
+    loadPrefs() {
         try {
-            this.widget = new TradingView.widget({
+            const raw = localStorage.getItem(this.PREFS_KEY);
+            if (raw) {
+                const p = JSON.parse(raw);
+                if (p.chartType) this.chartType = String(p.chartType);
+                if (Array.isArray(p.studies)) this.studies = p.studies;
+            }
+        } catch (e) {
+            console.warn('[ChartManager] Could not load chart prefs:', e);
+        }
+    },
+
+    savePrefs() {
+        try {
+            localStorage.setItem(this.PREFS_KEY, JSON.stringify({
+                chartType: this.chartType,
+                studies: this.studies
+            }));
+        } catch (e) {
+            console.warn('[ChartManager] Could not save chart prefs:', e);
+        }
+    },
+
+    /** Build the full widget config — single source of truth for init + rebuilds. */
+    _buildConfig(theme) {
+        theme = theme || document.documentElement.getAttribute('data-theme') || 'dark';
+        const dark = theme === 'dark';
+        return {
             "width": "100%",
             "height": "100%",
             "symbol": this.currentSymbol,
             "interval": this.currentInterval,
             "timezone": "Etc/UTC",
-            "theme": "dark",
-            "style": "1",
+            "theme": theme,
+            "style": this.chartType,
             "locale": "en",
-            "toolbar_bg": "#0f172a",
+            "toolbar_bg": dark ? "#0f172a" : "#f1f3f6",
             "enable_publishing": false,
             "hide_side_toolbar": true,
             "allow_symbol_change": true,
-            "container_id": containerId,
-            "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"],
+            "container_id": this.containerId,
+            "studies": this.studies.slice(),
             "autosize": true,
             "hide_top_toolbar": true,
             "hide_legend": true,
@@ -62,16 +102,81 @@ const ChartManager = {
                 "mainSeriesProperties.candleStyle.borderDownColor": "#FF3366",
                 "mainSeriesProperties.candleStyle.wickUpColor": "#00FFB2",
                 "mainSeriesProperties.candleStyle.wickDownColor": "#FF3366",
-                "paneProperties.background": "#0d1420",
-                "paneProperties.vertGridProperties.color": "rgba(42, 46, 57, 0.15)",
-                "paneProperties.horzGridProperties.color": "rgba(42, 46, 57, 0.15)",
-                "scalesProperties.textColor": "#94A3B8",
-                "scalesProperties.lineColor": "rgba(255, 255, 255, 0.05)",
-                "paneProperties.crossHairProperties.color": "rgba(255, 255, 255, 0.2)"
+                "mainSeriesProperties.hollowCandleStyle.upColor": "#00FFB2",
+                "mainSeriesProperties.hollowCandleStyle.downColor": "#FF3366",
+                "mainSeriesProperties.haStyle.upColor": "#00FFB2",
+                "mainSeriesProperties.haStyle.downColor": "#FF3366",
+                "mainSeriesProperties.barStyle.upColor": "#00FFB2",
+                "mainSeriesProperties.barStyle.downColor": "#FF3366",
+                "mainSeriesProperties.lineStyle.color": "#00FFB2",
+                "mainSeriesProperties.areaStyle.color1": "rgba(0, 255, 178, 0.3)",
+                "mainSeriesProperties.areaStyle.color2": "rgba(0, 255, 178, 0.02)",
+                "mainSeriesProperties.areaStyle.linecolor": "#00FFB2",
+                "paneProperties.background": dark ? "#0d1420" : "#ffffff",
+                "paneProperties.vertGridProperties.color": dark ? "rgba(42, 46, 57, 0.15)" : "rgba(240, 243, 250, 0.15)",
+                "paneProperties.horzGridProperties.color": dark ? "rgba(42, 46, 57, 0.15)" : "rgba(240, 243, 250, 0.15)",
+                "scalesProperties.textColor": dark ? "#94A3B8" : "#475569",
+                "scalesProperties.lineColor": dark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)",
+                "paneProperties.crossHairProperties.color": dark ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)"
             }
-        });
-        
-        console.log("[ChartManager] ✅ Widget constructor called successfully");
+        };
+    },
+
+    /** Rebuild the widget in place (TradingView's embed API has no live setters). */
+    _recreate() {
+        if (!this.containerId) return;
+        const container = document.getElementById(this.containerId);
+        if (container) container.innerHTML = '';
+        try {
+            this.widget = new TradingView.widget(this._buildConfig());
+        } catch (e) {
+            console.error('[ChartManager] ❌ Exception during widget rebuild:', e);
+        }
+    },
+
+    /** Change the main series style (candles / line / Heikin Ashi / …). */
+    setChartType(styleId) {
+        this.chartType = String(styleId);
+        this.savePrefs();
+        console.log(`[ChartManager] Chart type → ${this.chartType}`);
+        this._recreate();
+    },
+
+    /** Replace the active indicator set. */
+    setStudies(studyIds) {
+        this.studies = Array.isArray(studyIds) ? studyIds.slice() : [];
+        this.savePrefs();
+        console.log(`[ChartManager] Studies → ${this.studies.join(', ') || 'none'}`);
+        this._recreate();
+    },
+
+    /**
+     * Initialize the TradingView Advanced Chart Widget
+     * @param {string} containerId - The ID of the div container
+     * @param {string} symbol - Initial symbol (e.g., BTCUSDT)
+     */
+    init(containerId, symbol, interval) {
+        this.containerId = containerId;
+        this.currentSymbol = this.formatSymbol(symbol);
+        this.currentInterval = this.formatInterval(interval);
+        this.loadPrefs();
+
+        if (typeof TradingView === 'undefined') {
+            console.error('[ChartManager] ❌ ERROR: TradingView library (tv.js) not loaded!');
+            const container = document.getElementById(containerId);
+            if (container) {
+                container.innerHTML = 
+                    '<div style="color: #ef4444; padding: 20px; text-align: center;">' +
+                    '❌ TradingView Library Error<br><small>Check internet connection or script source.</small></div>';
+            }
+            return;
+        }
+
+        console.log(`[ChartManager] 🚀 Initializing for ${this.currentSymbol} (${this.currentInterval}) on #${containerId}`);
+
+        try {
+            this.widget = new TradingView.widget(this._buildConfig());
+            console.log("[ChartManager] ✅ Widget constructor called successfully");
         } catch (e) {
             console.error("[ChartManager] ❌ Exception during widget creation:", e);
         }
@@ -101,43 +206,7 @@ const ChartManager = {
         const theme = document.documentElement.getAttribute('data-theme') || 'dark';
         
         try {
-            this.widget = new TradingView.widget({
-                "width": "100%",
-                "height": "100%",
-                "symbol": this.currentSymbol,
-                "interval": this.currentInterval,
-                "timezone": "Etc/UTC",
-                "theme": theme,
-                "style": "1",
-                "locale": "en",
-                "toolbar_bg": theme === 'dark' ? "#0f172a" : "#f1f3f6",
-                "enable_publishing": false,
-                "hide_side_toolbar": true,
-                "allow_symbol_change": true,
-                "container_id": this.containerId,
-                "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"],
-                "autosize": true,
-                "hide_top_toolbar": true,
-                "hide_legend": true,
-                "disabled_features": ["header_widget", "left_toolbar", "legend_widget", "timeframes_toolbar"],
-                "enabled_features": ["study_templates"],
-                "overrides": {
-                    "mainSeriesProperties.candleStyle.upColor": "#00FFB2",
-                    "mainSeriesProperties.candleStyle.downColor": "#FF3366",
-                    "mainSeriesProperties.candleStyle.drawWick": true,
-                    "mainSeriesProperties.candleStyle.drawBorder": true,
-                    "mainSeriesProperties.candleStyle.borderUpColor": "#00FFB2",
-                    "mainSeriesProperties.candleStyle.borderDownColor": "#FF3366",
-                    "mainSeriesProperties.candleStyle.wickUpColor": "#00FFB2",
-                    "mainSeriesProperties.candleStyle.wickDownColor": "#FF3366",
-                    "paneProperties.background": theme === 'dark' ? "#0d1420" : "#ffffff",
-                    "paneProperties.vertGridProperties.color": theme === 'dark' ? "rgba(42, 46, 57, 0.15)" : "rgba(240, 243, 250, 0.15)",
-                    "paneProperties.horzGridProperties.color": theme === 'dark' ? "rgba(42, 46, 57, 0.15)" : "rgba(240, 243, 250, 0.15)",
-                    "scalesProperties.textColor": theme === 'dark' ? "#94A3B8" : "#475569",
-                    "scalesProperties.lineColor": theme === 'dark' ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)",
-                    "paneProperties.crossHairProperties.color": theme === 'dark' ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)"
-                }
-            });
+            this.widget = new TradingView.widget(this._buildConfig(theme));
             console.log(`[ChartManager] ✅ Widget re-created for ${this.currentSymbol}`);
         } catch (e) {
             console.error("[ChartManager] ❌ Exception during widget re-creation:", e);

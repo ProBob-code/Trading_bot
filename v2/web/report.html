@@ -474,6 +474,257 @@
             font-size: 14px;
             font-weight: 500;
         }
+
+        /* ── Evolution Engine ── */
+        .evo-run-btn {
+            margin-left: auto;
+            background: var(--panel-glass);
+            border: 1px solid var(--glass-border);
+            color: var(--accent);
+            padding: 7px 14px;
+            border-radius: 8px;
+            font-size: 11.5px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .evo-run-btn:hover { border-color: var(--accent); background: var(--panel-glass-hover); }
+
+        .evo-intro {
+            margin: -4px 0 18px;
+            font-size: 12.5px;
+            line-height: 1.55;
+            color: var(--text-secondary);
+            max-width: 760px;
+        }
+
+        .evo-strategy {
+            background: rgba(5, 7, 10, 0.45);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 14px;
+        }
+
+        .evo-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .evo-name { font-size: 14px; font-weight: 800; color: var(--text-primary); }
+
+        .evo-gen {
+            font-family: var(--font-quant, monospace);
+            font-size: 10.5px;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            padding: 3px 10px;
+            border-radius: 20px;
+            background: rgba(124, 58, 237, 0.18);
+            border: 1px solid rgba(124, 58, 237, 0.5);
+            color: #c4b5fd;
+        }
+        .evo-badge {
+            font-size: 9.5px; font-weight: 800; letter-spacing: 0.6px;
+            padding: 3px 9px; border-radius: 4px; text-transform: uppercase;
+        }
+        .evo-badge.active { background: rgba(0,255,178,0.12); color: var(--bullish); border: 1px solid rgba(0,255,178,0.4); }
+        .evo-badge.paused { background: rgba(255,51,102,0.12); color: var(--bearish); border: 1px solid rgba(255,51,102,0.4); }
+        .evo-badge.learning { background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.4); }
+
+        .evo-params { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .evo-param {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            padding: 7px 11px;
+            font-size: 11.5px;
+        }
+        .evo-param .k { color: var(--text-muted); text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.5px; display: block; }
+        .evo-param .v { color: var(--text-primary); font-weight: 700; font-family: var(--font-mono, monospace); }
+        .evo-param .orig { color: var(--text-muted); text-decoration: line-through; margin-right: 5px; font-weight: 400; }
+        .evo-param.changed { border-color: rgba(124,58,237,0.55); background: rgba(124,58,237,0.08); }
+
+        .evo-progress { margin: 10px 0 4px; }
+        .evo-bar { height: 6px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+        .evo-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #7c3aed); }
+        .evo-progress .lbl { font-size: 10.5px; color: var(--text-muted); margin-bottom: 5px; }
+
+        /* Evolve meter */
+        .evo-meter { margin: 12px 0; }
+        .evo-meter .lbl {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 10.5px; color: var(--text-muted); margin-bottom: 6px;
+        }
+        .evo-meter .track {
+            height: 10px; background: rgba(255,255,255,0.06);
+            border-radius: 6px; overflow: hidden; position: relative;
+        }
+        .evo-meter .fill {
+            display: block; height: 100%;
+            background: linear-gradient(90deg, var(--accent), #7c3aed);
+            transition: width 0.5s ease;
+        }
+        .evo-meter.full .fill {
+            background: linear-gradient(90deg, #00FFB2, #7c3aed);
+            box-shadow: 0 0 14px rgba(0, 255, 178, 0.5);
+        }
+
+        /* Lesson-learned card (awaiting Proceed) */
+        .evo-lesson {
+            margin-top: 12px;
+            border: 1px solid rgba(0, 255, 178, 0.4);
+            background: linear-gradient(135deg, rgba(0,255,178,0.06), rgba(124,58,237,0.06));
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+        .evo-lesson-head {
+            display: flex; align-items: center; gap: 9px;
+            font-size: 12.5px; font-weight: 800; color: var(--bullish);
+            text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 10px;
+        }
+        .evo-lesson-item { margin-bottom: 10px; }
+        .evo-lesson-item:last-of-type { margin-bottom: 4px; }
+        .evo-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+        .evo-proceed {
+            background: linear-gradient(135deg, #00FFB2, #00c98d);
+            color: #04120c; border: none; padding: 10px 22px; border-radius: 8px;
+            font-size: 12.5px; font-weight: 800; cursor: pointer; letter-spacing: 0.4px;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .evo-proceed:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,255,178,0.3); }
+        .evo-dismiss {
+            background: transparent; border: 1px solid var(--glass-border);
+            color: var(--text-secondary); padding: 10px 18px; border-radius: 8px;
+            font-size: 12.5px; font-weight: 600; cursor: pointer;
+        }
+        .evo-dismiss:hover { border-color: var(--bearish); color: var(--bearish); }
+
+        .evo-symbol {
+            font-family: var(--font-mono, monospace);
+            font-size: 11px; font-weight: 800; color: var(--accent);
+            background: rgba(0,255,178,0.08); border: 1px solid rgba(0,255,178,0.3);
+            padding: 2px 8px; border-radius: 4px;
+        }
+
+        .evo-regime {
+            font-size: 9.5px; font-weight: 800; letter-spacing: 0.6px;
+            padding: 3px 9px; border-radius: 4px; text-transform: uppercase;
+            background: rgba(59,130,246,0.14); color: #93c5fd; border: 1px solid rgba(59,130,246,0.4);
+        }
+        .evo-profiles { font-size: 10.5px; color: var(--text-muted); margin-top: 8px; }
+        .evo-profiles b { color: var(--text-secondary); }
+
+        .evo-gens { margin-top: 12px; border-top: 1px solid var(--glass-border); padding-top: 12px; }
+        .evo-gen-row { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); }
+        .evo-gen-row:last-child { border-bottom: none; }
+        .evo-gen-num {
+            flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%;
+            background: rgba(124,58,237,0.15); border: 1px solid rgba(124,58,237,0.4);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 800; color: #c4b5fd;
+        }
+        .evo-gen-body { flex: 1; min-width: 0; }
+        .evo-change { font-size: 12px; color: var(--text-primary); font-weight: 600; }
+        .evo-reason { font-size: 11.5px; color: var(--text-secondary); line-height: 1.5; margin-top: 3px; }
+        .evo-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 4px; }
+        .evo-arrow { color: var(--accent); font-family: var(--font-mono, monospace); }
+
+        /* ── Download menu ── */
+        .download-wrap { position: relative; }
+
+        .download-menu {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            width: 250px;
+            max-width: calc(100vw - 32px);
+            background: #111a29;
+            border: 1px solid rgba(124, 58, 237, 0.35);
+            border-radius: 12px;
+            box-shadow: 0 18px 46px rgba(0, 0, 0, 0.7);
+            padding: 14px;
+            z-index: 1400;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .download-menu[hidden] { display: none; }
+
+        .download-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .download-menu select {
+            width: 100%;
+            background: rgba(5, 7, 10, 0.8);
+            color: var(--text-primary);
+            border: 1px solid var(--glass-border);
+            padding: 9px 10px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            outline: none;
+        }
+
+        .dl-opt {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            background: var(--panel-glass);
+            border: 1px solid var(--glass-border);
+            color: var(--text-secondary);
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .dl-opt:hover { border-color: var(--accent); color: #fff; }
+
+        .download-hint {
+            margin: 2px 0 0;
+            font-size: 10.5px;
+            line-height: 1.45;
+            color: var(--text-muted);
+            min-height: 12px;
+        }
+
+        /* ── Responsive: tablet & mobile ── */
+        @media (max-width: 900px) {
+            .header-inner,
+            .controls-inner,
+            .report-body { padding-left: 16px; padding-right: 16px; }
+            .report-body { padding-top: 20px; padding-bottom: 20px; }
+            .controls-inner { gap: 12px; }
+            .control-group { flex-wrap: wrap; }
+            .report-controls select,
+            .report-controls input { flex: 1 1 auto; min-width: 0; }
+            .quick-filters { flex-wrap: wrap; }
+            .summary-cards { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+            .panel { padding: 20px 16px; }
+        }
+
+        @media (max-width: 560px) {
+            .report-header .report-title { display: none; }
+            .header-inner { flex-wrap: wrap; gap: 10px; }
+            .back-btn { padding: 8px 14px; font-size: 12px; }
+            .summary-cards { grid-template-columns: 1fr 1fr; gap: 12px; }
+            .summary-card .value { font-size: 20px; }
+            .control-group,
+            .quick-filters { width: 100%; }
+            .refresh-btn { width: 100%; justify-content: center; }
+            /* keep tables scrolling inside their wrapper, never the page */
+            .matrix-table, .trade-table { min-width: 640px; }
+            body { overflow-x: hidden; }
+        }
     </style>
 </head>
 
@@ -528,9 +779,35 @@
             <button onclick="setQuickFilter('all')" class="active">All</button>
         </div>
 
-        <button class="refresh-btn" onclick="loadAllReportData()">
-            <i class="fa-solid fa-arrows-rotate"></i> Refresh Matrix
-        </button>
+        <div class="control-group">
+            <button class="refresh-btn" onclick="loadAllReportData()">
+                <i class="fa-solid fa-arrows-rotate"></i> Refresh Matrix
+            </button>
+            <div class="download-wrap">
+                <button class="refresh-btn download-btn" onclick="toggleDownloadMenu(event)">
+                    <i class="fa-solid fa-download"></i> Download
+                </button>
+                <div class="download-menu" id="downloadMenu" hidden>
+                    <div class="download-label">Range</div>
+                    <select id="downloadRange">
+                        <option value="current">Current filters (as shown)</option>
+                        <option value="today">Today</option>
+                        <option value="7d">Last 7 days</option>
+                        <option value="30d">Last 30 days</option>
+                        <option value="90d">Last 90 days</option>
+                        <option value="all">All time</option>
+                    </select>
+                    <div class="download-label">Format</div>
+                    <button class="dl-opt" onclick="downloadReport('csv')">
+                        <i class="fa-solid fa-file-csv"></i> CSV (.csv)
+                    </button>
+                    <button class="dl-opt" onclick="downloadReport('excel')">
+                        <i class="fa-solid fa-file-excel"></i> Excel (.xls)
+                    </button>
+                    <p class="download-hint" id="downloadStatus"></p>
+                </div>
+            </div>
+        </div>
       </div>
     </div>
 
@@ -755,6 +1032,143 @@
                 if (activeType === 'all' && btn.textContent.toLowerCase() === 'all') btn.classList.add('active');
                 else if (btn.textContent.toLowerCase().includes(activeType)) btn.classList.add('active');
             });
+        }
+
+        // ═══ REPORT DOWNLOAD (CSV / Excel) ═══
+
+        function toggleDownloadMenu(evt) {
+            if (evt) evt.stopPropagation();
+            const m = document.getElementById('downloadMenu');
+            if (!m) return;
+            if (m.hasAttribute('hidden')) {
+                m.removeAttribute('hidden');
+                document.getElementById('downloadStatus').textContent = '';
+            } else {
+                m.setAttribute('hidden', '');
+            }
+        }
+
+        document.addEventListener('click', (e) => {
+            const m = document.getElementById('downloadMenu');
+            const w = document.querySelector('.download-wrap');
+            if (m && !m.hasAttribute('hidden') && w && !w.contains(e.target)) {
+                m.setAttribute('hidden', '');
+            }
+        });
+
+        /** Build query params for the chosen download range. */
+        function getDownloadParams() {
+            const range = document.getElementById('downloadRange').value;
+            if (range === 'current') return { params: getFilterParams(), label: 'filtered' };
+
+            const params = new URLSearchParams();
+            // keep the strategy/session context, only override the dates
+            const strategy = document.getElementById('strategyFilter').value;
+            const session = document.getElementById('sessionFilter').value;
+            if (strategy) params.append('strategy', strategy);
+            if (session) params.append('session_id', session);
+
+            if (range !== 'all') {
+                const days = { today: 1, '7d': 7, '30d': 30, '90d': 90 }[range] || 1;
+                const to = new Date();
+                const from = new Date();
+                if (range === 'today') from.setHours(0, 0, 0, 0);
+                else from.setDate(from.getDate() - days);
+                params.append('start_date', from.toISOString());
+                params.append('end_date', to.toISOString());
+            }
+            return { params: params.toString(), label: range };
+        }
+
+        function csvCell(v) {
+            const s = (v === null || v === undefined) ? '' : String(v);
+            return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+        }
+
+        const EXPORT_COLUMNS = [
+            ['Time', t => t.timestamp ? new Date(t.timestamp).toLocaleString() : ''],
+            ['Trade ID', t => t.trade_id || ''],
+            ['Session', t => t.session_id || ''],
+            ['Symbol', t => t.symbol || ''],
+            ['Strategy', t => STRATEGY_NAMES[t.strategy] || t.strategy || ''],
+            ['Action', t => t.action || ''],
+            ['Side', t => t.side || ''],
+            ['Quantity', t => parseFloat(t.quantity) || 0],
+            ['Price', t => parseFloat(t.price ?? t.fill_price) || 0],
+            ['Commission', t => parseFloat(t.commission) || 0],
+            ['P&L', t => parseFloat(t.pnl ?? t.net_pnl ?? t.realized_pnl) || 0]
+        ];
+
+        function triggerDownload(content, filename, mime) {
+            const blob = new Blob([content], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        async function downloadReport(format) {
+            const status = document.getElementById('downloadStatus');
+            status.textContent = 'Preparing…';
+            try {
+                const { params, label } = getDownloadParams();
+                // pull the whole matching set, not just the visible page
+                const res = await fetch(`/api/v2/trades?${params}&limit=5000&offset=0`);
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'request failed');
+
+                const trades = data.trades || [];
+                if (!trades.length) {
+                    status.textContent = 'No trades in that range.';
+                    return;
+                }
+
+                const headers = EXPORT_COLUMNS.map(c => c[0]);
+                const rows = trades.map(t => EXPORT_COLUMNS.map(c => c[1](t)));
+
+                // summary block so the file is self-describing
+                const totalPnl = rows.reduce((s, r) => s + (parseFloat(r[10]) || 0), 0);
+                const totalComm = rows.reduce((s, r) => s + (parseFloat(r[9]) || 0), 0);
+                const closed = trades.filter(t => ['CLOSE', 'STOP_LOSS', 'TAKE_PROFIT', 'REVERSAL'].includes(t.action));
+                const wins = closed.filter(t => (parseFloat(t.pnl) || 0) > 0).length;
+                const winRate = closed.length ? (wins / closed.length * 100).toFixed(1) + '%' : '—';
+                const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+                const fname = `goatbot_report_${label}_${stamp}`;
+
+                if (format === 'csv') {
+                    const lines = [];
+                    lines.push(['GoatBot Trade — V2 Trade Ledger'].map(csvCell).join(','));
+                    lines.push(['Generated', new Date().toLocaleString()].map(csvCell).join(','));
+                    lines.push(['Range', label].map(csvCell).join(','));
+                    lines.push(['Trades', trades.length, 'Closed', closed.length, 'Win Rate', winRate].map(csvCell).join(','));
+                    lines.push(['Total P&L', totalPnl.toFixed(2), 'Total Commission', totalComm.toFixed(2)].map(csvCell).join(','));
+                    lines.push('');
+                    lines.push(headers.map(csvCell).join(','));
+                    rows.forEach(r => lines.push(r.map(csvCell).join(',')));
+                    triggerDownload('﻿' + lines.join('\r\n'), fname + '.csv', 'text/csv;charset=utf-8;');
+                } else {
+                    // Excel-readable HTML table (.xls) — no external library needed
+                    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    let h = '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>';
+                    h += '<table border="1"><tr><th colspan="11" style="background:#7c3aed;color:#fff">GoatBot Trade — V2 Trade Ledger</th></tr>';
+                    h += `<tr><td>Generated</td><td colspan="10">${esc(new Date().toLocaleString())}</td></tr>`;
+                    h += `<tr><td>Range</td><td colspan="10">${esc(label)}</td></tr>`;
+                    h += `<tr><td>Trades</td><td>${trades.length}</td><td>Closed</td><td>${closed.length}</td><td>Win Rate</td><td>${esc(winRate)}</td><td>Total P&amp;L</td><td>${totalPnl.toFixed(2)}</td><td>Commission</td><td colspan="2">${totalComm.toFixed(2)}</td></tr>`;
+                    h += '<tr></tr><tr>' + headers.map(x => `<th style="background:#1f2937;color:#fff">${esc(x)}</th>`).join('') + '</tr>';
+                    rows.forEach(r => { h += '<tr>' + r.map(c => `<td>${esc(c)}</td>`).join('') + '</tr>'; });
+                    h += '</table></body></html>';
+                    triggerDownload(h, fname + '.xls', 'application/vnd.ms-excel;charset=utf-8;');
+                }
+
+                status.textContent = `Downloaded ${trades.length} trades.`;
+            } catch (e) {
+                console.error('[REPORT] download failed:', e);
+                status.textContent = 'Download failed: ' + e.message;
+            }
         }
 
         function getFilterParams() {

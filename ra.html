@@ -5,10 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoatBot V2 — Institutional Terminal</title>
-    <link rel="stylesheet" href="styles.css?v=7">
+    <link rel="stylesheet" href="styles.css?v=5">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://s3.tradingview.com/tv.js"></script>
-    <script src="common/ChartManager.js?v=7"></script>
+    <script src="common/ChartManager.js?v=5"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
         // FOUC Prevention: Apply theme BEFORE CSS loads
@@ -568,29 +568,7 @@
             </div>
         </div>
 
-        <!-- SECTION 3: Evolution Engine -->
-        <div class="section-card" id="sectionEvolution">
-            <div class="section-header">
-                <div>
-                    <span class="section-label">The Lab</span>
-                    <h2>EVOLUTION ENGINE <span id="evoReadyCount"
-                            style="color:var(--accent); font-family:var(--font-mono);">0</span></h2>
-                </div>
-                <button class="btn-action stop-all" id="btnRunEvolution" style="padding:6px 12px; font-size:10px;"
-                    onclick="runEvolution()">
-                    <i class="fas fa-bolt"></i> Evaluate
-                </button>
-            </div>
-            <p class="evo-intro">
-                Each strategy learns per instrument from its own <strong>closed</strong> trades.
-                When the meter fills, review the lesson and hit Proceed to apply it.
-            </p>
-            <div class="evo-card-grid" id="evolutionGrid">
-                <div class="no-bots-message">Loading evolution state…</div>
-            </div>
-        </div>
-
-        <!-- SECTION 4: Custom Strategy Builder -->
+        <!-- SECTION 3: Custom Strategy Builder -->
         <div class="section-card" id="sectionStrategyBuilder">
             <div class="section-header">
                 <div>
@@ -813,7 +791,7 @@
     </div>
 
     <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
-    <script src="paper_app_v3.js?v=7"></script>
+    <script src="paper_app_v3.js?v=5"></script>
     <style>
         /* Small utility additions for the switch and modal */
         .switch input:checked+.slider {

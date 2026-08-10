@@ -171,7 +171,7 @@ bot_manager = get_bot_manager()
 # ============================================================
 
 from v1.api.routes import v1_bp, init_v1, restore_bots_on_startup, bot_watchdog_loop
-from v2.api.routes import v2_bp, init_v2, v2_paper_trader
+from v2.api.routes import v2_bp, init_v2, v2_paper_trader, v2_restore_bots_on_startup
 
 init_v1(
     _socketio=socketio,
@@ -296,6 +296,7 @@ def landing_page():
 @app.route('/v2/goatbot_home')
 @app.route('/godbot_home_v2')
 @app.route('/goatbot_home_v2')
+@login_required
 def paper_dashboard():
     """Serve V2 institutional terminal home."""
     return send_from_directory('v2/web', 'godbot_home.html')
@@ -306,6 +307,22 @@ def paper_dashboard():
 def index():
     """Serve the main frontend (V1 default)."""
     return send_from_directory('v1/web', 'godbot_home.html')
+
+@app.after_request
+def _no_cache_frontend_assets(response):
+    """Stop the browser serving stale HTML/CSS/JS after a deploy.
+
+    Without this the browser keeps an old styles.css/app.js and UI changes
+    silently don't appear (the assets carry no content hash), so every deploy
+    needed a manual hard-refresh.
+    """
+    path = (request.path or '').lower()
+    if path.endswith(('.css', '.js', '.html')) or path in ('/', '/godbot_home'):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
 
 @app.route('/v1/<path:filename>')
 def serve_v1(filename):
@@ -1542,6 +1559,12 @@ if __name__ == '__main__':
     else:
         logger.info("🛡️ Skipping V1 bot restore (Engine Disabled)")
 
+    # Restore V2 bots that were running before a restart/reboot
+    try:
+        v2_restore_bots_on_startup()
+    except Exception as e:
+        logger.error(f"V2 bot restore failed: {e}")
+
     # Start the bot watchdog in a background thread
     if is_v1_enabled():
         watchdog_thread = threading.Thread(target=bot_watchdog_loop, daemon=True)
@@ -1551,4 +1574,8 @@ if __name__ == '__main__':
 
     # Get port from environment variable for cloud deployment (Railway/Heroku/etc)
     port = int(os.getenv('PORT', 5050))
-    socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=False, allow_unsafe_werkzeug=True)
+    # Debug serves the Werkzeug console (arbitrary code execution) on any unhandled
+    # exception, so it must stay off for anything reachable beyond this machine.
+    # Opt in with FLASK_DEBUG=1 for local work only.
+    debug_mode = os.getenv('FLASK_DEBUG', '0').lower() in ('1', 'true', 'yes')
+    socketio.run(app, host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False, allow_unsafe_werkzeug=True)

@@ -12,6 +12,7 @@ Key differences from V1:
 """
 
 import hashlib
+import json
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -191,6 +192,24 @@ class BotManagerV2:
             sensitivity=kwargs.get('sensitivity', 'conservative'),
         )
         
+        # ── Evolution memory ──
+        # Apply whatever this (strategy, symbol) pair has already learned, so a
+        # restart / restore never throws away approved generations.
+        try:
+            from v2.engine.evolution.evolution_engine import (
+                evolution_engine, SENSITIVITY_BY_RANK)
+            evolved = evolution_engine.live_params(user_id, strategy, symbol)
+            if evolved.get('_generation'):
+                config.take_profit = float(evolved.get('take_profit', config.take_profit))
+                config.stop_loss = float(evolved.get('stop_loss', config.stop_loss))
+                rank = int(max(0, min(2, evolved.get('sensitivity_rank', 0))))
+                config.sensitivity = SENSITIVITY_BY_RANK[rank]
+                logger.info(f"[V2-BOTMGR] 🧬 Restored evolution gen {evolved['_generation']} "
+                            f"for {strategy}/{symbol}: TP={config.take_profit}% "
+                            f"SL={config.stop_loss}% sens={config.sensitivity}")
+        except Exception as e:
+            logger.debug(f"[V2-BOTMGR] evolution params unavailable: {e}")
+
         c_hash = config.config_hash()
         bot_id = self.generate_bot_id(user_id, market, symbol, strategy, c_hash)
         
@@ -224,7 +243,27 @@ class BotManagerV2:
             
             bot._trade_function = trade_function
             self.bots[bot_id] = bot
-            
+
+            # Persist config so the bot is auto-restored after a restart/reboot
+            try:
+                config_dict = {
+                    'symbol': config.symbol,
+                    'market': config.market,
+                    'strategy': config.strategy,
+                    'mode': config.mode.value,
+                    'interval': config.interval,
+                    'position_size': config.position_size,
+                    'stop_loss': config.stop_loss,
+                    'take_profit': config.take_profit,
+                    'max_quantity': config.max_quantity,
+                    'leverage': config.leverage,
+                    'risk_pct': config.risk_pct,
+                    'sensitivity': config.sensitivity,
+                }
+                db_manager.v2_save_bot_state(bot_id, user_id, 'running', json.dumps(config_dict))
+            except Exception as e:
+                logger.warning(f"[V2-BOTMGR] Could not persist bot state for {bot_id}: {e}")
+
             logger.info(f"[V2-BOTMGR] 🚀 Bot started: {bot_id} (strategy={strategy}, hash={c_hash})")
             
             return {
@@ -248,8 +287,13 @@ class BotManagerV2:
                 bot.thread.join(timeout=5)
             
             del self.bots[bot_id]
+            # Mark stopped so it is NOT auto-restored on the next boot
+            try:
+                db_manager.v2_set_bot_status(bot_id, 'stopped')
+            except Exception as e:
+                logger.warning(f"[V2-BOTMGR] Could not persist stop for {bot_id}: {e}")
             logger.info(f"[V2-BOTMGR] 🛑 Bot stopped: {bot_id}")
-            
+
             return {
                 'success': True,
                 'bot_id': bot_id,
@@ -266,7 +310,11 @@ class BotManagerV2:
             bot.stop_flag.set()
             bot.status = V2BotStatus.DISABLED
             bot.disable_reason = reason
-            
+            try:
+                db_manager.v2_set_bot_status(bot_id, 'disabled')
+            except Exception as e:
+                logger.warning(f"[V2-BOTMGR] Could not persist disable for {bot_id}: {e}")
+
             logger.warning(f"[V2-BOTMGR] ⚠️ Bot DISABLED: {bot_id} — {reason}")
             
             return {
@@ -323,6 +371,10 @@ class BotManagerV2:
                 bot.stop_flag.set()
                 bot.status = V2BotStatus.STOPPED
                 del self.bots[bot_id]
+                try:
+                    db_manager.v2_set_bot_status(bot_id, 'stopped')
+                except Exception:
+                    pass
             logger.info("[V2-BOTMGR] 🛑 All V2 bots stopped")
 
 

@@ -150,6 +150,33 @@ class TradingPipelineV2:
         self._handle_trade_results(bot, results, close_side, closed_qty, current_price)
         return True
 
+    def _apply_evolved_params(self, bot, result):
+        """Push evolved parameters onto the running bot so they take effect now.
+
+        Only touches knobs the pipeline actually reads (take_profit / stop_loss /
+        sensitivity). A 'paused' status stops the bot trading without deleting it.
+        """
+        from v2.engine.evolution.evolution_engine import SENSITIVITY_BY_RANK
+
+        params = result.get('params') or {}
+        cfg = bot.config
+
+        if 'take_profit' in params:
+            cfg.take_profit = float(params['take_profit'])
+        if 'stop_loss' in params:
+            cfg.stop_loss = float(params['stop_loss'])
+        if 'sensitivity_rank' in params:
+            rank = int(max(0, min(2, params['sensitivity_rank'])))
+            cfg.sensitivity = SENSITIVITY_BY_RANK[rank]
+
+        if result.get('status') == 'paused':
+            bot.stop_flag.set()
+            logger.warning(f"🧬 [V2-EVO] {cfg.strategy} paused by evolution "
+                           f"(persistently negative expectancy)")
+
+        logger.info(f"🧬 [V2-EVO] Applied gen {result.get('generation')} to {bot.bot_id}: "
+                    f"TP={cfg.take_profit}% SL={cfg.stop_loss}% sens={cfg.sensitivity}")
+
     def _handle_trade_results(self, bot, results, side, quantity, price):
         """Standardized processing for trades (stats, logs, sockets)."""
         current_session = self.db.v2_get_active_session_id()
@@ -186,6 +213,27 @@ class TradingPipelineV2:
             # Atomically update session counters if it was a closing or reversal action
             if res.get('action') in ('CLOSE', 'STOP_LOSS', 'TAKE_PROFIT', 'REVERSAL'):
                 self.db.v2_update_session_counters(current_session, pnl)
+
+                # ── Evolution: learn from this closed trade ──
+                # Runs only on closes (that's where outcome is known). The engine
+                # gates itself on sample size, so this is cheap on most calls.
+                # The engine only PROPOSES — nothing is applied to live trading
+                # until the user reviews the lesson and hits Proceed.
+                try:
+                    from v2.engine.evolution.evolution_engine import evolution_engine
+                    result = evolution_engine.evolve(bot.config.user_id, bot.config.strategy,
+                                                     bot.config.symbol)
+                    if result and result.get('awaiting_approval') and self.socketio:
+                        self.socketio.emit('v2_evolution_ready', {
+                            'strategy': bot.config.strategy,
+                            'symbol': bot.config.symbol,
+                            'regime': result.get('regime'),
+                            'verdict': result.get('verdict'),
+                            'changes': result.get('changes'),
+                            'meter': result.get('meter'),
+                        }, room=f"user_{bot.config.user_id}")
+                except Exception as e:
+                    logger.warning(f"⚠️ [V2-EVO] evolution step failed: {e}")
 
             # Sockets
             if self.socketio:

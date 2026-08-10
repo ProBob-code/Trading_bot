@@ -214,3 +214,17 @@ body {
 #v3Toast.show { transform: translateX(-50%) translateY(0); }
 #v3Toast.ok { border-color: rgba(0,255,178,0.4); }
 #v3Toast.err { border-color: rgba(255,51,102,0.4); }
+
+/* ── Responsive: phones ── */
+@media (max-width: 640px) {
+    .navbar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
+    .nav-links { width: 100%; justify-content: center; }
+    .hero-section { padding: 28px 16px 18px; }
+    .hero-title { font-size: 26px; }
+    .main-container { padding: 8px 14px 32px; }
+    .glass-card { padding: 20px 16px; }
+    .btn-action, .btn-secondary, .btn-danger { width: 100%; justify-content: center; }
+    /* wide tables scroll inside their own box, never the page */
+    .glass-card table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
+    body { overflow-x: hidden; }
+}

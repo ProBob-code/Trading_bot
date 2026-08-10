@@ -2,7 +2,7 @@
 # NEW FILE — the original docker-compose.yml is untouched.
 #
 # Usage:   docker compose -f docker-compose.local.yml up -d --build
-# Team:    http://192.168.1.8:5050  (LAN — machine must stay on)
+# Team:    http://192.168.1.50:5050  (LAN — machine must stay on, same Wi-Fi)
 #
 # Notes:
 #  - Host already runs a native MySQL on 3306, so the container DB is

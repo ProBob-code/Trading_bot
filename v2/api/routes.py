@@ -11,6 +11,7 @@ from flask_login import login_required, current_user
 from datetime import datetime, date
 import threading
 import time
+import json
 
 from loguru import logger
 
@@ -435,6 +436,59 @@ def v2_start_bot_thread(bot_id):
         logger.info(f"🧵 [V2] Started execution thread for: {bot_id}")
 
 
+def v2_restore_bots_on_startup():
+    """Re-spawn V2 bots that were running before a restart/reboot.
+
+    Reads persisted bot configs (status='running') from v2_bot_state, re-registers
+    each in the bot manager, and starts its execution thread. Called once at boot
+    after the engine globals are initialised.
+    """
+    try:
+        running = db_manager.v2_get_running_bots()
+    except Exception as e:
+        logger.error(f"[V2-RESTORE] Could not read persisted bots: {e}")
+        return
+
+    if not running:
+        logger.info("[V2-RESTORE] No V2 bots to restore.")
+        return
+
+    restored = 0
+    for row in running:
+        bot_id = row.get('bot_id')
+        try:
+            cfg = json.loads(row.get('config_json') or '{}')
+            if not cfg.get('symbol'):
+                logger.warning(f"[V2-RESTORE] Skip {bot_id}: no config")
+                continue
+            result = bot_manager_v2.start_bot(
+                user_id=row['user_id'],
+                symbol=cfg.get('symbol'),
+                market=cfg.get('market', 'crypto'),
+                strategy=cfg.get('strategy', 'combined'),
+                mode=cfg.get('mode', 'paper'),
+                interval=cfg.get('interval', '1m'),
+                position_size=cfg.get('position_size', 10.0),
+                stop_loss=cfg.get('stop_loss', 5.0),
+                take_profit=cfg.get('take_profit', 10.0),
+                max_quantity=cfg.get('max_quantity', 1.0),
+                leverage=cfg.get('leverage', 1.0),
+                risk_pct=cfg.get('risk_pct', 2.0),
+                sensitivity=cfg.get('sensitivity', 'conservative'),
+            )
+            if result.get('success'):
+                v2_start_bot_thread(result['bot_id'])
+                restored += 1
+                logger.info(f"[V2-RESTORE] ♻️ Restored {result['bot_id']} "
+                            f"({cfg.get('strategy')} {cfg.get('symbol')} {cfg.get('sensitivity')})")
+            else:
+                logger.warning(f"[V2-RESTORE] Skip {bot_id}: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"[V2-RESTORE] Failed to restore {bot_id}: {e}")
+
+    logger.info(f"[V2-RESTORE] ✅ Restored {restored} V2 bot(s).")
+
+
 # ============================================================
 # V2 WATCHLIST / FAVORITES
 # ============================================================
@@ -727,6 +781,155 @@ def v2_stop_all_bots():
         })
     except Exception as e:
         logger.error(f"[V2] Stop all error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@v2_bp.route('/api/v2/evolution/status', methods=['GET'])
+@login_required
+def v2_evolution_status():
+    """Current evolved parameters + live metrics per strategy."""
+    from v2.engine.evolution.evolution_engine import (
+        evolution_engine, DEFAULT_PARAMS, MIN_TRADES, SENSITIVITY_BY_RANK)
+
+    # Evolution is per (strategy, symbol) — the same strategy needs different
+    # stops on BTC than on a forex pair.
+    pairs = sorted({(t.get('strategy'), t.get('symbol')) for t in
+                    db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000)
+                    if t.get('strategy') and t.get('symbol')})
+
+    out = []
+    for s, sym in pairs:
+        trades = db_manager.v2_get_closed_trades_for_eval(current_user.id, s, sym)
+        m = evolution_engine.compute_metrics(trades)
+        state = db_manager.v2_get_evolution_state(current_user.id, s, sym) or {}
+        params = evolution_engine.live_params(current_user.id, s, sym)
+        meter = evolution_engine.readiness(current_user.id, s, sym)
+
+        pending = None
+        if state.get('pending_json'):
+            try:
+                pending = json.loads(state['pending_json'])
+            except Exception:
+                pending = None
+
+        profiles = {}
+        if state.get('profiles_json'):
+            try:
+                profiles = json.loads(state['profiles_json'])
+            except Exception:
+                profiles = {}
+
+        out.append({
+            'strategy': s,
+            'symbol': sym,
+            'generation': state.get('generation', 0),
+            'status': state.get('status', 'active'),
+            'params': params,
+            'defaults': DEFAULT_PARAMS,
+            'sensitivity': SENSITIVITY_BY_RANK[int(params.get('sensitivity_rank', 0))],
+            'metrics': m,
+            'meter': meter,
+            'regime': state.get('regime') or 'unknown',
+            'profiles': profiles,          # what it learned per market regime
+            'pending': pending,            # the lesson awaiting Proceed
+            'trades_needed': max(0, MIN_TRADES - m['closed_trades']),
+        })
+
+    return jsonify({'success': True, 'strategies': out, 'min_trades': MIN_TRADES})
+
+
+@v2_bp.route('/api/v2/evolution/history', methods=['GET'])
+@login_required
+def v2_evolution_history():
+    """Generation-by-generation audit trail of what changed and why."""
+    strategy = request.args.get('strategy')
+    limit = int(request.args.get('limit', 100))
+    rows = db_manager.v2_get_evolution_history(current_user.id, strategy, limit)
+    for r in rows:
+        for k in ('params_before', 'params_after', 'changes_json'):
+            if r.get(k):
+                try:
+                    r[k] = json.loads(r[k])
+                except Exception:
+                    pass
+    return jsonify({'success': True, 'history': rows})
+
+
+@v2_bp.route('/api/v2/evolution/approve', methods=['POST'])
+@login_required
+def v2_evolution_approve():
+    """PROCEED — apply the reviewed lesson to live trading."""
+    from v2.engine.evolution.evolution_engine import evolution_engine, SENSITIVITY_BY_RANK
+
+    data = request.json or {}
+    strategy = data.get('strategy')
+    symbol = data.get('symbol', 'ALL')
+    if not strategy:
+        return jsonify({'success': False, 'error': 'strategy required'}), 400
+
+    result = evolution_engine.approve(current_user.id, strategy, symbol)
+    if not result.get('success'):
+        return jsonify(result), 400
+
+    # Push the approved params onto every running bot using this strategy.
+    params = result.get('params') or {}
+    applied_to = []
+    for bot in list(bot_manager_v2.bots.values()):
+        if bot.user_id != current_user.id or bot.config.strategy != strategy:
+            continue
+        if symbol and symbol != 'ALL' and bot.config.symbol != symbol:
+            continue
+        if 'take_profit' in params:
+            bot.config.take_profit = float(params['take_profit'])
+        if 'stop_loss' in params:
+            bot.config.stop_loss = float(params['stop_loss'])
+        if 'sensitivity_rank' in params:
+            rank = int(max(0, min(2, params['sensitivity_rank'])))
+            bot.config.sensitivity = SENSITIVITY_BY_RANK[rank]
+        if result.get('status') == 'paused':
+            bot.stop_flag.set()
+        applied_to.append(bot.bot_id)
+
+    logger.info(f"🧬 [V2-EVO] Approved {strategy}/{symbol} gen {result.get('generation')} — "
+                f"applied to {len(applied_to)} running bot(s)")
+    result['applied_to'] = applied_to
+    return jsonify(result)
+
+
+@v2_bp.route('/api/v2/evolution/dismiss', methods=['POST'])
+@login_required
+def v2_evolution_dismiss():
+    """Discard a pending lesson without applying it."""
+    from v2.engine.evolution.evolution_engine import evolution_engine
+    data = request.json or {}
+    strategy = data.get('strategy')
+    symbol = data.get('symbol', 'ALL')
+    if not strategy:
+        return jsonify({'success': False, 'error': 'strategy required'}), 400
+    return jsonify(evolution_engine.dismiss(current_user.id, strategy, symbol))
+
+
+@v2_bp.route('/api/v2/evolution/run', methods=['POST'])
+@login_required
+def v2_evolution_run():
+    """Manually trigger an evolution pass (normally automatic on each close)."""
+    from v2.engine.evolution.evolution_engine import evolution_engine
+    data = request.json or {}
+    strategy = data.get('strategy')
+    force = bool(data.get('force', False))
+    try:
+        if strategy:
+            results = [evolution_engine.evolve(current_user.id, strategy,
+                                               data.get('symbol', 'ALL'), force=force)]
+        else:
+            pairs = sorted({(t.get('strategy'), t.get('symbol')) for t in
+                            db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000)
+                            if t.get('strategy') and t.get('symbol')})
+            results = [evolution_engine.evolve(current_user.id, st, sy, force=force)
+                       for st, sy in pairs]
+        return jsonify({'success': True, 'results': results})
+    except Exception as e:
+        logger.error(f"[V2-EVO] manual run failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

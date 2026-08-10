@@ -574,7 +574,52 @@ class DatabaseManager:
                     bot_id VARCHAR(255) PRIMARY KEY,
                     user_id INT,
                     status VARCHAR(20), -- running, stopped, error
+                    config_json TEXT,   -- full V2BotConfig for restore-on-boot
                     last_updated DATETIME
+                ) ENGINE=InnoDB
+            ''')
+
+            # ── V2 Evolution Engine (self-tuning parameters) ──
+            # Current live parameter set per user+strategy.
+            self._execute(cursor, '''
+                CREATE TABLE IF NOT EXISTS v2_evolution_state (
+                    user_id INT,
+                    strategy VARCHAR(50),
+                    symbol VARCHAR(20) DEFAULT 'ALL',
+                    generation INT DEFAULT 0,
+                    params_json TEXT,        -- current live params
+                    best_params_json TEXT,   -- best-performing params seen
+                    best_expectancy DOUBLE DEFAULT NULL,
+                    trades_at_last_eval INT DEFAULT 0,
+                    status VARCHAR(20) DEFAULT 'active',  -- active | paused
+                    pending_json TEXT,      -- proposal awaiting user approval
+                    regime VARCHAR(20),     -- market regime at last evaluation
+                    profiles_json TEXT,     -- params learned per regime
+                    updated_at DATETIME,
+                    PRIMARY KEY (user_id, strategy, symbol)
+                ) ENGINE=InnoDB
+            ''')
+
+            # One row per generation — the audit trail the user sees.
+            self._execute(cursor, '''
+                CREATE TABLE IF NOT EXISTS v2_evolution_history (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    strategy VARCHAR(50),
+                    symbol VARCHAR(20),
+                    generation INT,
+                    closed_trades INT,
+                    win_rate DOUBLE,
+                    expectancy DOUBLE,
+                    total_pnl DOUBLE,
+                    tp_hit_rate DOUBLE,
+                    sl_hit_rate DOUBLE,
+                    reversal_rate DOUBLE,
+                    params_before TEXT,
+                    params_after TEXT,
+                    changes_json TEXT,   -- [{param, from, to, reason}]
+                    verdict VARCHAR(32), -- improved | degraded | reverted | paused | no_change
+                    created_at DATETIME
                 ) ENGINE=InnoDB
             ''')
 
@@ -687,6 +732,37 @@ class DatabaseManager:
                     cursor.execute("CREATE INDEX idx_ledger_bot ON v2_trade_ledger(user_id, bot_id)")
                     conn.commit()
                 except Exception: pass
+
+                # v2_bot_state: config_json for restore-on-boot
+                try:
+                    cursor.execute("ALTER TABLE v2_bot_state ADD COLUMN config_json TEXT")
+                    conn.commit()
+                except Exception: pass
+
+                # v2_evolution_state: approval gate + per-regime memory
+                for col, ddl in (
+                    ('pending_json', 'TEXT'),
+                    ('regime', 'VARCHAR(20)'),
+                    ('profiles_json', 'TEXT'),
+                    ('symbol', "VARCHAR(20) DEFAULT 'ALL'"),
+                ):
+                    try:
+                        cursor.execute(f"ALTER TABLE v2_evolution_state ADD COLUMN {col} {ddl}")
+                        conn.commit()
+                    except Exception: pass
+
+                # Evolution is per (strategy, symbol): BTC and ETH need different
+                # stops because their volatility differs by an order of magnitude.
+                try:
+                    cursor.execute("ALTER TABLE v2_evolution_state DROP PRIMARY KEY, "
+                                   "ADD PRIMARY KEY (user_id, strategy, symbol)")
+                    conn.commit()
+                except Exception: pass
+
+                try:
+                    cursor.execute("ALTER TABLE v2_evolution_history ADD COLUMN symbol VARCHAR(20)")
+                    conn.commit()
+                except Exception: pass
             else:
                 # SQLite Migrations
                 try:
@@ -768,6 +844,11 @@ class DatabaseManager:
                 # v2_trade_ledger: bot_id for per-bot trade attribution (SQLite)
                 try:
                     cursor.execute("ALTER TABLE v2_trade_ledger ADD COLUMN bot_id TEXT")
+                    conn.commit()
+                except Exception: pass
+
+                try:
+                    cursor.execute("ALTER TABLE v2_bot_state ADD COLUMN config_json TEXT")
                     conn.commit()
                 except Exception: pass
 
@@ -1402,6 +1483,149 @@ class DatabaseManager:
         finally:
             self._safe_close(conn, cursor)
 
+    # ── V2 Evolution Engine ──────────────────────────────────
+
+    def v2_get_closed_trades_for_eval(self, user_id: int, strategy: str,
+                                      symbol: str = None, limit: int = 200) -> List[Dict]:
+        """Closing events only — what the evolution engine learns from.
+
+        Scoped to a symbol when given: the same strategy behaves very
+        differently on BTC vs a forex pair, so their lessons must not mix.
+        """
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            q = """
+                SELECT action, pnl, commission, price, timestamp, symbol
+                FROM v2_trade_ledger
+                WHERE user_id = %s AND strategy = %s
+                  AND action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+            """
+            params = [user_id, strategy]
+            if symbol and symbol != 'ALL':
+                q += " AND symbol = %s"
+                params.append(symbol)
+            q += " ORDER BY timestamp DESC LIMIT %s"
+            params.append(limit)
+            self._execute(cursor, q, tuple(params))
+            rows = cursor.fetchall()
+            if self.use_sqlite:
+                return [{'action': r[0], 'pnl': r[1], 'commission': r[2],
+                         'price': r[3], 'timestamp': r[4], 'symbol': r[5]} for r in rows]
+            return list(rows)
+        except Exception as e:
+            logger.warning(f"[V2-EVO] closed trades query failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def v2_get_evolution_state(self, user_id: int, strategy: str = None, symbol: str = 'ALL'):
+        """Current evolution state — one (strategy, symbol), or all for the user."""
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            if strategy:
+                self._execute(cursor, "SELECT * FROM v2_evolution_state "
+                                      "WHERE user_id=%s AND strategy=%s AND symbol=%s",
+                              (user_id, strategy, symbol or 'ALL'))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+            self._execute(cursor, "SELECT * FROM v2_evolution_state WHERE user_id=%s "
+                                  "ORDER BY strategy, symbol", (user_id,))
+            return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            logger.warning(f"[V2-EVO] state read failed: {e}")
+            return None if strategy else []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def v2_save_evolution_state(self, user_id: int, strategy: str, generation: int,
+                                params_json: str, best_params_json: str,
+                                best_expectancy, trades_at_last_eval: int, status: str = 'active',
+                                pending_json: str = None, regime: str = None,
+                                profiles_json: str = None, symbol: str = 'ALL'):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            now = datetime.now(timezone.utc)
+            cols = """(user_id,strategy,symbol,generation,params_json,best_params_json,best_expectancy,
+                       trades_at_last_eval,status,pending_json,regime,profiles_json,updated_at)"""
+            vals = (user_id, strategy, symbol or 'ALL', generation, params_json, best_params_json,
+                    best_expectancy, trades_at_last_eval, status,
+                    pending_json, regime, profiles_json, now)
+            if self.use_sqlite:
+                q = f"""INSERT OR REPLACE INTO v2_evolution_state {cols}
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+            else:
+                q = f"""INSERT INTO v2_evolution_state {cols}
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON DUPLICATE KEY UPDATE generation=VALUES(generation),
+                          params_json=VALUES(params_json), best_params_json=VALUES(best_params_json),
+                          best_expectancy=VALUES(best_expectancy),
+                          trades_at_last_eval=VALUES(trades_at_last_eval),
+                          status=VALUES(status), pending_json=VALUES(pending_json),
+                          regime=VALUES(regime), profiles_json=VALUES(profiles_json),
+                          updated_at=VALUES(updated_at)"""
+            self._execute(cursor, q, vals)
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"[V2-EVO] state save failed: {e}")
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_add_evolution_generation(self, rec: Dict):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            self._execute(cursor, """
+                INSERT INTO v2_evolution_history
+                (user_id,strategy,symbol,generation,closed_trades,win_rate,expectancy,total_pnl,
+                 tp_hit_rate,sl_hit_rate,reversal_rate,params_before,params_after,
+                 changes_json,verdict,created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (rec.get('user_id'), rec.get('strategy'), rec.get('symbol', 'ALL'), rec.get('generation'),
+                  rec.get('closed_trades'), rec.get('win_rate'), rec.get('expectancy'),
+                  rec.get('total_pnl'), rec.get('tp_hit_rate'), rec.get('sl_hit_rate'),
+                  rec.get('reversal_rate'), rec.get('params_before'), rec.get('params_after'),
+                  rec.get('changes_json'), rec.get('verdict'), datetime.now(timezone.utc)))
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"[V2-EVO] history insert failed: {e}")
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_get_evolution_history(self, user_id: int, strategy: str = None, limit: int = 100) -> List[Dict]:
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            if strategy:
+                self._execute(cursor, """SELECT * FROM v2_evolution_history
+                                         WHERE user_id=%s AND strategy=%s
+                                         ORDER BY id DESC LIMIT %s""", (user_id, strategy, limit))
+            else:
+                self._execute(cursor, """SELECT * FROM v2_evolution_history
+                                         WHERE user_id=%s ORDER BY id DESC LIMIT %s""", (user_id, limit))
+            rows = cursor.fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                ts = d.get('created_at')
+                if ts and hasattr(ts, 'isoformat'):
+                    d['created_at'] = ts.isoformat()
+                out.append(d)
+            return out
+        except Exception as e:
+            logger.warning(f"[V2-EVO] history read failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
     def v2_get_bot_ledger_stats(self, user_id: int) -> Dict[str, Dict]:
         """Per-bot trade counts and realized P&L from the ledger, keyed by bot_id.
 
@@ -1430,6 +1654,67 @@ class DatabaseManager:
             # bot_id column may not exist on older schemas — degrade to in-memory stats
             logger.debug(f"[V2-LEDGER] bot stats unavailable: {e}")
             return {}
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    # ── V2 Bot State (persist running bots so they survive restarts) ──
+
+    def v2_save_bot_state(self, bot_id: str, user_id: int, status: str, config_json: str):
+        """Upsert a bot's status + full config so it can be restored on boot."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            now = datetime.now(timezone.utc)
+            if self.use_sqlite:
+                self._execute(cursor, """
+                    INSERT OR REPLACE INTO v2_bot_state (bot_id, user_id, status, config_json, last_updated)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (bot_id, user_id, status, config_json, now))
+            else:
+                self._execute(cursor, """
+                    INSERT INTO v2_bot_state (bot_id, user_id, status, config_json, last_updated)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        status = VALUES(status),
+                        config_json = VALUES(config_json),
+                        last_updated = VALUES(last_updated)
+                """, (bot_id, user_id, status, config_json, now))
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"[V2-BOTSTATE] save failed for {bot_id}: {e}")
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_set_bot_status(self, bot_id: str, status: str):
+        """Update just the status (running/stopped/disabled) for a bot."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            self._execute(cursor,
+                          "UPDATE v2_bot_state SET status = %s, last_updated = %s WHERE bot_id = %s",
+                          (status, datetime.now(timezone.utc), bot_id))
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"[V2-BOTSTATE] status update failed for {bot_id}: {e}")
+        finally:
+            self._safe_close(conn, cursor)
+
+    def v2_get_running_bots(self) -> List[Dict]:
+        """All bots persisted as running — used to restore them at startup."""
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor,
+                          "SELECT bot_id, user_id, status, config_json FROM v2_bot_state WHERE status = 'running'")
+            rows = cursor.fetchall()
+            if self.use_sqlite:
+                return [{'bot_id': r[0], 'user_id': r[1], 'status': r[2], 'config_json': r[3]} for r in rows]
+            return list(rows)
+        except Exception as e:
+            logger.warning(f"[V2-BOTSTATE] get running failed: {e}")
+            return []
         finally:
             if cursor is not None:
                 self._safe_close(conn, cursor)

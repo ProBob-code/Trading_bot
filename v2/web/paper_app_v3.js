@@ -3775,6 +3775,287 @@ async function panicSell() {
 // RUNNING BOTS RENDERER
 // ============================================================
 
+// ============================================================
+// CHART SETTINGS — user-selectable chart type + indicators
+// ============================================================
+
+function renderChartSettings() {
+    const pop = document.getElementById('chartSettingsPopover');
+    if (!pop || typeof ChartManager === 'undefined') return;
+
+    // Custom buttons instead of a native <select>: the OS-rendered dropdown
+    // list can't be themed and pops up detached from the panel.
+    const types = ChartManager.CHART_TYPES.map(t =>
+        `<button type="button" class="chart-type-opt${String(ChartManager.chartType) === t.id ? ' active' : ''}"
+                 data-type="${t.id}">${t.label}</button>`
+    ).join('');
+
+    const inds = ChartManager.INDICATORS.map(i => {
+        const on = ChartManager.studies.includes(i.id);
+        return `
+            <label class="chart-ind-row">
+                <input type="checkbox" data-study="${i.id}" ${on ? 'checked' : ''}>
+                <span>${i.label}</span>
+                ${i.pane ? '<em class="chart-ind-note">separate pane</em>' : ''}
+            </label>`;
+    }).join('');
+
+    pop.innerHTML = `
+        <div class="chart-settings-section">
+            <label class="chart-settings-label">Chart Type</label>
+            <div class="chart-type-list">${types}</div>
+        </div>
+        <div class="chart-settings-section">
+            <label class="chart-settings-label">Indicators</label>
+            ${inds}
+            <p class="chart-settings-hint">Indicators marked <em>separate pane</em> add a panel below the price and shrink the chart. To see <em>more</em> candles, pick a longer interval (5m/15m).</p>
+        </div>`;
+
+    pop.querySelectorAll('.chart-type-opt[data-type]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            pop.querySelectorAll('.chart-type-opt[data-type]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            ChartManager.setChartType(btn.dataset.type);
+        });
+    });
+
+    pop.querySelectorAll('input[data-study]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            const picked = Array.from(pop.querySelectorAll('input[data-study]:checked'))
+                .map(x => x.dataset.study);
+            ChartManager.setStudies(picked);
+        });
+    });
+}
+
+function toggleChartSettings(evt) {
+    if (evt) evt.stopPropagation();
+    const pop = document.getElementById('chartSettingsPopover');
+    if (!pop) return;
+    const opening = pop.hasAttribute('hidden');
+    if (opening) {
+        renderChartSettings();
+        pop.removeAttribute('hidden');
+    } else {
+        pop.setAttribute('hidden', '');
+    }
+}
+
+// Close the popover on outside click
+document.addEventListener('click', (e) => {
+    const pop = document.getElementById('chartSettingsPopover');
+    const btn = document.getElementById('chartSettingsBtn');
+    if (!pop || pop.hasAttribute('hidden')) return;
+    if (!pop.contains(e.target) && btn && !btn.contains(e.target)) {
+        pop.setAttribute('hidden', '');
+    }
+});
+
+// ============================================================
+// EVOLUTION ENGINE — expandable cards (home page)
+// ============================================================
+
+const EVO_PARAM_LABELS = {
+    take_profit: ['Take Profit', v => v + '%'],
+    stop_loss: ['Stop Loss', v => v + '%'],
+    sensitivity_rank: ['Sensitivity', v => ['Conservative', 'Balanced', 'Aggressive'][v] || v],
+    cooldown_bars: ['Cooldown', v => v + ' bars'],
+    status: ['Status', v => v],
+    ALL: ['All parameters', v => v]
+};
+
+function evoFmt(key, val) {
+    const d = EVO_PARAM_LABELS[key];
+    return d ? d[1](val) : val;
+}
+function evoMoney(v) {
+    const n = parseFloat(v) || 0;
+    return (n >= 0 ? '+$' : '-$') + Math.abs(n).toFixed(2);
+}
+
+// Remember which cards are expanded so a refresh doesn't collapse them
+const evoOpenCards = new Set();
+
+function toggleEvoCard(key) {
+    const card = document.querySelector(`.evo-card[data-key="${key}"]`);
+    if (!card) return;
+    card.classList.toggle('open');
+    if (card.classList.contains('open')) evoOpenCards.add(key);
+    else evoOpenCards.delete(key);
+}
+
+async function loadEvolutionCards() {
+    const grid = document.getElementById('evolutionGrid');
+    if (!grid) return;
+    try {
+        const [sRes, hRes] = await Promise.all([
+            fetch('/api/v2/evolution/status'),
+            fetch('/api/v2/evolution/history?limit=100')
+        ]);
+        const sData = await sRes.json();
+        const hData = await hRes.json();
+        const items = sData.strategies || [];
+        const history = hData.history || [];
+
+        const readyCount = items.filter(s => s.pending).length;
+        const badgeEl = document.getElementById('evoReadyCount');
+        if (badgeEl) badgeEl.textContent = readyCount;
+
+        if (!items.length) {
+            grid.innerHTML = '<div class="no-bots-message">No trades yet. Each strategy starts learning once it closes trades.</div>';
+            return;
+        }
+
+        grid.innerHTML = items.map(s => {
+            const key = `${s.strategy}|${s.symbol}`;
+            const m = s.metrics || {};
+            const p = s.params || {};
+            const d = s.defaults || {};
+            const mt = s.meter || { progress: 0, have: 0, need: 8, ready: false };
+            const isOpen = evoOpenCards.has(key);
+
+            const badge = s.status === 'paused'
+                ? '<span class="evo-badge paused">Paused</span>'
+                : s.pending ? '<span class="evo-badge ready">Lesson Ready</span>'
+                    : mt.ready ? '<span class="evo-badge active">Evolving</span>'
+                        : '<span class="evo-badge learning">Learning</span>';
+
+            const params = ['take_profit', 'stop_loss', 'sensitivity_rank', 'cooldown_bars'].map(k => {
+                const changed = String(p[k]) !== String(d[k]);
+                return `<div class="evo-param ${changed ? 'changed' : ''}">
+                    <span class="k">${EVO_PARAM_LABELS[k][0]}</span>
+                    <span class="v">${changed ? `<span class="orig">${evoFmt(k, d[k])}</span>` : ''}${evoFmt(k, p[k])}</span>
+                </div>`;
+            }).join('');
+
+            const lesson = s.pending ? `
+                <div class="evo-lesson">
+                    <div class="evo-lesson-head"><i class="fas fa-lightbulb"></i> Lesson learned — review &amp; apply</div>
+                    ${(s.pending.changes || []).map(c => `
+                        <div class="evo-change">${(EVO_PARAM_LABELS[c.param] || [c.param])[0]}:
+                            ${evoFmt(c.param, c.from)} <span class="evo-arrow">→</span> ${evoFmt(c.param, c.to)}</div>
+                        <div class="evo-reason">${c.reason || ''}</div>`).join('')}
+                    <div class="evo-meta">
+                        From ${s.pending.metrics?.closed_trades ?? 0} closed trades ·
+                        win ${Number(s.pending.metrics?.win_rate || 0).toFixed(1)}% ·
+                        expectancy ${evoMoney(s.pending.metrics?.expectancy)} ·
+                        ${s.pending.regime || 'unknown'} market
+                    </div>
+                    <div class="evo-actions">
+                        <button class="evo-proceed" onclick="approveEvolution('${s.strategy}','${s.symbol}')">
+                            <i class="fas fa-check"></i> Proceed — Apply Now
+                        </button>
+                        <button class="evo-dismiss" onclick="dismissEvolution('${s.strategy}','${s.symbol}')">Dismiss</button>
+                    </div>
+                </div>` : '';
+
+            const profs = Object.keys(s.profiles || {});
+            const profiles = profs.length ? `<div class="evo-profiles"><b>Learned per market:</b><br>${
+                profs.map(r => `• <b>${r}</b> — TP ${s.profiles[r].take_profit}% / SL ${s.profiles[r].stop_loss}%`).join('<br>')
+            }</div>` : '';
+
+            const gens = history.filter(h => h.strategy === s.strategy &&
+                (!h.symbol || h.symbol === s.symbol));
+            const genRows = gens.length ? gens.map(g => `
+                <div class="evo-gen-row">
+                    <div class="evo-gen-num">${g.generation}</div>
+                    <div>
+                        ${(Array.isArray(g.changes_json) ? g.changes_json : []).map(c =>
+                            `<div class="evo-change">${(EVO_PARAM_LABELS[c.param] || [c.param])[0]}:
+                                ${evoFmt(c.param, c.from)} <span class="evo-arrow">→</span> ${evoFmt(c.param, c.to)}</div>
+                             <div class="evo-reason">${c.reason || ''}</div>`).join('')}
+                        <div class="evo-meta">${g.closed_trades} closed · win ${Number(g.win_rate).toFixed(1)}% ·
+                            ${g.verdict}${g.created_at ? ' · ' + new Date(g.created_at).toLocaleString() : ''}</div>
+                    </div>
+                </div>`).join('') : '<div class="evo-reason">No adaptations applied yet.</div>';
+
+            return `<div class="evo-card ${isOpen ? 'open' : ''} ${s.pending ? 'ready' : ''} ${s.status === 'paused' ? 'paused' : ''}" data-key="${key}">
+                <div class="evo-card-head" onclick="toggleEvoCard('${key}')">
+                    <span class="evo-card-title">${getStrategyName(s.strategy)}</span>
+                    <span class="evo-symbol">${s.symbol}</span>
+                    <span class="evo-gen">GEN ${s.generation}</span>
+                    ${badge}
+                    <i class="fas fa-chevron-down caret"></i>
+                </div>
+                <div class="evo-meter ${mt.ready ? 'full' : ''}">
+                    <div class="lbl">
+                        <span>${mt.ready ? '⚡ Ready to evolve' : 'Learning from closed trades'}</span>
+                        <span>${mt.have}/${mt.need}</span>
+                    </div>
+                    <div class="track"><span class="fill" style="width:${mt.progress}%"></span></div>
+                </div>
+                <div class="evo-card-body">
+                    <div class="evo-meta">
+                        ${m.closed_trades || 0} closed · win ${Number(m.win_rate || 0).toFixed(1)}% ·
+                        expectancy ${evoMoney(m.expectancy)} · <span class="evo-regime">${s.regime || 'unknown'}</span>
+                    </div>
+                    ${lesson}
+                    <div class="evo-section-label">Live Parameters</div>
+                    <div class="evo-params">${params}</div>
+                    ${profiles}
+                    <div class="evo-section-label">Evolution History</div>
+                    ${genRows}
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        console.error('[EVO] load failed:', e);
+        grid.innerHTML = '<div class="no-bots-message">Could not load evolution data.</div>';
+    }
+}
+
+async function approveEvolution(strategy, symbol) {
+    try {
+        const res = await fetch('/api/v2/evolution/approve', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ strategy, symbol })
+        });
+        const d = await res.json();
+        if (!d.success) alert('Could not apply: ' + (d.error || 'unknown error'));
+        else showNotification(`🧬 ${getStrategyName(strategy)} evolved to gen ${d.generation}`);
+    } catch (e) { console.error('[EVO] approve failed:', e); }
+    loadEvolutionCards();
+}
+
+async function dismissEvolution(strategy, symbol) {
+    try {
+        await fetch('/api/v2/evolution/dismiss', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ strategy, symbol })
+        });
+    } catch (e) { console.error('[EVO] dismiss failed:', e); }
+    loadEvolutionCards();
+}
+
+async function runEvolution() {
+    try {
+        await fetch('/api/v2/evolution/run', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: true })
+        });
+    } catch (e) { console.error('[EVO] run failed:', e); }
+    loadEvolutionCards();
+}
+
+// ── Mobile off-canvas sidebar ──
+function toggleMobileSidebar(forceClose) {
+    const sidebar = document.querySelector('.slim-sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    if (!sidebar) return;
+    const open = forceClose === true ? false : !sidebar.classList.contains('mobile-open');
+    sidebar.classList.toggle('mobile-open', open);
+    if (overlay) overlay.classList.toggle('active', open);
+    document.body.style.overflow = open ? 'hidden' : '';
+}
+
+// Wire overlay tap + nav-item tap to close the drawer, once DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    const overlay = document.querySelector('.sidebar-overlay');
+    if (overlay) overlay.addEventListener('click', () => toggleMobileSidebar(true));
+    document.querySelectorAll('.slim-sidebar .nav-item').forEach(item =>
+        item.addEventListener('click', () => toggleMobileSidebar(true)));
+});
+
 // Signal Sensitivity: explainer copy + card badge styling
 const SENSITIVITY_INFO = {
     conservative: {
