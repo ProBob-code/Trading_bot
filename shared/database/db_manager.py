@@ -6,6 +6,7 @@ from loguru import logger
 from typing import Dict, List, Optional, Any
 import sqlite3
 import time
+import threading
 import random
 import string
 import requests
@@ -284,26 +285,84 @@ class DatabaseManager:
         except Exception as e:
             logger.debug(f"Error during safe close: {e}")
 
-    def cleanup_old_data(self, days_logs=7, days_news=30):
-        """Clean up old logs and news data to optimize storage."""
+    def cleanup_old_data(self, days_logs=None, days_news=None):
+        """Clean up old logs and news data to optimize storage.
+
+        Retention windows come from LOG_RETENTION_DAYS / NEWS_RETENTION_DAYS so a
+        deployment can tighten them without a code change. news_sentiment is a
+        regenerable cache and churns hard (~1.16M rows inserted over the project's
+        life against ~2k live), so it defaults to a short window.
+        """
+        if days_logs is None:
+            days_logs = int(os.getenv('LOG_RETENTION_DAYS', 7))
+        if days_news is None:
+            days_news = int(os.getenv('NEWS_RETENTION_DAYS', 7))
+
         logger.info(f"🧹 database_manager: Cleaning up old data (Logs < {days_logs}d, News < {days_news}d)...")
         conn = self._get_connection()
+        deleted = 0
         try:
             cursor = conn.cursor()
-            
+
             if self.use_sqlite:
                 self._execute(cursor, "DELETE FROM system_logs WHERE timestamp < datetime('now', ?)", (f"-{days_logs} days",))
                 self._execute(cursor, "DELETE FROM news_sentiment WHERE created_at < datetime('now', ?)", (f"-{days_news} days",))
+                deleted = cursor.rowcount or 0
             else:
                 self._execute(cursor, "DELETE FROM system_logs WHERE timestamp < NOW() - INTERVAL %s DAY", (days_logs,))
                 self._execute(cursor, "DELETE FROM news_sentiment WHERE created_at < NOW() - INTERVAL %s DAY", (days_news,))
-                
+                deleted = cursor.rowcount or 0
+
             conn.commit()
-            logger.info("✅ Database cleanup complete.")
+            logger.info(f"✅ Database cleanup complete ({deleted} news rows removed).")
         except Exception as e:
             logger.error(f"❌ Database cleanup failed: {e}")
         finally:
             self._safe_close(conn, cursor)
+
+        # InnoDB keeps the freed pages inside the .ibd file, so heavy churn leaves
+        # the table allocating far more disk than it holds (9MB file for 1.5MB of
+        # rows before this was added). Rebuild only after a large delete.
+        if deleted >= int(os.getenv('OPTIMIZE_AFTER_ROWS', 500)):
+            self._reclaim_news_space()
+
+    def _reclaim_news_space(self):
+        """Rebuild news_sentiment to return fragmented pages to the filesystem."""
+        if self.use_sqlite or self.use_d1_proxy:
+            return
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            logger.info("🗜️ database_manager: Reclaiming news_sentiment space...")
+            self._execute(cursor, "OPTIMIZE TABLE news_sentiment")
+            cursor.fetchall()  # OPTIMIZE returns a result set that must be drained
+            logger.info("✅ Space reclaimed.")
+        except Exception as e:
+            logger.warning(f"⚠️ Space reclaim skipped: {e}")
+        finally:
+            self._safe_close(conn, cursor)
+
+    def start_periodic_cleanup(self, interval_hours=None):
+        """Run cleanup on a daily cadence for long-lived processes.
+
+        cleanup_old_data only ran at __init__, so a 24/7 server never pruned after
+        boot and news_sentiment grew unbounded between restarts.
+        """
+        if interval_hours is None:
+            interval_hours = int(os.getenv('CLEANUP_INTERVAL_HOURS', 24))
+
+        def _loop():
+            while True:
+                time.sleep(interval_hours * 3600)
+                try:
+                    self.cleanup_old_data()
+                except Exception as e:
+                    logger.error(f"❌ Periodic cleanup failed: {e}")
+
+        t = threading.Thread(target=_loop, daemon=True, name="db-cleanup")
+        t.start()
+        logger.info(f"🧹 database_manager: Periodic cleanup scheduled every {interval_hours}h.")
+        return t
 
     def _init_db(self):
         """Initialize database with required tables."""

@@ -1565,6 +1565,12 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"V2 bot restore failed: {e}")
 
+    # Keep news/log tables pruned for the life of the process, not just at boot
+    try:
+        db_manager.start_periodic_cleanup()
+    except Exception as e:
+        logger.error(f"Periodic DB cleanup could not start: {e}")
+
     # Start the bot watchdog in a background thread
     if is_v1_enabled():
         watchdog_thread = threading.Thread(target=bot_watchdog_loop, daemon=True)
