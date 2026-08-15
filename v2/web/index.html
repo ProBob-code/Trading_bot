@@ -56,6 +56,13 @@
             background: var(--accent);
         }
 
+        /* overflow-x on body alone does not reliably suppress document-level
+           scrolling; the viewport takes its overflow from html when body is the
+           only one set. */
+        html {
+            overflow-x: hidden;
+        }
+
         body {
             background-color: var(--bg-base);
             color: var(--text-main);
@@ -69,7 +76,10 @@
             position: fixed;
             top: 0;
             left: 0;
-            width: 100vw;
+            /* 100vw counts the scrollbar gutter, so it exceeds the visible width
+               and forces a horizontal scrollbar on narrow screens; 100% of the
+               fixed containing block does not. */
+            width: 100%;
             height: 100vh;
             z-index: -1;
             overflow: hidden;
@@ -308,6 +318,14 @@
             text-decoration: none;
             box-shadow: 0 0 30px var(--accent-glow);
             transition: all 0.3s ease;
+            /* Without an explicit display these render as inline boxes: vertical
+               padding stops separating the line boxes and the background paints
+               per line fragment, so wrapped label text spills out of the button. */
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            max-width: 100%;
         }
 
         .btn-cta-glow:hover {
@@ -329,6 +347,11 @@
             cursor: pointer;
             text-decoration: none;
             transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            max-width: 100%;
         }
 
         .btn-cta-outline:hover {
@@ -790,12 +813,30 @@
             footer { padding: 40px; flex-direction: column; gap: 24px; text-align: center; }
         }
 
+        /* Larger CTA sizing lives here rather than inline so the breakpoints below
+           can actually override it. */
+        .btn-cta-lg { padding: 20px 56px; font-size: 17px; }
+
         @media (max-width: 768px) {
             .features-grid { grid-template-columns: 1fr; }
             .strategies-right { grid-template-columns: 1fr; }
             nav { display: none; }
             .cta-container { flex-direction: column; width: 100%; max-width: 320px; }
             .hero h1 { font-size: 38px; }
+
+            /* Long single-word labels ("QUANTITATIVE") cannot wrap mid-word, so the
+               button must be free to span the column instead of forcing overflow. */
+            .btn-cta-glow, .btn-cta-outline { width: 100%; padding: 16px 20px; }
+            .cta-container { align-items: stretch; }
+            .cta-box .btn-cta-glow { width: auto; }
+            .cta-box { padding: 56px 24px; border-radius: 22px; }
+        }
+
+        @media (max-width: 520px) {
+            .btn-cta-lg { padding: 18px 24px; font-size: 15px; letter-spacing: 0.5px; }
+            .cta-box .btn-cta-glow { width: 100%; }
+            .cta-box { padding: 40px 16px; border-radius: 18px; }
+            .hero h1 { font-size: 32px; }
         }
     </style>
 </head>
@@ -1011,7 +1052,7 @@
         <div class="cta-box">
             <h2>Deploy the Power Tool Today</h2>
             <p>Stop studying theories. Gain access to the ultimate quantitative terminal and begin deploying systematic edge with immediate statistical guidance.</p>
-            <a href="/godbot_login" class="btn-cta-glow" style="padding: 20px 56px; font-size: 17px;">LAUNCH QUANTITATIVE COCKPIT</a>
+            <a href="/godbot_login" class="btn-cta-glow btn-cta-lg">LAUNCH QUANTITATIVE COCKPIT</a>
         </div>
     </section>
 
