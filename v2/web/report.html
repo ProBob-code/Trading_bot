@@ -73,7 +73,13 @@
             display: flex;
             align-items: center;
             gap: 20px;
+            /* Flex items default to min-width:auto and refuse to shrink below their
+               content, pushing the header past the viewport on narrow screens. */
+            min-width: 0;
+            flex-wrap: wrap;
         }
+
+        .header-left > * { min-width: 0; }
 
         .brand {
             display: flex;
@@ -640,7 +646,9 @@
             top: calc(100% + 8px);
             right: 0;
             width: 250px;
-            max-width: calc(100vw - 32px);
+            /* 100vw counts the scrollbar gutter and so exceeds the visible width;
+               100% resolves against the positioned ancestor instead. */
+            max-width: calc(100% - 32px);
             background: #111a29;
             border: 1px solid rgba(124, 58, 237, 0.35);
             border-radius: 12px;
