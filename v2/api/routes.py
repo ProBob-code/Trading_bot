@@ -970,7 +970,7 @@ def v2_strategy_benchmark():
 
     metrics = db_manager.v2_get_strategy_metrics(current_user.id, strategy)
 
-    # ── Fallback: compute live metrics from v2_trades if metrics are empty/zero ──
+    # ── Fallback: compute live metrics from v2_trade_ledger if metrics are empty/zero ──
     has_real_data = False
     if metrics:
         for m in metrics:

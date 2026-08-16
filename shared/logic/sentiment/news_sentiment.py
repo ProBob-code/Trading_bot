@@ -191,16 +191,8 @@ class NewsSentimentAnalyzer:
                                 related_symbols=symbols,
                                 source=source
                             )
-                            # Persist to MySQL
-                            db_manager.save_news({
-                                'url': url,
-                                'title': title,
-                                'source': source,
-                                'sentiment': sentiment,
-                                'sentiment_label': 'BULLISH' if sentiment > 0.2 else ('BEARISH' if sentiment < -0.2 else 'NEUTRAL'),
-                                'symbols': symbols,
-                                'timestamp': timestamp
-                            })
+                            # News is analysed in-memory only; it was previously
+                            # written to news_sentiment, a table nothing ever read.
                             news_items.append(news_item)
             except Exception as e:
                 logger.error(f"Error loading news from {perplexity_file}: {e}")
@@ -541,16 +533,8 @@ class NewsSentimentAnalyzer:
                                 related_symbols=symbols,
                                 source=source
                             )
-                            # Persist to MySQL
-                            db_manager.save_news({
-                                'url': url,
-                                'title': title,
-                                'source': source,
-                                'sentiment': sentiment,
-                                'sentiment_label': 'BULLISH' if sentiment > 0.2 else ('BEARISH' if sentiment < -0.2 else 'NEUTRAL'),
-                                'symbols': symbols,
-                                'timestamp': timestamp
-                            })
+                            # News is analysed in-memory only; it was previously
+                            # written to news_sentiment, a table nothing ever read.
                             news_items.append(news_item)
                             
             except Exception as e:

@@ -285,60 +285,40 @@ class DatabaseManager:
         except Exception as e:
             logger.debug(f"Error during safe close: {e}")
 
-    def cleanup_old_data(self, days_logs=None, days_news=None):
-        """Clean up old logs and news data to optimize storage.
+    def cleanup_old_data(self, days_logs=None):
+        """Apply retention to the tables that would otherwise grow without bound.
 
-        Retention windows come from LOG_RETENTION_DAYS / NEWS_RETENTION_DAYS so a
-        deployment can tighten them without a code change. news_sentiment is a
-        regenerable cache and churns hard (~1.16M rows inserted over the project's
-        life against ~2k live), so it defaults to a short window.
+        Windows come from env vars so a deployment can tighten them without a code
+        change. The equity curve gains a row per closed trade and evolution history
+        one per tuning decision; neither had any retention before. Their defaults
+        are generous because they back charts and an audit trail respectively.
         """
         if days_logs is None:
             days_logs = int(os.getenv('LOG_RETENTION_DAYS', 7))
-        if days_news is None:
-            days_news = int(os.getenv('NEWS_RETENTION_DAYS', 7))
+        days_equity = int(os.getenv('EQUITY_RETENTION_DAYS', 180))
+        days_evolution = int(os.getenv('EVOLUTION_RETENTION_DAYS', 365))
 
-        logger.info(f"🧹 database_manager: Cleaning up old data (Logs < {days_logs}d, News < {days_news}d)...")
+        logger.info(
+            f"🧹 database_manager: Applying retention "
+            f"(logs <{days_logs}d, equity <{days_equity}d, evolution <{days_evolution}d)..."
+        )
         conn = self._get_connection()
-        deleted = 0
         try:
             cursor = conn.cursor()
 
             if self.use_sqlite:
                 self._execute(cursor, "DELETE FROM system_logs WHERE timestamp < datetime('now', ?)", (f"-{days_logs} days",))
-                self._execute(cursor, "DELETE FROM news_sentiment WHERE created_at < datetime('now', ?)", (f"-{days_news} days",))
-                deleted = cursor.rowcount or 0
+                self._execute(cursor, "DELETE FROM v2_strategy_equity_curve WHERE timestamp < datetime('now', ?)", (f"-{days_equity} days",))
+                self._execute(cursor, "DELETE FROM v2_evolution_history WHERE created_at < datetime('now', ?)", (f"-{days_evolution} days",))
             else:
                 self._execute(cursor, "DELETE FROM system_logs WHERE timestamp < NOW() - INTERVAL %s DAY", (days_logs,))
-                self._execute(cursor, "DELETE FROM news_sentiment WHERE created_at < NOW() - INTERVAL %s DAY", (days_news,))
-                deleted = cursor.rowcount or 0
+                self._execute(cursor, "DELETE FROM v2_strategy_equity_curve WHERE timestamp < NOW() - INTERVAL %s DAY", (days_equity,))
+                self._execute(cursor, "DELETE FROM v2_evolution_history WHERE created_at < NOW() - INTERVAL %s DAY", (days_evolution,))
 
             conn.commit()
-            logger.info(f"✅ Database cleanup complete ({deleted} news rows removed).")
+            logger.info("✅ Database retention applied.")
         except Exception as e:
             logger.error(f"❌ Database cleanup failed: {e}")
-        finally:
-            self._safe_close(conn, cursor)
-
-        # InnoDB keeps the freed pages inside the .ibd file, so heavy churn leaves
-        # the table allocating far more disk than it holds (9MB file for 1.5MB of
-        # rows before this was added). Rebuild only after a large delete.
-        if deleted >= int(os.getenv('OPTIMIZE_AFTER_ROWS', 500)):
-            self._reclaim_news_space()
-
-    def _reclaim_news_space(self):
-        """Rebuild news_sentiment to return fragmented pages to the filesystem."""
-        if self.use_sqlite or self.use_d1_proxy:
-            return
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-            logger.info("🗜️ database_manager: Reclaiming news_sentiment space...")
-            self._execute(cursor, "OPTIMIZE TABLE news_sentiment")
-            cursor.fetchall()  # OPTIMIZE returns a result set that must be drained
-            logger.info("✅ Space reclaimed.")
-        except Exception as e:
-            logger.warning(f"⚠️ Space reclaim skipped: {e}")
         finally:
             self._safe_close(conn, cursor)
 
@@ -346,7 +326,7 @@ class DatabaseManager:
         """Run cleanup on a daily cadence for long-lived processes.
 
         cleanup_old_data only ran at __init__, so a 24/7 server never pruned after
-        boot and news_sentiment grew unbounded between restarts.
+        boot, so append-only tables grew unbounded between restarts.
         """
         if interval_hours is None:
             interval_hours = int(os.getenv('CLEANUP_INTERVAL_HOURS', 24))
@@ -484,20 +464,8 @@ class DatabaseManager:
                 ) ENGINE=InnoDB
             ''')
 
-            # News Sentiment table
-            self._execute(cursor, '''
-                CREATE TABLE IF NOT EXISTS news_sentiment (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    url VARCHAR(767) UNIQUE,
-                    title TEXT,
-                    source VARCHAR(255),
-                    sentiment_score DOUBLE,
-                    sentiment_label VARCHAR(20),
-                    symbols TEXT,
-                    timestamp TIMESTAMP NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB
-            ''')
+            # NOTE: news_sentiment was removed. Headlines are scored in-memory and
+            # streamed to the UI; persisting them only produced write churn.
 
             # System State table
             # SQLite doesn't support ON UPDATE CURRENT_TIMESTAMP
@@ -546,45 +514,10 @@ class DatabaseManager:
                 ) ENGINE=InnoDB
             ''')
 
-            # V2 Trade Ledger — full execution audit trail
-            self._execute(cursor, '''
-                CREATE TABLE IF NOT EXISTS v2_trades (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id INT NOT NULL,
-                    trade_id VARCHAR(100) UNIQUE,
-                    symbol VARCHAR(50),
-                    side VARCHAR(20),
-                    position_side VARCHAR(20),
-                    quantity DOUBLE,
-                    fill_price DECIMAL(18,8),
-                    market_price DOUBLE,
-                    spread_pct DOUBLE,
-                    slippage_pct DOUBLE,
-                    commission DECIMAL(18,8),
-                    volatility_input DOUBLE,
-                    volume_input DOUBLE,
-                    leverage DOUBLE DEFAULT 1,
-                    margin_mode VARCHAR(20) DEFAULT 'isolated',
-                    realized_pnl DECIMAL(18,8),
-                    net_pnl DECIMAL(18,8),
-                    entry_price DECIMAL(18,8),
-                    strategy VARCHAR(100),
-                    bot_id VARCHAR(255),
-                    session_id VARCHAR(32),
-                    trade_type VARCHAR(20),
-                    direction VARCHAR(20),
-                    duration_seconds DOUBLE,
-                    account_value DOUBLE,
-                    notes TEXT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    trade_time TIMESTAMP,
-                    date DATE,
-                    CONSTRAINT fk_v2_session
-                        FOREIGN KEY (session_id)
-                        REFERENCES v2_sessions(session_id)
-                        ON DELETE CASCADE
-                ) ENGINE=InnoDB
-            ''')
+            # NOTE: v2_trades was removed. Despite its name it was never written to
+            # by any code path — v2_trade_ledger is the real execution record. An
+            # empty table that looks authoritative is worse than no table, because
+            # queries against it return zero rows instead of failing.
 
             # V2 Strategy Metrics — aggregated per user per strategy
             self._execute(cursor, '''
@@ -715,60 +648,9 @@ class DatabaseManager:
                 ) ENGINE=InnoDB
             ''')
 
-            # Migration for v2_trades: Add session_id and trade_time
+            # (v2_trades, its migrations and its indices were removed along with
+            # the table — nothing ever wrote to it.)
             if not self.use_sqlite:
-                # MySQL Migrations
-                try:
-                    cursor.execute("ALTER TABLE v2_trades ADD COLUMN session_id VARCHAR(32) AFTER bot_id")
-                    conn.commit()
-                except Exception: pass
-
-                try:
-                    cursor.execute("ALTER TABLE v2_trades ADD COLUMN trade_type VARCHAR(20) AFTER session_id")
-                    conn.commit()
-                except Exception: pass
-
-                try:
-                    cursor.execute("ALTER TABLE v2_trades ADD COLUMN direction VARCHAR(20) AFTER trade_type")
-                    conn.commit()
-                except Exception: pass
-
-                try:
-                    cursor.execute("ALTER TABLE v2_trades ADD COLUMN duration_seconds DOUBLE AFTER direction")
-                    conn.commit()
-                except Exception: pass
-
-                try:
-                    cursor.execute("ALTER TABLE v2_trades ADD COLUMN account_value DOUBLE AFTER duration_seconds")
-                    conn.commit()
-                except Exception: pass
-                
-                try:
-                    cursor.execute("ALTER TABLE v2_trades ADD COLUMN trade_time TIMESTAMP AFTER timestamp")
-                    conn.commit()
-                except Exception: pass
-                
-                # Performance Indices
-                try:
-                    cursor.execute("CREATE INDEX idx_trade_time ON v2_trades(trade_time)")
-                    conn.commit()
-                except Exception: pass
-                
-                try:
-                    cursor.execute("CREATE INDEX idx_session_id ON v2_trades(session_id)")
-                    conn.commit()
-                except Exception: pass
-                
-                try:
-                    cursor.execute("CREATE INDEX idx_session_time ON v2_trades(session_id, trade_time)")
-                    conn.commit()
-                except Exception: pass
-
-                try:
-                    cursor.execute("CREATE INDEX idx_symbol_time ON v2_trades(symbol, trade_time)")
-                    conn.commit()
-                except Exception: pass
-
                 # v2_sessions migrations
                 try:
                     cursor.execute("ALTER TABLE v2_sessions ADD COLUMN status VARCHAR(16) DEFAULT 'ACTIVE' AFTER engine_version")
@@ -788,29 +670,6 @@ class DatabaseManager:
                 # Financial Precision Conversions (MySQL)
                 try:
                     cursor.execute("ALTER TABLE v2_sessions MODIFY total_pnl DECIMAL(18,8) DEFAULT 0")
-                    cursor.execute("ALTER TABLE v2_trades MODIFY fill_price DECIMAL(18,8)")
-                    cursor.execute("ALTER TABLE v2_trades MODIFY commission DECIMAL(18,8)")
-                    cursor.execute("ALTER TABLE v2_trades MODIFY realized_pnl DECIMAL(18,8)")
-                    cursor.execute("ALTER TABLE v2_trades MODIFY net_pnl DECIMAL(18,8)")
-                    cursor.execute("ALTER TABLE v2_trades MODIFY entry_price DECIMAL(18,8)")
-                    conn.commit()
-                except Exception: pass
-
-                # Additional Indices
-                try:
-                    cursor.execute("CREATE INDEX idx_strategy_time ON v2_trades(strategy, trade_time)")
-                    conn.commit()
-                except Exception: pass
-
-                # Add FK Constraint to v2_trades (MySQL)
-                try:
-                    cursor.execute("""
-                        ALTER TABLE v2_trades
-                        ADD CONSTRAINT fk_v2_session
-                        FOREIGN KEY (session_id)
-                        REFERENCES v2_sessions(session_id)
-                        ON DELETE CASCADE
-                    """)
                     conn.commit()
                 except Exception: pass
 
@@ -857,41 +716,7 @@ class DatabaseManager:
                 except Exception: pass
             else:
                 # SQLite Migrations
-                try:
-                    cursor.execute("ALTER TABLE v2_trades ADD COLUMN session_id TEXT")
-                    conn.commit()
-                except Exception: pass
-                
-                try:
-                    cursor.execute("ALTER TABLE v2_trades ADD COLUMN trade_time TEXT")
-                    conn.commit()
-                except Exception: pass
-                
-                # Indices for SQLite
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_time ON v2_trades(trade_time)")
-                    conn.commit()
-                except Exception: pass
-                
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON v2_trades(session_id)")
-                    conn.commit()
-                except Exception: pass
-                
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_time ON v2_trades(session_id, trade_time)")
-                    conn.commit()
-                except Exception: pass
-
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbol_time ON v2_trades(symbol, trade_time)")
-                    conn.commit()
-                except Exception: pass
-
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_strategy_time ON v2_trades(strategy, trade_time)")
-                    conn.commit()
-                except Exception: pass
+                # (v2_trades migrations/indices removed with the table.)
 
                 # v2_sessions migrations for SQLite
                 try:
@@ -949,13 +774,9 @@ class DatabaseManager:
                     conn.commit()
                 except Exception: pass
 
-            # ── Schema Versioning ──
-            self._execute(cursor, '''
-                CREATE TABLE IF NOT EXISTS db_schema_version (
-                    version INT PRIMARY KEY,
-                    applied_at DATETIME
-                ) ENGINE=InnoDB
-            ''')
+            # NOTE: db_schema_version was removed — it was created but never read
+            # or written, so it tracked nothing. Migrations here are idempotent
+            # ADD COLUMN/CREATE INDEX attempts, which need no version marker.
 
             # ── User Watchlist (Favorites) ──
             self._execute(cursor, '''
@@ -1262,32 +1083,10 @@ class DatabaseManager:
             self._safe_close(conn, cursor)
 
     # --- News Sentiment ---
-    
-    def save_news(self, news_item: Dict):
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-            fields = ['url', 'title', 'source', 'sentiment_score', 'sentiment_label', 'symbols', 'timestamp']
-            data = [
-                news_item.get('url'),
-                news_item.get('title'),
-                news_item.get('source'),
-                news_item.get('sentiment'),
-                news_item.get('sentiment_label'),
-                ",".join(news_item.get('symbols', [])),
-                news_item.get('timestamp')
-            ]
-            
-            columns = ", ".join(fields)
-            placeholders = ", ".join(["%s"] * len(fields))
-            
-            self._execute(cursor, 
-                f"INSERT IGNORE INTO news_sentiment ({columns}) VALUES ({placeholders})",
-                data
-            )
-            conn.commit()
-        finally:
-            self._safe_close(conn, cursor)
+    # save_news() and the news_sentiment table were removed. Headlines were
+    # written on every fetch cycle (~1.16M rows over the project's life) and no
+    # code ever read them back. Sentiment is now scored in-memory and consumed
+    # live by the WebSocket feed.
 
     # --- System State ---
     
