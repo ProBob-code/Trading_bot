@@ -365,11 +365,44 @@ class DatabaseManager:
         return t
 
     def _init_db(self):
-        """Initialize database with required tables."""
+        """Build the schema, retrying, and escalate loudly if it cannot be built.
+
+        A half-initialised database is unrecoverable at runtime: every query
+        raises "Table ... doesn't exist" while /api/stats keeps returning 200, so
+        the platform healthcheck reports the service as fine. Failing hard makes
+        the restart policy retry the container instead of serving a broken app.
+        """
+        attempts = max(1, int(os.getenv('SCHEMA_INIT_ATTEMPTS', 3)))
+        last_error = None
+
+        for attempt in range(1, attempts + 1):
+            try:
+                self._create_schema()
+                self.schema_ready = True
+                return
+            except Exception as e:
+                last_error = e
+                logger.error(f"❌ Schema init attempt {attempt}/{attempts} failed: {e}")
+                if attempt < attempts:
+                    delay = 2 * attempt
+                    logger.info(f"⏳ Retrying schema init in {delay}s...")
+                    time.sleep(delay)
+
+        self.schema_ready = False
+        logger.critical(
+            "🛑 DATABASE SCHEMA COULD NOT BE CREATED after "
+            f"{attempts} attempts: {last_error}. Every query will fail; refusing "
+            "to start so this is visible instead of silently serving errors."
+        )
+        if os.getenv('ALLOW_DEGRADED_SCHEMA', '0').lower() not in ('1', 'true', 'yes'):
+            raise RuntimeError(f"Database schema initialization failed: {last_error}")
+
+    def _create_schema(self):
+        """Create the required tables. Raises if any statement fails."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            
+
             # Users table
             self._execute(cursor, '''
                 CREATE TABLE IF NOT EXISTS users (
@@ -947,6 +980,9 @@ class DatabaseManager:
             logger.info(f"{'SQLite' if self.use_sqlite else 'MySQL'} database initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
+            # Swallowing this left the app serving 500s on every query while its
+            # healthcheck still passed; _init_db retries and escalates instead.
+            raise
         finally:
             self._safe_close(conn, cursor)
 
