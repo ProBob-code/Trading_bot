@@ -767,11 +767,15 @@ body[data-asset="stocks"]::after {
     top: calc(100% + 8px);
     left: 0;
     right: 0;
-    background: var(--bg-card);
-    backdrop-filter: blur(25px);
+    /* Opaque on purpose. --bg-card is only 70% alpha and relied on
+       backdrop-filter to stay legible, but this dropdown opens over the
+       TradingView canvas and browsers routinely decline to blur canvas/iframe
+       content behind an overlay - leaving candlesticks and price labels showing
+       through the suggestions. Same rgb as --bg-card, without the alpha. */
+    background: #0d1420;
     border: 1px solid var(--panel-border);
     border-radius: 14px;
-    box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.7);
     max-height: 400px;
     overflow-y: auto;
     display: none;
@@ -780,8 +784,8 @@ body[data-asset="stocks"]::after {
 }
 
 [data-theme="light"] .search-results {
-    background: rgba(255, 255, 255, 0.95);
-    box-shadow: 0 20px 50px -20px rgba(15, 23, 42, 0.15);
+    background: #ffffff;
+    box-shadow: 0 20px 50px -20px rgba(15, 23, 42, 0.25);
 }
 
 .search-results.active { display: block; }
