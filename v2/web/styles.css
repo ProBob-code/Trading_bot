@@ -2811,7 +2811,31 @@ body[data-asset="stocks"]::after {
 
 @media (max-width: 640px) {
     /* Phone: single-column controls, bigger touch targets */
-    .header-center { display: none; }
+
+    /* The search box is the only way to reach a symbol that is not already on
+       screen, so it stays visible on phones. It takes its own full-width row
+       (same treatment as the 1024px breakpoint) rather than being hidden. */
+    .header-center {
+        display: flex;
+        order: 5;
+        flex-basis: 100%;
+        margin: 0 !important;
+        max-width: none;
+    }
+
+    /* A ⌘K hint is meaningless without a keyboard, and it sits on top of the
+       text the user is typing. */
+    .search-shortcut { display: none; }
+
+    /* iOS auto-zooms the viewport when a focused input is under 16px. */
+    .search-box input {
+        font-size: 16px;
+        height: 46px;
+        padding-right: 16px;
+    }
+
+    /* Keep the dropdown usable when the keyboard takes the lower half. */
+    .search-results { max-height: 50vh; }
     /* Brand name stays visible — it sits on its own row next to the
        hamburger + mark, so there is room for it. */
     .header-brand-text { font-size: 15px !important; }
