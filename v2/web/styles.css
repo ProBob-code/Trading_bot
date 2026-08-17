@@ -1178,8 +1178,11 @@ body[data-asset="stocks"]::after {
 
 .market-item {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    padding: 12px 20px;
+    /* last track = watchlist heart */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 32px;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 14px 12px 20px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.02);
     cursor: pointer;
     transition: all 0.2s;
@@ -1192,6 +1195,28 @@ body[data-asset="stocks"]::after {
 
 .price-box { font-family: var(--font-mono); font-weight: 600; text-align: right; }
 .change-box { font-family: var(--font-mono); text-align: right; font-weight: 700; }
+
+/* The heart stays quiet until the row is hovered — unless it is already
+   a favourite, in which case it must always be visible. */
+.market-item .fav-btn {
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
+    justify-self: end;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s, background 0.2s, color 0.2s;
+}
+
+.market-item:hover .fav-btn,
+.market-item .fav-btn:focus-visible,
+.market-item .fav-btn.active {
+    opacity: 1;
+}
+
+/* Touch devices have no hover — never hide the control there. */
+@media (hover: none) {
+    .market-item .fav-btn { opacity: 0.75; }
+}
 
 /* ============================================
    CENTER: CHART & TERMINAL

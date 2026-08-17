@@ -195,18 +195,27 @@ class BotManagerV2:
         # ── Evolution memory ──
         # Apply whatever this (strategy, symbol) pair has already learned, so a
         # restart / restore never throws away approved generations.
+        #
+        # Only parameters evolution has genuinely tuned are restored. Applying
+        # its *defaults* would overwrite what the user just chose in the UI —
+        # which is what silently forced every new bot back to conservative.
         try:
             from v2.engine.evolution.evolution_engine import (
                 evolution_engine, SENSITIVITY_BY_RANK)
             evolved = evolution_engine.live_params(user_id, strategy, symbol)
+            evolved_keys = set(evolved.get('_evolved_keys') or [])
             if evolved.get('_generation'):
-                config.take_profit = float(evolved.get('take_profit', config.take_profit))
-                config.stop_loss = float(evolved.get('stop_loss', config.stop_loss))
-                rank = int(max(0, min(2, evolved.get('sensitivity_rank', 0))))
-                config.sensitivity = SENSITIVITY_BY_RANK[rank]
+                if 'take_profit' in evolved_keys:
+                    config.take_profit = float(evolved['take_profit'])
+                if 'stop_loss' in evolved_keys:
+                    config.stop_loss = float(evolved['stop_loss'])
+                if 'sensitivity_rank' in evolved_keys:
+                    rank = int(max(0, min(2, evolved['sensitivity_rank'])))
+                    config.sensitivity = SENSITIVITY_BY_RANK[rank]
                 logger.info(f"[V2-BOTMGR] 🧬 Restored evolution gen {evolved['_generation']} "
                             f"for {strategy}/{symbol}: TP={config.take_profit}% "
-                            f"SL={config.stop_loss}% sens={config.sensitivity}")
+                            f"SL={config.stop_loss}% sens={config.sensitivity} "
+                            f"(evolved: {sorted(evolved_keys) or 'none'})")
         except Exception as e:
             logger.debug(f"[V2-BOTMGR] evolution params unavailable: {e}")
 

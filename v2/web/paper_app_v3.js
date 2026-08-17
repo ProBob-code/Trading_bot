@@ -56,15 +56,27 @@ const UI = {
         const { marketTable } = this.elements;
         if (!marketTable) return;
 
-        marketTable.innerHTML = assets.map(asset => `
+        const favSymbols = (state.userWatchlist || []).map(w => w.symbol);
+
+        marketTable.innerHTML = assets.map(asset => {
+            const isFav = favSymbols.includes(asset.symbol);
+            const market = asset.market || state.currentMarket;
+            const name = (asset.name || '').replace(/'/g, "\\'");
+            return `
             <div class="market-item" data-symbol="${asset.symbol}">
                 <div class="symbol-box"><span class="symbol">${asset.symbol}</span><span class="name">${asset.name || ''}</span></div>
-                <div class="price-box" data-price-symbol="${asset.symbol}" style="font-family:var(--font-mono); font-weight:600;">$${parseFloat(asset.price || 0).toLocaleString()}</div>
+                <div class="price-box" data-price-symbol="${asset.symbol}" style="font-family:var(--font-mono); font-weight:600;">${formatSymbolPrice(asset.symbol, asset.price || 0)}</div>
                 <div class="change-box ${asset.change >= 0 ? 'p-positive' : 'p-negative'}" data-change-symbol="${asset.symbol}" style="font-family:var(--font-mono); font-weight:700; text-align:right;">
                     ${asset.change >= 0 ? '+' : ''}${asset.change.toFixed(2)}%
                 </div>
-            </div>
-        `).join('');
+                <button class="fav-btn ${isFav ? 'active' : ''}" data-fav-symbol="${asset.symbol}"
+                    onclick="event.stopPropagation(); toggleWatchlistSymbol('${asset.symbol}', '${market}', '${name}')"
+                    title="${isFav ? 'Remove from watchlist' : 'Add to watchlist'}"
+                    aria-label="${isFav ? 'Remove from watchlist' : 'Add to watchlist'}">
+                    <i class="${isFav ? 'fas' : 'far'} fa-heart"></i>
+                </button>
+            </div>`;
+        }).join('');
 
         // Add click listeners
         marketTable.querySelectorAll('.market-item').forEach((item, i) => {
@@ -83,12 +95,15 @@ const UI = {
         state.lastPrice = price;
         state.prices[data.symbol] = price;
 
-        if (currentPrice) currentPrice.textContent = formatPrice(price);
-        
+        // An instrument's price belongs to its own quote currency — it is not
+        // a portfolio value, so it must not be run through the account's
+        // display-currency conversion.
+        if (currentPrice) currentPrice.textContent = formatSymbolPrice(data.symbol, price);
+
         // Update Portfolio Header (Asset Specific Display)
         const { assetPrice, assetChange, assetTrend } = this.elements;
         if (assetPrice) {
-            assetPrice.textContent = formatPrice(price);
+            assetPrice.textContent = formatSymbolPrice(data.symbol, price);
             assetPrice.style.color = price > previousPrice ? 'var(--bullish)' : (price < previousPrice ? 'var(--bearish)' : '');
         }
 
@@ -115,8 +130,8 @@ const UI = {
             }
         }
 
-        if (high24h) high24h.textContent = formatPrice(data.high_24h);
-        if (low24h) low24h.textContent = formatPrice(data.low_24h);
+        if (high24h) high24h.textContent = formatSymbolPrice(data.symbol, data.high_24h);
+        if (low24h) low24h.textContent = formatSymbolPrice(data.symbol, data.low_24h);
         if (volume24h) volume24h.textContent = formatVolume(data.volume_24h);
     },
 
@@ -256,6 +271,75 @@ const marketAssets = {
 };
 
 // ============================================================
+// QUOTE CURRENCY
+// ------------------------------------------------------------
+// An instrument is priced in its OWN quote currency, not always
+// USD: USDINR quotes rupees, USDJPY quotes yen, NSE stocks quote
+// rupees. Prefixing every price with "$" made the panel disagree
+// with the chart, so pricing is resolved per symbol here.
+// ============================================================
+const CURRENCY_GLYPHS = {
+    USD: '$', INR: '₹', JPY: '¥', EUR: '€', GBP: '£',
+    CAD: 'C$', AUD: 'A$', CHF: 'CHF ', NZD: 'NZ$', CNY: '¥',
+    SGD: 'S$', HKD: 'HK$'
+};
+
+// Symbols that trade on Indian exchanges and are therefore quoted in INR.
+const INR_QUOTED_SYMBOLS = [
+    'RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'TATAMOTORS', 'ICICIBANK',
+    'SBIN', 'WIPRO', 'ITC', 'BHARTIARTL', 'HINDUNILVR', 'AXISBANK',
+    'KOTAKBANK', 'LT', 'MARUTI', 'TITAN', 'NIFTY', 'BANKNIFTY', 'SENSEX'
+];
+
+const ISO_CURRENCY_CODES = [
+    'USD', 'EUR', 'GBP', 'JPY', 'INR', 'CAD', 'AUD',
+    'CHF', 'NZD', 'CNY', 'SGD', 'HKD'
+];
+
+/** True for a real FX cross (EURUSD, USDINR) — but NOT for metals like XAUUSD. */
+function isFxPair(symbol) {
+    const s = String(symbol || '').toUpperCase().replace('/', '');
+    return /^[A-Z]{6}$/.test(s)
+        && ISO_CURRENCY_CODES.includes(s.slice(0, 3))
+        && ISO_CURRENCY_CODES.includes(s.slice(3));
+}
+
+// Quote currency reported by the backend per symbol — authoritative when
+// present, because the provider knows what the exchange actually quotes in.
+const symbolCurrencies = {};
+
+/** The currency a symbol's price is denominated in. */
+function quoteCurrencyFor(symbol) {
+    const s = String(symbol || '').toUpperCase().replace('/', '');
+    if (!s) return 'USD';
+    if (symbolCurrencies[s]) return symbolCurrencies[s];
+    if (INR_QUOTED_SYMBOLS.includes(s)) return 'INR';
+    // Crypto priced in a USD stablecoin.
+    if (s.endsWith('USDT') || s.endsWith('USDC') || s.endsWith('BUSD')) return 'USD';
+    // 6-char pair (FX or metal): the trailing 3 chars are the quote currency.
+    if (/^[A-Z]{6}$/.test(s) && ISO_CURRENCY_CODES.includes(s.slice(3))) return s.slice(3);
+    return 'USD';
+}
+
+function currencyGlyph(code) {
+    return CURRENCY_GLYPHS[code] || `${code} `;
+}
+
+/**
+ * Format a price in the instrument's own quote currency.
+ * FX crosses get 4 decimals — at 2dp an entire day's move disappears.
+ */
+function formatSymbolPrice(symbol, price) {
+    const value = parseFloat(price);
+    if (!isFinite(value)) return '—';
+    const dp = isFxPair(symbol) ? 4 : 2;
+    return `${currencyGlyph(quoteCurrencyFor(symbol))}${value.toLocaleString(undefined, {
+        minimumFractionDigits: dp,
+        maximumFractionDigits: dp
+    })}`;
+}
+
+// ============================================================
 // LIVE PRICE FETCHING (Binance API + Backend Proxy)
 // ============================================================
 let pricePollingInterval = null;
@@ -277,6 +361,9 @@ async function fetchLivePrice(symbol, updateHeader = true) {
             const low = parseFloat(data.low_24h) || 0;
             const volume = parseFloat(data.volume_24h) || 0;
 
+            // Remember what the provider quotes this instrument in
+            if (data.currency) symbolCurrencies[symbol.toUpperCase()] = data.currency;
+
             // Store in prices map
             const previousPrice = state.prices[symbol] || price;
             state.prices[symbol] = price;
@@ -288,7 +375,7 @@ async function fetchLivePrice(symbol, updateHeader = true) {
                 const assetTrendEl = document.getElementById('assetTrend');
 
                 if (assetPriceEl) {
-                    assetPriceEl.textContent = `$${price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    assetPriceEl.textContent = formatSymbolPrice(symbol, price);
                     // Flash color on price change
                     assetPriceEl.style.color = price > previousPrice ? 'var(--bullish)' : (price < previousPrice ? 'var(--bearish)' : 'var(--accent)');
                     setTimeout(() => { assetPriceEl.style.color = 'var(--accent)'; }, 600);
@@ -350,14 +437,15 @@ function startPricePolling(symbol) {
  */
 function renderMarketWatch(type) {
     const assets = marketAssets[type] || marketAssets.crypto;
-    
+
     // Render with placeholder prices, then fetch live
     const assetsWithPrices = assets.map(a => ({
         ...a,
+        market: type,
         price: state.prices[a.symbol] || 0,
         change: 0
     }));
-    
+
     UI.updateMarketWatch(assetsWithPrices);
 
     // Fetch live prices for all assets in this market
@@ -368,7 +456,7 @@ function renderMarketWatch(type) {
             const priceEl = document.querySelector(`[data-price-symbol="${asset.symbol}"]`);
             const changeEl = document.querySelector(`[data-change-symbol="${asset.symbol}"]`);
             if (priceEl) {
-                priceEl.textContent = `$${data.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                priceEl.textContent = formatSymbolPrice(asset.symbol, data.price);
             }
             if (changeEl) {
                 changeEl.textContent = `${data.changePct >= 0 ? '+' : ''}${data.changePct.toFixed(2)}%`;
@@ -695,7 +783,7 @@ function initSocket() {
         
         if (priceEl) {
             const price = parseFloat(data.price);
-            priceEl.textContent = `$${price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            priceEl.textContent = formatSymbolPrice(data.symbol, price);
             // Subtle flash
             const isUp = price > (state.prices[data.symbol] || 0);
             priceEl.style.color = isUp ? 'var(--bullish)' : 'var(--bearish)';
@@ -991,14 +1079,44 @@ window.selectSuggestion = (symbol, market) => {
     document.getElementById('globalSearch').value = '';
 };
 
+/**
+ * Rebuild the Auto-Trade symbol dropdown so it always mirrors the instrument
+ * the user is actually watching. Previously the dropdown was a fixed
+ * crypto/stock list that never followed the chart, so hitting START BOT
+ * launched BTCUSDT no matter what was on screen.
+ */
+function syncSymbolSelect() {
+    const select = document.getElementById('symbolSelect');
+    if (!select) return;
+
+    const market = state.currentMarket || 'crypto';
+    const assets = (marketAssets[market] || marketAssets.crypto).slice();
+
+    // The active symbol may come from search and not be in the market list —
+    // it still has to be selectable, otherwise the bot starts on the wrong asset.
+    if (state.currentSymbol && !assets.some(a => a.symbol === state.currentSymbol)) {
+        assets.unshift({ symbol: state.currentSymbol, name: state.currentSymbol });
+    }
+
+    const label = market.charAt(0).toUpperCase() + market.slice(1);
+    select.innerHTML = `<optgroup label="${label}">` + assets.map(a =>
+        `<option value="${a.symbol}">${a.symbol}${a.name && a.name !== a.symbol ? ` — ${a.name}` : ''}</option>`
+    ).join('') + '</optgroup>';
+
+    select.value = state.currentSymbol;
+}
+
 function switchSymbol(symbol) {
     console.log(`[V2] Switching to: ${symbol}`);
     state.currentSymbol = symbol;
-    
+
+    // Keep the Auto-Trade panel pointed at whatever is being watched.
+    syncSymbolSelect();
+
     // Update asset name display
     const assetNameEl = document.getElementById('assetName');
     if (assetNameEl) assetNameEl.textContent = symbol;
-    
+
     // Update trading panel asset symbol input
     const assetSymbolEl = document.getElementById('assetSymbol');
     if (assetSymbolEl) assetSymbolEl.value = symbol;
@@ -1051,6 +1169,11 @@ function initAssetSwitcher() {
     // Set initial state
     const currentAsset = state.currentMarket || 'crypto';
     switchAsset(currentAsset, false);
+
+    // Populate the Auto-Trade symbol dropdown for the starting market —
+    // switchAsset(_, false) deliberately skips the symbol switch, so without
+    // this the dropdown would sit on its single placeholder option.
+    syncSymbolSelect();
 }
 
 function switchAsset(type, updateState = true) {
@@ -1245,15 +1368,36 @@ async function removeFromWatchlist(symbol) {
     }
 }
 
-/** Toggle watchlist from search suggestion heart button */
-window.toggleWatchlistFromSearch = (symbol, market, name) => {
+/**
+ * Toggle any symbol's watchlist membership.
+ * Shared by the Market Watch rows, the search suggestions and the
+ * watchlist itself so a heart means the same thing everywhere.
+ */
+window.toggleWatchlistSymbol = (symbol, market, name) => {
     const favSymbols = (state.userWatchlist || []).map(w => w.symbol);
     if (favSymbols.includes(symbol)) {
         removeFromWatchlist(symbol);
     } else {
-        addToWatchlist(symbol, market, name);
+        addToWatchlist(symbol, market || state.currentMarket, name || symbol);
     }
 };
+
+/** Toggle watchlist from search suggestion heart button */
+window.toggleWatchlistFromSearch = window.toggleWatchlistSymbol;
+
+/** Repaint the Market Watch hearts to match the saved watchlist. */
+function refreshMarketWatchHearts() {
+    const favSymbols = (state.userWatchlist || []).map(w => w.symbol);
+    document.querySelectorAll('[data-fav-symbol]').forEach(btn => {
+        const isFav = favSymbols.includes(btn.dataset.favSymbol);
+        btn.classList.toggle('active', isFav);
+        const label = isFav ? 'Remove from watchlist' : 'Add to watchlist';
+        btn.title = label;
+        btn.setAttribute('aria-label', label);
+        const icon = btn.querySelector('i');
+        if (icon) icon.className = `${isFav ? 'fas' : 'far'} fa-heart`;
+    });
+}
 
 /** Render the user's watchlist in the MY WATCHLIST section */
 function renderUserWatchlist() {
@@ -1262,6 +1406,9 @@ function renderUserWatchlist() {
     const watchlist = state.userWatchlist || [];
 
     if (countEl) countEl.textContent = watchlist.length;
+
+    // Hearts elsewhere on the page reflect the same list
+    refreshMarketWatchHearts();
 
     if (!body) return;
 
@@ -1276,7 +1423,7 @@ function renderUserWatchlist() {
 
     body.innerHTML = watchlist.map(item => {
         const price = state.prices[item.symbol];
-        const priceStr = price ? `$${parseFloat(price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '...';
+        const priceStr = price ? formatSymbolPrice(item.symbol, price) : '...';
         return `
             <div class="watchlist-item" onclick="selectSuggestion('${item.symbol}', '${item.market}')">
                 <div class="watchlist-item-left">
@@ -1285,7 +1432,7 @@ function renderUserWatchlist() {
                 </div>
                 <div class="watchlist-item-right">
                     <span class="watchlist-item-price" data-wl-price="${item.symbol}">${priceStr}</span>
-                    <button class="fav-btn active" onclick="event.stopPropagation(); removeFromWatchlist('${item.symbol}')" title="Remove from watchlist">
+                    <button class="fav-btn active" onclick="event.stopPropagation(); removeFromWatchlist('${item.symbol}')" title="Remove from watchlist" aria-label="Remove from watchlist">
                         <i class="fas fa-heart"></i>
                     </button>
                 </div>
@@ -1298,7 +1445,7 @@ function renderUserWatchlist() {
         if (data) {
             const el = document.querySelector(`[data-wl-price="${item.symbol}"]`);
             if (el) {
-                el.textContent = `$${data.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                el.textContent = formatSymbolPrice(item.symbol, data.price);
                 // Brief flash effect
                 el.style.color = 'var(--accent)';
                 setTimeout(() => { el.style.color = ''; }, 500);
@@ -1652,15 +1799,18 @@ function initEventListeners() {
     // If market switching logic needs to be initialized
     applyMarketTheme(state.currentMarket);
 
-    // Symbol selector
+    // Symbol selector — selection is two-way: picking here moves the chart too,
+    // so the panel and the Auto-Trade config can never drift apart.
     document.getElementById('symbolSelect')?.addEventListener('change', (e) => {
         const symbol = e.target.value;
-        state.currentSymbol = symbol;
         const market = state.currentMarket;
 
         // Update badge
         const marketBadge = document.getElementById('marketBadge');
         if (marketBadge) marketBadge.textContent = market.toUpperCase();
+
+        // Moves the chart, price polling and header to this symbol
+        switchSymbol(symbol);
 
         // Sync both market and symbol to backend
         if (state.socket) {
@@ -1688,10 +1838,19 @@ function initEventListeners() {
         console.log(`[V2] Strategy switched to: ${strategyName} — button state refreshed`);
     });
 
-    // Signal Sensitivity selector — updates the inline explainer
+    // Signal Sensitivity selector — updates the inline explainer, and the
+    // choice persists so a reload doesn't silently drop the user back to
+    // Conservative.
     const sensEl = document.getElementById('sensitivitySelect');
     if (sensEl) {
-        sensEl.addEventListener('change', () => updateSensitivityHelp(sensEl.value));
+        const saved = localStorage.getItem(SENSITIVITY_PREF_KEY);
+        if (saved && SENSITIVITY_INFO[saved]) sensEl.value = saved;
+
+        sensEl.addEventListener('change', () => {
+            localStorage.setItem(SENSITIVITY_PREF_KEY, sensEl.value);
+            updateSensitivityHelp(sensEl.value);
+            console.log(`[V2] Signal sensitivity → ${sensEl.value}`);
+        });
         updateSensitivityHelp(sensEl.value);
     }
 
@@ -3036,22 +3195,16 @@ function switchMarket(market) {
         tab.classList.toggle('active', tab.dataset.market === market);
     });
 
-    // Update symbol select options (optgroups)
-    const cryptoGroup = document.getElementById('cryptoSymbols');
-    const stockGroup = document.getElementById('stockSymbols');
-    const symbolSelect = document.getElementById('symbolSelect');
-
-    if (market === 'crypto') {
-        cryptoGroup.style.display = 'block';
-        stockGroup.style.display = 'none';
-        state.currentSymbol = 'BTCUSDT';
-    } else {
-        cryptoGroup.style.display = 'none';
-        stockGroup.style.display = 'block';
-        state.currentSymbol = 'AAPL';
-    }
-
-    symbolSelect.value = state.currentSymbol;
+    // The symbol dropdown is now rebuilt per market by syncSymbolSelect()
+    // rather than toggling static optgroups.
+    const defaults = {
+        crypto: 'BTCUSDT',
+        stocks: 'AAPL',
+        forex: 'EURUSD',
+        commodities: 'XAUUSD'
+    };
+    state.currentSymbol = defaults[market] || 'BTCUSDT';
+    syncSymbolSelect();
 
     // Notify server of market change
     if (state.socket) {
@@ -3655,12 +3808,17 @@ async function loadStrategies() {
 // Start Bot
 async function startBotFromUI() {
     const strategy = document.getElementById('strategySelect')?.value;
-    const symbol = document.getElementById('symbolSelect')?.value;
+    // The dropdown mirrors the watched instrument (see syncSymbolSelect), but
+    // state.currentSymbol stays authoritative so the bot can never launch on a
+    // different asset than the one on screen.
+    const symbol = state.currentSymbol || document.getElementById('symbolSelect')?.value;
+    const market = state.currentMarket || 'crypto';
     const interval = document.getElementById('intervalSelect')?.value || '1m';
     const posSize = parseFloat(document.getElementById('settingPositionSize')?.value || 10);
     const stopLoss = parseFloat(document.getElementById('settingStopLoss')?.value || 2);
     const takeProfit = parseFloat(document.getElementById('settingTakeProfit')?.value || 6);
     const maxQty = parseFloat(document.getElementById('maxQuantity')?.value || 1);
+    const sensitivity = document.getElementById('sensitivitySelect')?.value || 'conservative';
 
     if (!symbol || !strategy) {
         alert('Please select a strategy and symbol.');
@@ -3684,14 +3842,15 @@ async function startBotFromUI() {
                 symbol,
                 strategy: backendStrategy,
                 interval,
-                market: 'crypto',
-                mode: 'paper',
+                market,
+                mode: state.tradingMode || 'paper',
                 position_size: posSize,
                 stop_loss: stopLoss,
                 take_profit: takeProfit,
                 max_quantity: maxQty,
                 leverage: 1.0,
-                risk_pct: 2.0
+                risk_pct: 2.0,
+                sensitivity
             })
         });
         const data = await res.json();
@@ -4057,6 +4216,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Signal Sensitivity: explainer copy + card badge styling
+const SENSITIVITY_PREF_KEY = 'goatbot_signal_sensitivity';
 const SENSITIVITY_INFO = {
     conservative: {
         label: '🛡️ Conservative',

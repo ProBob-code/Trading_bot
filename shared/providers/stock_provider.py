@@ -55,7 +55,77 @@ class YahooFinanceProvider:
         "1h": "60m",
         "1d": "1d",
     }
-    
+
+    # UI ticker → Yahoo ticker. Without this, FX pairs, metals and NSE names
+    # 404 on Yahoo and fall through to a static price table, which is how the
+    # panel ended up showing a two-year-old USDINR while the chart showed spot.
+    YAHOO_SYMBOL_MAP = {
+        # ── FX (Yahoo suffixes crosses with "=X") ──
+        "EURUSD": "EURUSD=X",
+        "GBPUSD": "GBPUSD=X",
+        "USDJPY": "USDJPY=X",
+        "USDINR": "USDINR=X",
+        "AUDUSD": "AUDUSD=X",
+        "USDCAD": "USDCAD=X",
+        "USDCHF": "USDCHF=X",
+        "NZDUSD": "NZDUSD=X",
+        "EURGBP": "EURGBP=X",
+        "EURJPY": "EURJPY=X",
+        "GBPJPY": "GBPJPY=X",
+        # ── Commodities (front-month futures) ──
+        "XAUUSD": "GC=F",
+        "XAGUSD": "SI=F",
+        "XCUUSD": "HG=F",
+        "XBRUSD": "BZ=F",
+        "XTIUSD": "CL=F",
+        "XNGUSD": "NG=F",
+        # ── NSE equities ──
+        "RELIANCE": "RELIANCE.NS",
+        "TCS": "TCS.NS",
+        "INFY": "INFY.NS",
+        "HDFCBANK": "HDFCBANK.NS",
+        "TATAMOTORS": "TATAMOTORS.NS",
+        "ICICIBANK": "ICICIBANK.NS",
+        "SBIN": "SBIN.NS",
+        "WIPRO": "WIPRO.NS",
+    }
+
+    # Last-resort prices, used ONLY when the live fetch fails, so the UI shows
+    # something rather than a zero. Anything served from here is flagged with
+    # source='fallback' so callers can tell it apart from a real quote.
+    FALLBACK_PRICES = {
+        "XAUUSD": 2340.0, "EURUSD": 1.085, "GBPUSD": 1.254, "USDJPY": 155.20,
+        "AUDUSD": 0.655, "USDINR": 83.45, "USDCAD": 1.365, "XAGUSD": 28.30,
+        "XBRUSD": 83.50, "XCUUSD": 4.55, "XTIUSD": 78.50, "XNGUSD": 2.10,
+        "RELIANCE": 2950.0, "TCS": 3850.0, "HDFCBANK": 1520.0, "TATAMOTORS": 980.0,
+    }
+
+    # Instruments quoted in Indian rupees rather than US dollars.
+    INR_QUOTED = {"RELIANCE", "TCS", "INFY", "HDFCBANK", "TATAMOTORS",
+                  "ICICIBANK", "SBIN", "WIPRO"}
+
+    @classmethod
+    def to_yahoo_symbol(cls, symbol: str) -> str:
+        """Translate a UI ticker into the ticker Yahoo Finance actually serves."""
+        return cls.YAHOO_SYMBOL_MAP.get(symbol.strip().upper(), symbol.strip().upper())
+
+    @classmethod
+    def quote_currency(cls, symbol: str) -> str:
+        """
+        The currency a symbol's price is denominated in.
+
+        USDINR is quoted in rupees, USDJPY in yen, NSE stocks in rupees —
+        labelling all of them "USD" is what put a "$" in front of a rupee price.
+        """
+        s = symbol.strip().upper()
+        if s in cls.INR_QUOTED:
+            return "INR"
+        # 6-char FX cross: the trailing three characters are the quote currency.
+        if len(s) == 6 and s.isalpha():
+            return s[3:]
+        return "USD"
+
+
     def __init__(self):
         """Initialize Yahoo Finance provider."""
         self.session = requests.Session()
@@ -74,58 +144,72 @@ class YahooFinanceProvider:
         Returns:
             Dict with price info
         """
+        symbol = symbol.strip().upper()
+
         try:
-            symbol = symbol.strip().upper()
-            
-            # Use Mock Data for specific assets to avoid Yahoo Finance issues
-            MOCK_ASSETS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDINR", "USDCAD", "XAGUSD", "XBRUSD", "XCUUSD", "XTIUSD", "XNGUSD", "RELIANCE", "TCS", "HDFCBANK", "TATAMOTORS"]
-            
-            if symbol in MOCK_ASSETS:
-                import random
-                base_prices = {
-                    "XAUUSD": 2340.0, "EURUSD": 1.085, "GBPUSD": 1.254, "USDJPY": 155.20,
-                    "AUDUSD": 0.655, "USDINR": 83.45, "USDCAD": 1.365, "XAGUSD": 28.30,
-                    "XBRUSD": 83.50, "XCUUSD": 4.55, "XTIUSD": 78.50, "XNGUSD": 2.10,
-                    "RELIANCE": 2950.0, "TCS": 3850.0, "HDFCBANK": 1520.0, "TATAMOTORS": 980.0
-                }
-                base = base_prices.get(symbol, 100.0)
-                price = base + random.uniform(-base*0.002, base*0.002)
-                
-                return {
-                    'symbol': symbol,
-                    'price': price,
-                    'previous_close': base,
-                    'change': price - base,
-                    'change_pct': ((price / base) - 1) * 100,
-                    'currency': 'USD' if symbol not in ["RELIANCE", "TCS", "HDFCBANK", "TATAMOTORS"] else "INR",
-                    'exchange': 'MOCK',
-                    'market_state': 'OPEN',
-                    'timestamp': datetime.now()
-                }
-            
-            url = f"{self.BASE_URL}/{symbol}"
+            # FX pairs, metals and NSE names need translating before Yahoo will
+            # serve them — see YAHOO_SYMBOL_MAP.
+            yahoo_symbol = self.to_yahoo_symbol(symbol)
+
+            url = f"{self.BASE_URL}/{yahoo_symbol}"
             logger.info(f"🌍 Yahoo Finance URL for {symbol}: {url}")
             response = self.session.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
-            
+
             quote = data['chart']['result'][0]
             meta = quote['meta']
-            
+
+            price = meta.get('regularMarketPrice') or 0
+            prev_close = meta.get('previousClose') or meta.get('chartPreviousClose') or 0
+
+            if not price:
+                raise ValueError(f"Yahoo returned no price for {yahoo_symbol}")
+
             return {
                 'symbol': symbol,
-                'price': meta.get('regularMarketPrice', 0),
-                'previous_close': meta.get('previousClose', 0),
-                'change': meta.get('regularMarketPrice', 0) - meta.get('previousClose', 0),
-                'change_pct': ((meta.get('regularMarketPrice', 0) / meta.get('previousClose', 1)) - 1) * 100,
-                'currency': meta.get('currency', 'USD'),
+                'price': price,
+                'previous_close': prev_close,
+                'change': price - prev_close,
+                'change_pct': ((price / prev_close) - 1) * 100 if prev_close else 0.0,
+                # Trust Yahoo's currency, but fall back to our own mapping —
+                # the price must never be labelled in a currency it isn't in.
+                'currency': meta.get('currency') or self.quote_currency(symbol),
                 'exchange': meta.get('exchangeName', ''),
                 'market_state': meta.get('marketState', 'CLOSED'),
+                'source': 'yahoo',
                 'timestamp': datetime.now()
             }
         except Exception as e:
-            logger.error(f"Error fetching quote for {symbol}: {e}")
-            return {'symbol': symbol, 'price': 0, 'error': str(e)}
+            logger.warning(f"Live quote failed for {symbol} ({e}) — using fallback price")
+            return self._fallback_quote(symbol, str(e))
+
+    def _fallback_quote(self, symbol: str, error: str = '') -> Dict:
+        """
+        Static-baseline quote, used only when the live fetch fails.
+
+        Marked source='fallback' and flagged in the payload so nothing downstream
+        mistakes a placeholder for a real market price.
+        """
+        base = self.FALLBACK_PRICES.get(symbol)
+        if base is None:
+            return {'symbol': symbol, 'price': 0, 'source': 'unavailable', 'error': error}
+
+        import random
+        price = base + random.uniform(-base * 0.002, base * 0.002)
+        return {
+            'symbol': symbol,
+            'price': price,
+            'previous_close': base,
+            'change': price - base,
+            'change_pct': ((price / base) - 1) * 100,
+            'currency': self.quote_currency(symbol),
+            'exchange': 'FALLBACK',
+            'market_state': 'UNKNOWN',
+            'source': 'fallback',
+            'stale': True,
+            'timestamp': datetime.now()
+        }
     
     def get_historical_data(
         self,
@@ -157,7 +241,9 @@ class YahooFinanceProvider:
             elif interval == '1h':
                 period = "730d"
             
-            url = f"{self.BASE_URL}/{symbol}"
+            # Same translation as get_current_quote — otherwise a forex or NSE
+            # bot silently gets an empty frame and never generates a signal.
+            url = f"{self.BASE_URL}/{self.to_yahoo_symbol(symbol)}"
             params = {
                 "interval": yf_interval,
                 "range": period

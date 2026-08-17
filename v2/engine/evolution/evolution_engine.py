@@ -399,16 +399,25 @@ class EvolutionEngine:
         return [self.evolve(user_id, s) for s in strategies]
 
     def live_params(self, user_id: int, strategy: str, symbol: str = 'ALL') -> Dict:
-        """Parameters a bot should trade with right now (evolved or default)."""
+        """
+        Parameters a bot should trade with right now (evolved or default).
+
+        `_evolved_keys` lists the parameters evolution has actually stored a
+        value for. Callers must consult it before overriding a user's setting:
+        a defaulted key is an absence of evidence, not a decision, and treating
+        the two the same is how an explicit sensitivity choice used to get
+        silently reset to conservative on every start.
+        """
         state = self.db.v2_get_evolution_state(user_id, strategy, symbol)
         if not state:
-            return dict(DEFAULT_PARAMS)
+            return {**DEFAULT_PARAMS, '_evolved_keys': []}
         try:
             p = json.loads(state.get('params_json') or '{}')
             return {**DEFAULT_PARAMS, **p, '_status': state.get('status', 'active'),
-                    '_generation': state.get('generation', 0)}
+                    '_generation': state.get('generation', 0),
+                    '_evolved_keys': [k for k in p if k in PARAM_BOUNDS]}
         except Exception:
-            return dict(DEFAULT_PARAMS)
+            return {**DEFAULT_PARAMS, '_evolved_keys': []}
 
 
 evolution_engine = EvolutionEngine()

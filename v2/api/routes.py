@@ -1116,6 +1116,7 @@ def v2_price_proxy(symbol):
                     'low_24h': float(data.get('lowPrice', 0)),
                     'volume_24h': float(data.get('quoteVolume', 0)),
                     'open': float(data.get('openPrice', 0)),
+                    'currency': 'USD',  # USDT/USDC/BUSD pairs are dollar-quoted
                     'source': 'binance'
                 })
             else:
@@ -1150,7 +1151,11 @@ def v2_price_proxy(symbol):
                     'high_24h': quote.get('high', 0),
                     'low_24h': quote.get('low', 0),
                     'volume_24h': quote.get('volume', 0),
-                    'source': 'internal_stock'
+                    # An instrument is priced in its own quote currency — the UI
+                    # needs this to avoid stamping "$" on a rupee or yen price.
+                    'currency': quote.get('currency', 'USD'),
+                    'stale': bool(quote.get('stale')),
+                    'source': quote.get('source', 'internal_stock')
                 })
     except Exception as e:
         logger.warning(f"[V2] Internal price provider error for {symbol}: {e}")

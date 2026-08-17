@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoatBot V2 — Institutional Terminal</title>
-    <link rel="stylesheet" href="styles.css?v=8">
+    <link rel="stylesheet" href="styles.css?v=9">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://s3.tradingview.com/tv.js"></script>
     <script src="common/ChartManager.js?v=7"></script>
@@ -479,24 +479,10 @@
                 </div>
                 <div class="field-group">
                     <label>Symbol</label>
-                    <select id="symbolSelect">
-                        <optgroup label="Crypto" id="cryptoSymbols">
-                            <option value="BTCUSDT">BTCUSDT</option>
-                            <option value="ETHUSDT">ETHUSDT</option>
-                            <option value="SOLUSDT">SOLUSDT</option>
-                            <option value="BNBUSDT">BNBUSDT</option>
-                            <option value="XRPUSDT">XRPUSDT</option>
-                            <option value="ADAUSDT">ADAUSDT</option>
-                            <option value="DOGEUSDT">DOGEUSDT</option>
-                            <option value="AVAXUSDT">AVAXUSDT</option>
-                        </optgroup>
-                        <optgroup label="Stocks" id="stockSymbols" style="display:none;">
-                            <option value="AAPL">AAPL</option>
-                            <option value="TSLA">TSLA</option>
-                            <option value="GOOGL">GOOGL</option>
-                            <option value="MSFT">MSFT</option>
-                            <option value="NVDA">NVDA</option>
-                        </optgroup>
+                    <!-- Populated by syncSymbolSelect() so it always mirrors the
+                         instrument currently on the chart. -->
+                    <select id="symbolSelect" title="Follows the asset you are viewing">
+                        <option value="BTCUSDT">BTCUSDT</option>
                     </select>
                 </div>
                 <div class="field-group">
@@ -511,8 +497,11 @@
                 </div>
                 <div class="field-group">
                     <label>Signal Sensitivity</label>
+                    <!-- Initial value is restored from the saved preference in
+                         initEventListeners(); whatever is selected here is what
+                         the bot actually starts with. -->
                     <select id="sensitivitySelect">
-                        <option value="conservative" selected>🛡️ Conservative</option>
+                        <option value="conservative">🛡️ Conservative</option>
                         <option value="balanced">⚖️ Balanced</option>
                         <option value="aggressive">🔥 Aggressive</option>
                     </select>
@@ -813,7 +802,7 @@
     </div>
 
     <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
-    <script src="paper_app_v3.js?v=7"></script>
+    <script src="paper_app_v3.js?v=8"></script>
     <style>
         /* Small utility additions for the switch and modal */
         .switch input:checked+.slider {
