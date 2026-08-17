@@ -793,12 +793,24 @@ def v2_evolution_status():
 
     # Evolution is per (strategy, symbol) — the same strategy needs different
     # stops on BTC than on a forex pair.
-    pairs = sorted({(t.get('strategy'), t.get('symbol')) for t in
-                    db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000)
-                    if t.get('strategy') and t.get('symbol')})
+    pairs = {(t.get('strategy'), t.get('symbol')) for t in
+             db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000)
+             if t.get('strategy') and t.get('symbol')}
+
+    # Include running bots too. Without this a bot that hasn't closed a trade
+    # yet has no card at all, so there is nothing to evaluate or stop.
+    running_pairs = set()
+    try:
+        for b in bot_manager_v2.get_all_bots(user_id=current_user.id):
+            if b.get('strategy') and b.get('symbol'):
+                pairs.add((b['strategy'], b['symbol']))
+                if b.get('status') == 'running':
+                    running_pairs.add((b['strategy'], b['symbol']))
+    except Exception as e:
+        logger.warning(f"[V2-EVO] could not fold bots into status: {e}")
 
     out = []
-    for s, sym in pairs:
+    for s, sym in sorted(pairs):
         trades = db_manager.v2_get_closed_trades_for_eval(current_user.id, s, sym)
         m = evolution_engine.compute_metrics(trades)
         state = db_manager.v2_get_evolution_state(current_user.id, s, sym) or {}
@@ -822,6 +834,7 @@ def v2_evolution_status():
         out.append({
             'strategy': s,
             'symbol': sym,
+            'running': (s, sym) in running_pairs,
             'generation': state.get('generation', 0),
             'status': state.get('status', 'active'),
             'params': params,
@@ -909,6 +922,74 @@ def v2_evolution_dismiss():
     return jsonify(evolution_engine.dismiss(current_user.id, strategy, symbol))
 
 
+@v2_bp.route('/api/v2/evolution/candidates', methods=['GET'])
+@login_required
+def v2_evolution_candidates():
+    """
+    Everything the user could evaluate — what the Evaluate picker lists.
+
+    Union of (a) currently running bots and (b) pairs that already have trade
+    history. A freshly started bot has no closed trades yet, so history alone
+    would hide it from the picker; that is why only the one pair with trades
+    ever appeared before.
+    """
+    from v2.engine.evolution.evolution_engine import evolution_engine
+
+    pairs = {}
+
+    def add(strategy, symbol, running):
+        if not strategy or not symbol:
+            return
+        key = (strategy, symbol)
+        entry = pairs.setdefault(key, {'strategy': strategy, 'symbol': symbol,
+                                       'running': False})
+        entry['running'] = entry['running'] or running
+
+    try:
+        for b in bot_manager_v2.get_all_bots(user_id=current_user.id):
+            add(b.get('strategy'), b.get('symbol'), b.get('status') == 'running')
+    except Exception as e:
+        logger.warning(f"[V2-EVO] could not list bots for candidates: {e}")
+
+    try:
+        for t in db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000):
+            add(t.get('strategy'), t.get('symbol'), False)
+    except Exception as e:
+        logger.warning(f"[V2-EVO] could not list trades for candidates: {e}")
+
+    out = []
+    for (strategy, symbol), entry in sorted(pairs.items()):
+        state = db_manager.v2_get_evolution_state(current_user.id, strategy, symbol) or {}
+        meter = evolution_engine.readiness(current_user.id, strategy, symbol)
+        out.append({
+            **entry,
+            'generation': state.get('generation', 0),
+            'status': state.get('status', 'active'),
+            'has_pending': bool(state.get('pending_json')),
+            'meter': meter,
+        })
+
+    return jsonify({'success': True, 'candidates': out})
+
+
+@v2_bp.route('/api/v2/evolution/status-set', methods=['POST'])
+@login_required
+def v2_evolution_set_status():
+    """Stop ('paused') or resume ('active') evaluation for one pair."""
+    from v2.engine.evolution.evolution_engine import evolution_engine
+    data = request.json or {}
+    strategy = data.get('strategy')
+    symbol = data.get('symbol', 'ALL')
+    status = str(data.get('status', 'paused')).lower()
+    if not strategy:
+        return jsonify({'success': False, 'error': 'strategy required'}), 400
+    try:
+        return jsonify(evolution_engine.set_status(current_user.id, strategy, symbol, status))
+    except Exception as e:
+        logger.error(f"[V2-EVO] set status failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @v2_bp.route('/api/v2/evolution/run', methods=['POST'])
 @login_required
 def v2_evolution_run():
@@ -922,11 +1003,19 @@ def v2_evolution_run():
             results = [evolution_engine.evolve(current_user.id, strategy,
                                                data.get('symbol', 'ALL'), force=force)]
         else:
-            pairs = sorted({(t.get('strategy'), t.get('symbol')) for t in
-                            db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000)
-                            if t.get('strategy') and t.get('symbol')})
+            # Bulk run covers running bots as well as pairs with history, so a
+            # newly started bot is included instead of silently skipped.
+            pairs = {(t.get('strategy'), t.get('symbol')) for t in
+                     db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000)
+                     if t.get('strategy') and t.get('symbol')}
+            try:
+                pairs |= {(b.get('strategy'), b.get('symbol'))
+                          for b in bot_manager_v2.get_all_bots(user_id=current_user.id)
+                          if b.get('strategy') and b.get('symbol')}
+            except Exception as e:
+                logger.warning(f"[V2-EVO] could not fold bots into run: {e}")
             results = [evolution_engine.evolve(current_user.id, st, sy, force=force)
-                       for st, sy in pairs]
+                       for st, sy in sorted(pairs)]
         return jsonify({'success': True, 'results': results})
     except Exception as e:
         logger.error(f"[V2-EVO] manual run failed: {e}")

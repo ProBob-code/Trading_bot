@@ -4128,11 +4128,31 @@ async function loadEvolutionCards() {
                     </div>
                 </div>`).join('') : '<div class="evo-reason">No adaptations applied yet.</div>';
 
-            return `<div class="evo-card ${isOpen ? 'open' : ''} ${s.pending ? 'ready' : ''} ${s.status === 'paused' ? 'paused' : ''}" data-key="${key}">
+            const isPaused = s.status === 'paused';
+            const esc = v => String(v).replace(/'/g, "\\'");
+
+            // Per-card controls: evaluate or stop THIS pair without touching
+            // any other bot's learning.
+            const cardActions = `
+                <div class="evo-card-actions">
+                    ${isPaused
+                        ? `<button class="evo-pick-btn resume"
+                                onclick="setEvolutionStatus('${esc(s.strategy)}','${esc(s.symbol)}','active')">
+                                <i class="fas fa-play"></i> Resume Learning</button>`
+                        : `<button class="evo-pick-btn"
+                                onclick="runEvolution({ strategy: '${esc(s.strategy)}', symbol: '${esc(s.symbol)}' })">
+                                <i class="fas fa-bolt"></i> Evaluate Now</button>
+                           <button class="evo-pick-btn stop"
+                                onclick="setEvolutionStatus('${esc(s.strategy)}','${esc(s.symbol)}','paused')">
+                                <i class="fas fa-stop"></i> Stop Learning</button>`}
+                </div>`;
+
+            return `<div class="evo-card ${isOpen ? 'open' : ''} ${s.pending ? 'ready' : ''} ${isPaused ? 'paused' : ''}" data-key="${key}">
                 <div class="evo-card-head" onclick="toggleEvoCard('${key}')">
                     <span class="evo-card-title">${getStrategyName(s.strategy)}</span>
                     <span class="evo-symbol">${s.symbol}</span>
                     <span class="evo-gen">GEN ${s.generation}</span>
+                    ${s.running ? '<span class="evo-live-dot" title="Bot running"></span>' : ''}
                     ${badge}
                     <i class="fas fa-chevron-down caret"></i>
                 </div>
@@ -4149,6 +4169,7 @@ async function loadEvolutionCards() {
                         expectancy ${evoMoney(m.expectancy)} · <span class="evo-regime">${s.regime || 'unknown'}</span>
                     </div>
                     ${lesson}
+                    ${cardActions}
                     <div class="evo-section-label">Live Parameters</div>
                     <div class="evo-params">${params}</div>
                     ${profiles}
@@ -4186,13 +4207,174 @@ async function dismissEvolution(strategy, symbol) {
     loadEvolutionCards();
 }
 
-async function runEvolution() {
+// ============================================================
+// EVALUATE PICKER
+// ------------------------------------------------------------
+// Evaluation is per (strategy, symbol). The button used to fire a
+// blanket run, so whichever pair happened to have trade history was
+// the only thing that appeared to be evaluated. Now the user picks.
+// ============================================================
+
+/**
+ * Cockpit help overlay. The markup and both onclick handlers already existed,
+ * but the function never did — the "?" button threw a ReferenceError, so the
+ * panel could not be opened at all.
+ */
+function toggleCockpitVisionModal(show) {
+    const modal = document.getElementById('cockpitVisionModal');
+    if (!modal) return;
+    modal.classList.toggle('hidden', !show);
+    document.body.style.overflow = show ? 'hidden' : '';
+}
+
+function openEvoPicker() {
+    const modal = document.getElementById('evoPickerModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    loadEvoCandidates();
+}
+
+function closeEvoPicker() {
+    const modal = document.getElementById('evoPickerModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+/** Populate the picker with every bot that can be evaluated. */
+async function loadEvoCandidates() {
+    const list = document.getElementById('evoPickerList');
+    if (!list) return;
+    list.innerHTML = '<div class="evo-picker-empty">Loading bots…</div>';
+
     try {
-        await fetch('/api/v2/evolution/run', {
+        const res = await fetch('/api/v2/evolution/candidates');
+        const data = await res.json();
+        const items = data.candidates || [];
+
+        if (!items.length) {
+            list.innerHTML = `<div class="evo-picker-empty">
+                No bots to evaluate yet. Start one from the Command Deck first.
+            </div>`;
+            return;
+        }
+
+        // Running bots first — that is what the user is most likely after.
+        items.sort((a, b) => (b.running - a.running) ||
+            a.strategy.localeCompare(b.strategy) || a.symbol.localeCompare(b.symbol));
+
+        list.innerHTML = items.map(c => {
+            const mt = c.meter || { progress: 0, have: 0, need: 8, ready: false };
+            const paused = c.status === 'paused';
+            const esc = s => String(s).replace(/'/g, "\\'");
+
+            const state = paused ? '<span class="evo-badge paused">Stopped</span>'
+                : c.has_pending ? '<span class="evo-badge ready">Lesson Ready</span>'
+                    : mt.ready ? '<span class="evo-badge active">Ready</span>'
+                        : '<span class="evo-badge learning">Learning</span>';
+
+            // A stopped pair offers Resume instead of Evaluate — evaluating a
+            // pair the user deliberately stopped would just be ignored.
+            const action = paused
+                ? `<button class="evo-pick-btn resume"
+                        onclick="setEvolutionStatus('${esc(c.strategy)}','${esc(c.symbol)}','active')">
+                        <i class="fas fa-play"></i> Resume</button>`
+                : `<button class="evo-pick-btn"
+                        onclick="runEvolution({ strategy: '${esc(c.strategy)}', symbol: '${esc(c.symbol)}' })">
+                        <i class="fas fa-bolt"></i> Evaluate</button>
+                   <button class="evo-pick-btn stop"
+                        onclick="setEvolutionStatus('${esc(c.strategy)}','${esc(c.symbol)}','paused')"
+                        title="Stop learning for this bot">
+                        <i class="fas fa-stop"></i> Stop</button>`;
+
+            return `
+            <div class="evo-pick-row ${paused ? 'paused' : ''}">
+                <div class="evo-pick-main">
+                    <div class="evo-pick-title">
+                        <span class="evo-pick-strategy">${getStrategyName(c.strategy)}</span>
+                        <span class="evo-symbol">${c.symbol}</span>
+                        ${c.running ? '<span class="evo-live-dot" title="Bot running"></span>' : ''}
+                    </div>
+                    <div class="evo-pick-meta">
+                        GEN ${c.generation} · ${mt.have}/${mt.need} closed trades
+                        ${c.running ? '· live' : ''}
+                    </div>
+                    <div class="evo-meter compact ${mt.ready ? 'full' : ''}">
+                        <div class="track"><span class="fill" style="width:${mt.progress}%"></span></div>
+                    </div>
+                </div>
+                <div class="evo-pick-side">
+                    ${state}
+                    <div class="evo-pick-actions">${action}</div>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        console.error('[EVO] candidates failed:', e);
+        list.innerHTML = '<div class="evo-picker-empty">Could not load bots.</div>';
+    }
+}
+
+/** Stop ('paused') or resume ('active') learning for one bot. */
+async function setEvolutionStatus(strategy, symbol, status) {
+    try {
+        const res = await fetch('/api/v2/evolution/status-set', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ force: true })
+            body: JSON.stringify({ strategy, symbol, status })
         });
-    } catch (e) { console.error('[EVO] run failed:', e); }
+        const d = await res.json();
+        if (!d.success) {
+            alert('Could not update: ' + (d.error || 'unknown error'));
+            return;
+        }
+        showNotification(status === 'paused'
+            ? `⏹ Evaluation stopped for ${getStrategyName(strategy)} · ${symbol}`
+            : `▶ Evaluation resumed for ${getStrategyName(strategy)} · ${symbol}`);
+    } catch (e) {
+        console.error('[EVO] status change failed:', e);
+    }
+    loadEvoCandidates();
+    loadEvolutionCards();
+}
+
+/**
+ * Run an evaluation.
+ * @param {{strategy?: string, symbol?: string, all?: boolean}} opts
+ *        Targets one pair; `all` evaluates every candidate.
+ */
+async function runEvolution(opts = {}) {
+    const { strategy, symbol, all } = opts;
+    const label = all ? 'all bots' : `${getStrategyName(strategy)} · ${symbol}`;
+
+    try {
+        const res = await fetch('/api/v2/evolution/run', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(all ? { force: true } : { strategy, symbol, force: true })
+        });
+        const d = await res.json();
+        if (!d.success) {
+            alert('Evaluation failed: ' + (d.error || 'unknown error'));
+            return;
+        }
+
+        // Surface the outcome instead of silently closing — an evaluation that
+        // found nothing to change looks identical to one that never ran.
+        const results = d.results || [];
+        const lessons = results.filter(r => r && r.awaiting_approval).length;
+        const skipped = results.filter(r => r && r.skipped);
+        if (lessons) {
+            showNotification(`🧬 ${lessons} lesson${lessons > 1 ? 's' : ''} ready to review`);
+        } else if (skipped.length === results.length && results.length) {
+            showNotification(`No change for ${label} — ${skipped[0].reason || 'still gathering evidence'}`);
+        } else {
+            showNotification(`Evaluated ${label} — no adjustment needed`);
+        }
+    } catch (e) {
+        console.error('[EVO] run failed:', e);
+    }
+
+    closeEvoPicker();
     loadEvolutionCards();
 }
 
@@ -4209,6 +4391,25 @@ function toggleMobileSidebar(forceClose) {
 
 // Wire overlay tap + nav-item tap to close the drawer, once DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Evaluate picker: tap the backdrop or press Esc to dismiss.
+    const evoModal = document.getElementById('evoPickerModal');
+    if (evoModal) {
+        evoModal.addEventListener('click', (e) => {
+            if (e.target === evoModal) closeEvoPicker();
+        });
+    }
+    const cockpitModal = document.getElementById('cockpitVisionModal');
+    if (cockpitModal) {
+        cockpitModal.addEventListener('click', (e) => {
+            if (e.target === cockpitModal) toggleCockpitVisionModal(false);
+        });
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (evoModal && !evoModal.classList.contains('hidden')) closeEvoPicker();
+        else if (cockpitModal && !cockpitModal.classList.contains('hidden')) toggleCockpitVisionModal(false);
+    });
+
     const overlay = document.querySelector('.sidebar-overlay');
     if (overlay) overlay.addEventListener('click', () => toggleMobileSidebar(true));
     document.querySelectorAll('.slim-sidebar .nav-item').forEach(item =>

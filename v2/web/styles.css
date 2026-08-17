@@ -33,12 +33,28 @@
     --font-sans: 'Inter', -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
+    /* 🧱 Surface Scale
+       Raised surfaces (news cards, list rows, chips) used to be hardcoded
+       rgba(255,255,255,0.03), which is invisible on a white page. These tokens
+       carry the same intent in both themes: "one step lighter than the panel"
+       in dark, "one step darker" in light. */
+    --surface-1: rgba(255, 255, 255, 0.03);
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --surface-hover: rgba(255, 255, 255, 0.08);
+    --divider: rgba(255, 255, 255, 0.06);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 8px 24px -12px rgba(0, 0, 0, 0.55);
+    --shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+
     /* 📐 Layout Constants */
     --sidebar-width: 72px;
     --sidebar-expanded: 240px;
     --header-height: 88px;
     --footer-height: 38px;
     --panel-gap: 12px;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 18px;
 }
 
 /* 🎭 Market-Specific Themes (Dynamic Accent) */
@@ -60,17 +76,35 @@ body[data-asset="commodities"] {
 }
 
 :root[data-theme="light"] {
-    --bg-primary: #fcfdfe; /* Pearl Pure */
-    --bg-secondary: #f4f7fa;
-    --bg-card: rgba(255, 255, 255, 0.85);
-    --bg-elevated: rgba(241, 245, 249, 0.9);
-    --glass-bg: rgba(255, 255, 255, 0.7);
-    --glass-border: rgba(0, 0, 0, 0.08);
+    --bg-primary: #f7f9fc; /* Pearl */
+    --bg-secondary: #eef2f7;
+    --bg-card: rgba(255, 255, 255, 0.92);
+    --bg-elevated: rgba(241, 245, 249, 0.95);
+    --glass-bg: rgba(255, 255, 255, 0.82);
+    --glass-border: rgba(15, 23, 42, 0.10);
     --text-primary: #0f172a;
     --text-secondary: #475569;
-    --text-muted: #64748b;
-    --card-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.08);
-    --panel-border: rgba(0, 0, 0, 0.05);
+    /* Was #64748b — too close to --text-secondary to read as "muted", and too
+       light for small labels on white. */
+    --text-muted: #5b6b7f;
+    --card-shadow: 0 10px 30px -14px rgba(15, 23, 42, 0.18);
+    --panel-border: rgba(15, 23, 42, 0.06);
+
+    /* Surfaces invert: raised means slightly DARKER than the white panel.
+       This is what fixes the washed-out news cards. */
+    --surface-1: rgba(15, 23, 42, 0.035);
+    --surface-2: rgba(15, 23, 42, 0.065);
+    --surface-hover: rgba(15, 23, 42, 0.09);
+    --divider: rgba(15, 23, 42, 0.09);
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow-md: 0 8px 20px -12px rgba(15, 23, 42, 0.22);
+    --shadow-lg: 0 24px 50px -22px rgba(15, 23, 42, 0.28);
+
+    /* Mint reads as neon on black but vanishes on white — darken the
+       semantic colours just for light mode so P&L stays legible. */
+    --bullish: #059669;
+    --bearish: #dc2626;
+    --gold: #b45309;
 }
 
 [data-theme="light"] .ai-insight-box {
@@ -2013,53 +2047,71 @@ body[data-asset="stocks"]::after {
 .header-actions i:hover { color: var(--text-primary); }
 
 .news-feed-inline {
-    padding: 12px;
+    padding: 10px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
 }
 
+/* News cards were rgba(255,255,255,0.03) on a white page — invisible, with a
+   dark drop shadow that made the whole feed look grubby in light mode. They
+   now use the themed surface scale and a flat accent rail instead. */
 .news-item {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    padding: 14px;
-    border-radius: 14px;
+    position: relative;
+    background: var(--surface-1);
+    border: 1px solid var(--glass-border);
+    border-left: 3px solid var(--text-muted);
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
 .news-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: var(--accent-glow);
-    transform: translateY(-3px) scale(1.01);
-    box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.6), 0 0 15px rgba(168, 85, 247, 0.1);
+    background: var(--surface-hover);
+    border-color: var(--glass-border);
+    border-left-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
 }
 
-.news-item.bullish { border-left: 3px solid var(--bullish); }
-.news-item.bearish { border-left: 3px solid var(--bearish); }
+.news-item.bullish { border-left-color: var(--bullish); }
+.news-item.bearish { border-left-color: var(--bearish); }
 
 .news-title {
     font-size: 12px;
     font-weight: 700;
-    line-height: 1.4;
+    line-height: 1.45;
     margin-bottom: 6px;
+    color: var(--text-primary);
 }
 
 .news-meta {
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    gap: 8px;
     font-size: 9px;
     color: var(--text-muted);
     font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: 0.4px;
 }
 
 .news-sentiment {
     color: var(--accent);
+    font-weight: 800;
 }
 
 .news-item.bullish .news-sentiment { color: var(--bullish); }
+.news-item.bearish .news-sentiment { color: var(--bearish); }
+
+.news-loading {
+    padding: 20px 14px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+}
 .sentiment-badge-mini {
     transition: all 0.3s ease;
 }
@@ -2962,3 +3014,359 @@ body[data-asset="stocks"]::after {
     .icon-action { font-size: 16px; }
 }
 
+
+
+/* ════════════════════════════════════════════════════════════
+   MODAL SHELL
+   ------------------------------------------------------------
+   .modal-backdrop had NO styles — the markup relied on .hidden
+   alone, so when shown the dialog rendered inline in the page
+   flow instead of as a centred overlay.
+   ════════════════════════════════════════════════════════════ */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 4000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(3, 7, 14, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    animation: modalFade 0.18s ease-out;
+}
+
+[data-theme="light"] .modal-backdrop { background: rgba(15, 23, 42, 0.42); }
+
+@keyframes modalFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalRise {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* ════════════════════════════════════════════════════════════
+   EVALUATE PICKER
+   ════════════════════════════════════════════════════════════ */
+.evo-picker {
+    width: min(560px, 100%);
+    max-height: min(78vh, 720px);
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-lg);
+    animation: modalRise 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+}
+
+.evo-picker-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px 12px;
+}
+
+.evo-picker-head h3 {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+    margin: 2px 0 0;
+    color: var(--text-primary);
+}
+
+.evo-picker-close {
+    background: var(--surface-1);
+    border: 1px solid var(--glass-border);
+    color: var(--text-muted);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.2s, color 0.2s;
+}
+.evo-picker-close:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+.evo-picker-sub {
+    padding: 0 20px 14px;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+
+.evo-picker-list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 0 14px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.evo-picker-empty {
+    padding: 28px 16px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.6;
+}
+
+.evo-pick-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    background: var(--surface-1);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    transition: background 0.2s, border-color 0.2s;
+}
+.evo-pick-row:hover { background: var(--surface-2); border-color: var(--accent-glow); }
+.evo-pick-row.paused { opacity: 0.68; }
+
+.evo-pick-main { min-width: 0; flex: 1 1 auto; }
+
+.evo-pick-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 3px;
+}
+
+.evo-pick-strategy {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.evo-pick-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+/* Pulsing dot marks a bot that is actually running right now. */
+.evo-live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--bullish);
+    box-shadow: 0 0 8px var(--bullish);
+    flex-shrink: 0;
+    animation: evoLivePulse 1.8s ease-in-out infinite;
+}
+@keyframes evoLivePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.evo-meter.compact { padding: 6px 0 0; }
+.evo-meter.compact .track { height: 5px; }
+
+.evo-pick-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.evo-pick-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+.evo-pick-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 12px;
+    font-size: 10.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    transition: transform 0.15s, box-shadow 0.15s, background 0.2s, color 0.2s;
+}
+.evo-pick-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 14px -6px var(--accent-glow); }
+.evo-pick-btn:active { transform: none; }
+
+.evo-pick-btn.stop {
+    background: transparent;
+    border-color: var(--glass-border);
+    color: var(--text-secondary);
+}
+.evo-pick-btn.stop:hover {
+    border-color: var(--bearish);
+    color: var(--bearish);
+    box-shadow: none;
+}
+
+.evo-pick-btn.resume {
+    background: transparent;
+    border-color: var(--bullish);
+    color: var(--bullish);
+}
+.evo-pick-btn.resume:hover { background: var(--bullish); color: #04121b; }
+
+.evo-picker-foot {
+    display: flex;
+    gap: 10px;
+    padding: 14px 20px 18px;
+    border-top: 1px solid var(--divider);
+}
+
+.evo-run-all {
+    flex: 1 1 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px 16px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-radius: 10px;
+    cursor: pointer;
+    border: 1px solid var(--accent);
+    background: linear-gradient(135deg, var(--accent), var(--ai-pulse));
+    color: #fff;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.evo-run-all:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -8px var(--accent-glow); }
+
+.evo-picker-foot .evo-dismiss { flex: 0 0 auto; padding: 11px 18px; }
+
+/* Per-card actions inside an expanded evolution card */
+.evo-card-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 12px 0 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
+}
+
+/* ════════════════════════════════════════════════════════════
+   LIGHT MODE POLISH
+   ------------------------------------------------------------
+   Components that hardcoded white-alpha surfaces or heavy black
+   shadows, and therefore read as grey mush on a white page.
+   ════════════════════════════════════════════════════════════ */
+[data-theme="light"] .market-item:hover,
+[data-theme="light"] .watchlist-item:hover,
+[data-theme="light"] .suggestion-item:hover { background: var(--surface-2); }
+
+[data-theme="light"] .market-item { border-bottom-color: var(--divider); }
+
+[data-theme="light"] .evo-meter .track,
+[data-theme="light"] .evo-param,
+[data-theme="light"] .bot-card-item { background: var(--surface-1); }
+
+[data-theme="light"] .evo-gen-row { border-bottom-color: var(--divider); }
+
+/* Neon glows read as smudges on white — mute them. */
+[data-theme="light"] .news-item:hover { box-shadow: var(--shadow-md); }
+[data-theme="light"] .fav-btn.active { animation: none; text-shadow: none; }
+[data-theme="light"] .slim-sidebar { box-shadow: var(--shadow-md); }
+
+/* Eyebrow labels sat near-white on a near-white panel. */
+[data-theme="light"] .section-card .section-header .section-label,
+[data-theme="light"] .panel-label,
+[data-theme="light"] .section-eyebrow { color: var(--accent); opacity: 0.9; }
+
+[data-theme="light"] .no-bots-message,
+[data-theme="light"] .news-loading { color: var(--text-muted); }
+
+/* Sentiment chips: translucent-white pills disappeared on white. */
+[data-theme="light"] .sentiment-badge-mini {
+    background: var(--surface-1) !important;
+    border-color: var(--glass-border) !important;
+}
+
+/* ════════════════════════════════════════════════════════════
+   MOBILE — TIGHTER
+   ════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+    /* Reclaim the gutters: on a 390px screen the old 6px panel margin plus
+       8px page padding plus 16px card padding ate a sixth of the width. */
+    .below-fold { padding: 10px 8px 18px; gap: 10px; }
+    .panel { margin: 6px 8px; }
+    .section-card { padding: 14px 12px; border-radius: 14px; }
+    .section-card .section-header { margin-bottom: 14px; }
+    .section-card .section-header h2 { font-size: 15px; }
+
+    /* The chart was 70vh with a 480px floor — on a short phone the floor won
+       and pushed everything below it off-screen. Let it scale down properly. */
+    .chart-card { height: 58vh; min-height: 320px; max-height: 560px; }
+
+    /* Denser list rows so more than two items fit at once */
+    .market-item { padding: 10px 12px; gap: 4px; }
+    .symbol-box .symbol { font-size: 12px; }
+    .symbol-box .name { font-size: 9px; }
+    .news-item { padding: 10px 12px; border-radius: 12px; }
+    .news-title { font-size: 11.5px; }
+    .news-feed-inline { padding: 8px; gap: 6px; }
+
+    /* Lists get more room now that the chart yields some */
+    .market-list,
+    .news-feed-inline,
+    .side-tab-content { max-height: 44vh; }
+
+    /* Evolution + bot cards go full-width single column */
+    .evo-card-grid { grid-template-columns: 1fr; gap: 10px; }
+    .evo-card-head { padding: 12px 14px; gap: 7px; }
+    .evo-card-title { font-size: 12px; }
+    .evo-meter { padding: 0 14px 12px; }
+    .evo-card-body { padding: 0 14px 14px; }
+    .evo-intro { font-size: 11.5px; line-height: 1.5; }
+
+    /* Picker becomes a bottom sheet — thumb-reachable and full width */
+    .modal-backdrop { padding: 0; align-items: flex-end; }
+    .evo-picker {
+        width: 100%;
+        max-height: 88vh;
+        border-radius: 20px 20px 0 0;
+        animation: sheetRise 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .evo-picker-head { padding: 16px 16px 10px; }
+    .evo-picker-sub { padding: 0 16px 12px; font-size: 11.5px; }
+    .evo-picker-list { padding: 0 12px 4px; }
+    .evo-picker-foot { padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); }
+
+    /* Row stacks so the buttons get a full-width tap target */
+    .evo-pick-row { flex-direction: column; align-items: stretch; gap: 10px; }
+    .evo-pick-side { flex-direction: row; align-items: center; justify-content: space-between; width: 100%; }
+    .evo-pick-btn { padding: 9px 12px; min-height: 38px; }
+
+    /* Keep 44px targets in the deck without the huge gaps */
+    .control-buttons { gap: 6px; }
+    .control-bar { gap: 10px; }
+    .settings-row { gap: 10px; }
+    .field-group label { font-size: 9px; }
+}
+
+@keyframes sheetRise {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* Very narrow phones — the last squeeze */
+@media (max-width: 380px) {
+    .below-fold { padding: 8px 6px 16px; }
+    .panel { margin: 5px 6px; }
+    .section-card { padding: 12px 10px; }
+    .header-brand-text { font-size: 14px !important; }
+    .terminal-stats { gap: 12px; }
+    .stat-value { font-size: 12px; }
+    .market-item { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.9fr) 28px; }
+}

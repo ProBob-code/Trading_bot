@@ -243,6 +243,14 @@ class EvolutionEngine:
         # Regime is measured on the instrument actually being traded.
         regime = self.detect_regime(symbol if symbol and symbol != 'ALL' else 'BTCUSDT')
 
+        # The user stopped this evaluation — respect it. Learning stays frozen
+        # (nothing is lost) until they resume, even on a forced bulk run.
+        if status == 'paused':
+            return {'skipped': True, 'paused': True, 'strategy': strategy, 'symbol': symbol,
+                    'meter': meter, 'regime': regime,
+                    'reason': 'Evaluation is stopped for this pair. Resume it to continue learning.',
+                    'metrics': m, 'params': params, 'generation': generation}
+
         # Meter not full yet → keep gathering evidence, nothing to review.
         if not meter['ready'] and not force:
             self.db.v2_save_evolution_state(
@@ -386,6 +394,39 @@ class EvolutionEngine:
             state.get('status') or 'active', None, state.get('regime'),
             state.get('profiles_json'), symbol)
         return {'success': True, 'strategy': strategy, 'symbol': symbol}
+
+    def set_status(self, user_id: int, strategy: str, symbol: str = 'ALL',
+                   status: str = 'paused') -> Dict:
+        """
+        Stop ('paused') or resume ('active') learning for one (strategy, symbol).
+
+        Paused state keeps every generation already learned — it only stops the
+        pair from proposing new lessons, so resuming picks up where it left off
+        rather than starting from generation zero. Any pending proposal is
+        cleared on pause so a stale lesson can't be applied later.
+        """
+        if status not in ('active', 'paused'):
+            return {'success': False, 'error': f"Unknown status '{status}'"}
+
+        symbol = symbol or 'ALL'
+        state = self.db.v2_get_evolution_state(user_id, strategy, symbol)
+        if not state:
+            # Nothing learned yet — record the intent so a later evolve() honours it.
+            self.db.v2_save_evolution_state(
+                user_id, strategy, 0, json.dumps(dict(DEFAULT_PARAMS)),
+                json.dumps(dict(DEFAULT_PARAMS)), None, 0, status, None, None,
+                json.dumps({}), symbol)
+        else:
+            self.db.v2_save_evolution_state(
+                user_id, strategy, int(state.get('generation') or 0),
+                state.get('params_json'), state.get('best_params_json'),
+                state.get('best_expectancy'), int(state.get('trades_at_last_eval') or 0),
+                status,
+                None if status == 'paused' else state.get('pending_json'),
+                state.get('regime'), state.get('profiles_json'), symbol)
+
+        logger.info(f"🧬 [V2-EVO] {strategy}/{symbol} evaluation {status} by user")
+        return {'success': True, 'strategy': strategy, 'symbol': symbol, 'status': status}
 
     def evolve_all(self, user_id: int, strategies: List[str] = None) -> List[Dict]:
         """Evolve every strategy that has closing history."""

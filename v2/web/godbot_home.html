@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoatBot V2 — Institutional Terminal</title>
-    <link rel="stylesheet" href="styles.css?v=9">
+    <link rel="stylesheet" href="styles.css?v=10">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://s3.tradingview.com/tv.js"></script>
     <script src="common/ChartManager.js?v=7"></script>
@@ -566,7 +566,7 @@
                             style="color:var(--accent); font-family:var(--font-mono);">0</span></h2>
                 </div>
                 <button class="btn-action stop-all" id="btnRunEvolution" style="padding:6px 12px; font-size:10px;"
-                    onclick="runEvolution()">
+                    onclick="openEvoPicker()">
                     <i class="fas fa-bolt"></i> Evaluate
                 </button>
             </div>
@@ -728,6 +728,36 @@
         </div>
     </div>
 
+    <!-- ═══════════════════════════════════════
+         EVALUATE PICKER — choose which bot to evaluate
+         ═══════════════════════════════════════ -->
+    <div class="modal-backdrop hidden" id="evoPickerModal">
+        <div class="evo-picker glass-panel" role="dialog" aria-modal="true" aria-labelledby="evoPickerTitle">
+            <div class="evo-picker-head">
+                <div>
+                    <span class="section-label">The Lab</span>
+                    <h3 id="evoPickerTitle">Evaluate a Bot</h3>
+                </div>
+                <button class="evo-picker-close" onclick="closeEvoPicker()" aria-label="Close">
+                    <i class="fas fa-xmark"></i>
+                </button>
+            </div>
+            <p class="evo-picker-sub">
+                Pick which running bot to evaluate. Each learns separately from its own
+                closed trades, so evaluating one never touches another.
+            </p>
+            <div class="evo-picker-list" id="evoPickerList">
+                <div class="evo-picker-empty">Loading bots…</div>
+            </div>
+            <div class="evo-picker-foot">
+                <button class="evo-run-all" id="btnEvoRunAll" onclick="runEvolution({ all: true })">
+                    <i class="fas fa-bolt"></i> Evaluate All
+                </button>
+                <button class="evo-dismiss" onclick="closeEvoPicker()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Custom Logout Modal (GoatBot Styled) -->
     <div id="logoutModal" class="modal"
         style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:3000; align-items:center; justify-content:center; backdrop-filter:blur(10px);">
@@ -802,7 +832,7 @@
     </div>
 
     <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
-    <script src="paper_app_v3.js?v=8"></script>
+    <script src="paper_app_v3.js?v=9"></script>
     <style>
         /* Small utility additions for the switch and modal */
         .switch input:checked+.slider {
