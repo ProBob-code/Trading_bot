@@ -124,6 +124,14 @@ def init_v2(
     except Exception as e:
         logger.error(f"[V2] Initialisation error (profiles/positions): {e}")
 
+    # Positions restored from a previous run may carry exit levels, and manual
+    # positions have no bot loop to police them, so the monitor starts with the
+    # app rather than waiting for the next manual bracket order.
+    try:
+        _ensure_position_monitor()
+    except Exception as e:
+        logger.warning(f"[V2] Could not start position monitor: {e}")
+
     logger.info("[V2] Blueprint initialised with Modular Pipeline")
 
 
@@ -193,8 +201,26 @@ def v2_trade():
         volume = float(data.get('volume', 100_000_000))
         margin_mode = data.get('margin_mode', 'isolated')
 
+        # ── Manual exit conditions (absolute prices, optional) ──
+        def _opt_price(key):
+            raw = data.get(key)
+            try:
+                val = float(raw)
+            except (TypeError, ValueError):
+                return 0.0
+            return val if val > 0 else 0.0
+
+        stop_loss_price = _opt_price('stop_loss_price')
+        take_profit_price = _opt_price('take_profit_price')
+        order_type = str(data.get('order_type', 'market')).lower()
+        limit_price = _opt_price('limit_price')
+
         if quantity <= 0:
             return jsonify({'success': False, 'error': 'Quantity must be > 0'}), 400
+
+        if order_type == 'limit' and limit_price <= 0:
+            return jsonify({'success': False,
+                            'error': 'A limit order requires a limit price'}), 400
 
         # Regime filter
         filter_result = v2_volatility_filter.filter(strategy, 'UNKNOWN', leverage)
@@ -244,12 +270,307 @@ def v2_trade():
         # Standardized return
         if results and results[0].get('success'):
             v2_pipeline._handle_trade_results(mock_bot, results, side, quantity, results[0].get('fill_price'))
-            return jsonify(results[0])
+
+            # Record the user's exit levels on the open position. V2Position
+            # already carries stop_loss/take_profit; nothing was writing them,
+            # so a manual bracket had nowhere to live.
+            if stop_loss_price or take_profit_price:
+                pos = v2_paper_trader.get_position(current_user.id, symbol)
+                if pos:
+                    pos.stop_loss = stop_loss_price
+                    pos.take_profit = take_profit_price
+                    logger.info(f"[V2] Manual bracket set on {symbol}: "
+                                f"SL={stop_loss_price or '-'} TP={take_profit_price or '-'}")
+                    _ensure_position_monitor()
+
+            payload = dict(results[0])
+            payload['stop_loss_price'] = stop_loss_price
+            payload['take_profit_price'] = take_profit_price
+            payload['order_type'] = order_type
+            return jsonify(payload)
         
         return jsonify({'success': False, 'error': 'Trade failed', 'results': results})
     except Exception as e:
         logger.error(f"[V2] Trade error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================
+# V2 SAVED STRATEGIES
+# ------------------------------------------------------------
+# Custom strategies lived only in the browser's localStorage, so
+# they vanished on a cache clear or a second device and the
+# training side could never see them. They are persisted now.
+# ============================================================
+
+@v2_bp.route('/api/v2/strategies/custom', methods=['GET'])
+@login_required
+def v2_list_custom_strategies():
+    """Every strategy this user has saved."""
+    rows = db_manager.get_user_strategies(current_user.id)
+    out = []
+    for r in rows:
+        try:
+            definition = json.loads(r.get('definition_json') or '{}')
+        except Exception:
+            definition = {}
+        out.append({
+            'id': r.get('strategy_id'),
+            'name': r.get('name'),
+            'market': r.get('market'),
+            'times_used': r.get('times_used', 0),
+            'created_at': str(r.get('created_at') or ''),
+            **definition,
+        })
+    return jsonify({'success': True, 'strategies': out})
+
+
+@v2_bp.route('/api/v2/strategies/custom', methods=['POST'])
+@login_required
+def v2_save_custom_strategy():
+    """Create or update a saved strategy."""
+    data = request.json or {}
+    strategy_id = (data.get('id') or '').strip()
+    name = (data.get('name') or '').strip()
+
+    if not strategy_id or not name:
+        return jsonify({'success': False, 'error': 'id and name are required'}), 400
+
+    definition = {
+        'indicators': data.get('indicators') or [],
+        'buyConditions': data.get('buyConditions') or [],
+        'sellConditions': data.get('sellConditions') or [],
+    }
+    if not definition['indicators']:
+        return jsonify({'success': False, 'error': 'Select at least one indicator'}), 400
+
+    ok = db_manager.save_user_strategy(
+        current_user.id, strategy_id, name,
+        json.dumps(definition), data.get('market'))
+
+    if not ok:
+        return jsonify({'success': False, 'error': 'Could not save strategy'}), 500
+    return jsonify({'success': True, 'id': strategy_id})
+
+
+@v2_bp.route('/api/v2/strategies/custom', methods=['DELETE'])
+@login_required
+def v2_delete_custom_strategy():
+    data = request.json or {}
+    strategy_id = (data.get('id') or '').strip()
+    if not strategy_id:
+        return jsonify({'success': False, 'error': 'id required'}), 400
+    removed = db_manager.delete_user_strategy(current_user.id, strategy_id)
+    return jsonify({'success': True, 'removed': removed})
+
+
+# ============================================================
+# V2 BOT STOCK SCREENER
+# ------------------------------------------------------------
+# Continuously ranks a universe of instruments by how well each
+# one currently satisfies the user's chosen strategy, so the
+# opportunity finds the user instead of the other way round.
+# ============================================================
+
+SCREENER_UNIVERSE = {
+    'stocks': ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'NVDA', 'AMZN', 'META',
+               'RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'TATAMOTORS'],
+    'crypto': ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
+               'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT'],
+    'forex': ['EURUSD', 'GBPUSD', 'USDJPY', 'USDINR', 'AUDUSD', 'USDCAD'],
+    'commodities': ['XAUUSD', 'XAGUSD', 'XBRUSD', 'XTIUSD', 'XCUUSD', 'XNGUSD'],
+}
+
+# Screening every symbol on every request would hammer the upstream feeds,
+# so results are cached briefly and shared across callers.
+_screener_cache = {}
+_screener_lock = threading.Lock()
+SCREENER_TTL = 120  # seconds
+
+
+def _screen_one(symbol: str, market: str, strategy: str, interval: str, sensitivity: str):
+    """Run the live strategy over one symbol and describe the result."""
+    try:
+        if market == 'crypto':
+            df = crypto_provider.get_historical_klines(symbol=symbol, interval=interval, limit=200)
+            price_data = crypto_provider.get_current_price(symbol)
+        else:
+            df = stock_provider.get_historical_data(symbol=symbol, interval=interval, limit=200)
+            price_data = stock_provider.get_current_quote(symbol)
+
+        if df is None or df.empty or len(df) < 52:
+            return {'symbol': symbol, 'market': market, 'status': 'insufficient_data',
+                    'signal': 'HOLD', 'score': 0.0}
+
+        price = float((price_data or {}).get('price') or 0)
+        signal = strategy_engine.analyze(df, strategy, {}, sensitivity)
+
+        score = float(getattr(signal, 'score', 0) or 0)
+        action = str(getattr(signal, 'signal', 'HOLD') or 'HOLD').upper()
+
+        reasons = list(getattr(signal, 'reasons', None) or [])
+
+        return {
+            'symbol': symbol,
+            'market': market,
+            'price': price or float(getattr(signal, 'price', 0) or 0),
+            'currency': (price_data or {}).get('currency', 'USD'),
+            'signal': action,
+            'score': round(score, 4),
+            'strength': int(getattr(signal, 'strength', 0) or 0),
+            'reasons': reasons[:3],
+            'status': 'ok',
+        }
+    except Exception as e:
+        logger.debug(f"[V2-SCREENER] {symbol} failed: {e}")
+        return {'symbol': symbol, 'market': market, 'status': 'error',
+                'signal': 'HOLD', 'score': 0.0, 'error': str(e)}
+
+
+@v2_bp.route('/api/v2/screener', methods=['GET'])
+@login_required
+def v2_screener():
+    """
+    Rank a market's instruments by how strongly they match a strategy.
+
+    Query: market, strategy, interval, sensitivity, limit, refresh
+    """
+    market = (request.args.get('market') or 'stocks').lower()
+    strategy = request.args.get('strategy') or 'combined'
+    interval = request.args.get('interval') or '15m'
+    sensitivity = (request.args.get('sensitivity') or 'conservative').lower()
+    limit = max(1, min(50, int(request.args.get('limit', 12))))
+    refresh = request.args.get('refresh') == '1'
+
+    universe = SCREENER_UNIVERSE.get(market)
+    if not universe:
+        return jsonify({'success': False,
+                        'error': f'No screener universe for market "{market}"'}), 400
+
+    cache_key = (market, strategy, interval, sensitivity)
+    now = time.time()
+
+    with _screener_lock:
+        hit = _screener_cache.get(cache_key)
+        if hit and not refresh and (now - hit['at']) < SCREENER_TTL:
+            return jsonify({'success': True, 'cached': True,
+                            'age_seconds': int(now - hit['at']),
+                            'market': market, 'strategy': strategy,
+                            'interval': interval, 'sensitivity': sensitivity,
+                            'results': hit['results'][:limit]})
+
+    if not strategy_engine:
+        return jsonify({'success': False, 'error': 'Strategy engine unavailable'}), 503
+
+    results = [_screen_one(sym, market, strategy, interval, sensitivity)
+               for sym in universe]
+
+    # Actionable first: BUY/SELL ahead of HOLD, then by conviction.
+    def rank(r):
+        actionable = 0 if r.get('signal') in ('BUY', 'SELL') else 1
+        return (actionable, -abs(float(r.get('score') or 0)))
+
+    results.sort(key=rank)
+
+    with _screener_lock:
+        _screener_cache[cache_key] = {'at': now, 'results': results}
+
+    return jsonify({'success': True, 'cached': False, 'market': market,
+                    'strategy': strategy, 'interval': interval,
+                    'sensitivity': sensitivity, 'results': results[:limit]})
+
+
+# ── V2 Manual Position Monitor ─────────────────────────────────────────────
+#
+# Bot positions get their TP/SL enforced inside each bot's execution loop.
+# A MANUAL trade has no such loop, so its exit levels — and its liquidation
+# price — were never checked once the order was placed. This thread keeps
+# prices fresh for every symbol holding an open position and closes anything
+# that reaches the level the user set.
+
+_position_monitor_thread = None
+_position_monitor_lock = threading.Lock()
+
+
+def _fetch_price_for(symbol: str) -> float:
+    """Best-effort live price for any asset class."""
+    try:
+        if symbol.upper().endswith(('USDT', 'USDC', 'BUSD')) and crypto_provider:
+            data = crypto_provider.get_current_price(symbol)
+        elif stock_provider:
+            data = stock_provider.get_current_quote(symbol)
+        else:
+            return 0.0
+        return float((data or {}).get('price') or 0.0)
+    except Exception as e:
+        logger.debug(f"[V2-MONITOR] price fetch failed for {symbol}: {e}")
+        return 0.0
+
+
+def v2_position_monitor_loop():
+    """Poll open positions and enforce manually-set exit levels."""
+    logger.info("🛡️ [V2-MONITOR] Manual position monitor started")
+    while True:
+        try:
+            # Snapshot so we never hold the trader lock across a network call.
+            with v2_paper_trader.lock:
+                open_positions = [
+                    (uid, sym, pos.side, pos.stop_loss, pos.take_profit)
+                    for uid, acc in v2_paper_trader.accounts.items()
+                    for sym, pos in acc.positions.items()
+                    if pos.quantity > 0
+                ]
+
+            if not open_positions:
+                time.sleep(15)
+                continue
+
+            for symbol in {sym for _, sym, _, _, _ in open_positions}:
+                price = _fetch_price_for(symbol)
+                if price > 0:
+                    # Also refreshes unrealized P&L and liquidation checks,
+                    # which previously only ran while a bot happened to be up.
+                    v2_paper_trader.set_prices({symbol: price})
+
+            for user_id, symbol, side, sl, tp in open_positions:
+                if not sl and not tp:
+                    continue
+                price = v2_paper_trader.current_prices.get(symbol) or 0.0
+                if price <= 0:
+                    continue
+
+                is_long = str(side).upper() == 'LONG'
+                action = None
+                if sl and ((is_long and price <= sl) or (not is_long and price >= sl)):
+                    action = 'STOP_LOSS'
+                elif tp and ((is_long and price >= tp) or (not is_long and price <= tp)):
+                    action = 'TAKE_PROFIT'
+
+                if not action:
+                    continue
+
+                logger.info(f"{'🛑' if action == 'STOP_LOSS' else '🎯'} [V2-MONITOR] "
+                            f"{action} on {symbol} @ {price} (SL={sl or '-'} TP={tp or '-'})")
+                try:
+                    v2_paper_trader.close_position(user_id, symbol, action=action)
+                except Exception as e:
+                    logger.error(f"[V2-MONITOR] {action} close failed for {symbol}: {e}")
+
+        except Exception as e:
+            logger.error(f"[V2-MONITOR] loop error: {e}")
+
+        time.sleep(10)
+
+
+def _ensure_position_monitor():
+    """Start the monitor once, on first use."""
+    global _position_monitor_thread
+    with _position_monitor_lock:
+        if _position_monitor_thread and _position_monitor_thread.is_alive():
+            return
+        _position_monitor_thread = threading.Thread(
+            target=v2_position_monitor_loop, daemon=True, name='v2-position-monitor')
+        _position_monitor_thread.start()
 
 
 # ── V2 Bot Execution Loop ──────────────────────────────────────────────────
@@ -642,6 +963,67 @@ def v2_positions():
     """Get V2 positions with leverage and margin data."""
     positions = v2_paper_trader.get_positions(current_user.id)
     return jsonify({'success': True, 'positions': positions})
+
+
+@v2_bp.route('/api/v2/position/exits', methods=['POST'])
+@login_required
+def v2_set_position_exits():
+    """
+    Set, change or clear the exit levels on an OPEN position.
+
+    Exit levels could previously only be chosen when the order was placed;
+    there was no way to protect a trade already running. Pass 0 to clear.
+    """
+    data = request.json or {}
+    symbol = (data.get('symbol') or '').strip()
+    if not symbol:
+        return jsonify({'success': False, 'error': 'symbol required'}), 400
+
+    def _price(key):
+        try:
+            val = float(data.get(key) or 0)
+        except (TypeError, ValueError):
+            return -1.0
+        return val if val >= 0 else -1.0
+
+    stop_loss = _price('stop_loss_price')
+    take_profit = _price('take_profit_price')
+    if stop_loss < 0 or take_profit < 0:
+        return jsonify({'success': False, 'error': 'Exit levels must be numbers'}), 400
+
+    pos = v2_paper_trader.get_position(current_user.id, symbol)
+    if not pos or pos.quantity <= 0:
+        return jsonify({'success': False, 'error': f'No open position for {symbol}'}), 404
+
+    entry = float(pos.entry_price or 0)
+    is_short = str(pos.side).upper() == 'SHORT'
+
+    # Reject a level that sits on the wrong side of the entry — it would fire
+    # on the monitor's very next tick.
+    if stop_loss > 0 and entry > 0:
+        if not is_short and stop_loss >= entry:
+            return jsonify({'success': False,
+                            'error': 'Stop loss must be below the entry for a long'}), 400
+        if is_short and stop_loss <= entry:
+            return jsonify({'success': False,
+                            'error': 'Stop loss must be above the entry for a short'}), 400
+
+    if take_profit > 0 and entry > 0:
+        if not is_short and take_profit <= entry:
+            return jsonify({'success': False,
+                            'error': 'Take profit must be above the entry for a long'}), 400
+        if is_short and take_profit >= entry:
+            return jsonify({'success': False,
+                            'error': 'Take profit must be below the entry for a short'}), 400
+
+    pos.stop_loss = stop_loss
+    pos.take_profit = take_profit
+    logger.info(f"[V2] Exits updated on {symbol}: SL={stop_loss or '-'} TP={take_profit or '-'}")
+
+    _ensure_position_monitor()
+
+    return jsonify({'success': True, 'symbol': symbol,
+                    'stop_loss': stop_loss, 'take_profit': take_profit})
 
 
 @v2_bp.route('/api/v2/health', methods=['GET'])

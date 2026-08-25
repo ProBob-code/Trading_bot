@@ -792,6 +792,25 @@ class DatabaseManager:
                 ) ENGINE=InnoDB
             ''')
 
+            # ── User Strategies (persisted for training/reuse) ──
+            # Custom strategies used to live only in the browser's
+            # localStorage, so they were lost on a new device or a cache clear
+            # and were invisible to the training/evolution side of the system.
+            self._execute(cursor, '''
+                CREATE TABLE IF NOT EXISTS v2_user_strategies (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    strategy_id VARCHAR(120) NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    definition_json TEXT,     -- indicators + buy/sell conditions
+                    market VARCHAR(30),
+                    times_used INT DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME,
+                    UNIQUE(user_id, strategy_id)
+                ) ENGINE=InnoDB
+            ''')
+
             # Run Migrations
             if not self.use_sqlite:
                 self._migrate_v2_positions(cursor)
@@ -1414,6 +1433,81 @@ class DatabaseManager:
         finally:
             if cursor is not None:
                 self._safe_close(conn, cursor)
+
+    # ── User Strategies ────────────────────────────────────────
+
+    def get_user_strategies(self, user_id: int) -> List[Dict]:
+        """Every custom strategy this user has saved."""
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor,
+                          "SELECT * FROM v2_user_strategies WHERE user_id=%s "
+                          "ORDER BY updated_at DESC, id DESC", (user_id,))
+            return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            logger.warning(f"[V2-STRAT] read failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def save_user_strategy(self, user_id: int, strategy_id: str, name: str,
+                           definition_json: str, market: str = None) -> bool:
+        """Insert or update one saved strategy."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            now = datetime.now(timezone.utc)
+            if self.use_sqlite:
+                q = ("INSERT OR REPLACE INTO v2_user_strategies "
+                     "(user_id, strategy_id, name, definition_json, market, updated_at) "
+                     "VALUES (%s,%s,%s,%s,%s,%s)")
+            else:
+                q = ("INSERT INTO v2_user_strategies "
+                     "(user_id, strategy_id, name, definition_json, market, updated_at) "
+                     "VALUES (%s,%s,%s,%s,%s,%s) "
+                     "ON DUPLICATE KEY UPDATE name=VALUES(name), "
+                     "definition_json=VALUES(definition_json), market=VALUES(market), "
+                     "updated_at=VALUES(updated_at)")
+            self._execute(cursor, q, (user_id, strategy_id, name, definition_json, market, now))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.warning(f"[V2-STRAT] save failed: {e}")
+            return False
+        finally:
+            self._safe_close(conn, cursor)
+
+    def delete_user_strategy(self, user_id: int, strategy_id: str) -> bool:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            self._execute(cursor,
+                          "DELETE FROM v2_user_strategies WHERE user_id=%s AND strategy_id=%s",
+                          (user_id, strategy_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.warning(f"[V2-STRAT] delete failed: {e}")
+            return False
+        finally:
+            self._safe_close(conn, cursor)
+
+    def bump_strategy_usage(self, user_id: int, strategy_id: str):
+        """Count a launch — the signal the training side ranks strategies by."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            self._execute(cursor,
+                          "UPDATE v2_user_strategies SET times_used = times_used + 1 "
+                          "WHERE user_id=%s AND strategy_id=%s", (user_id, strategy_id))
+            conn.commit()
+        except Exception as e:
+            logger.debug(f"[V2-STRAT] usage bump failed: {e}")
+        finally:
+            self._safe_close(conn, cursor)
 
     def v2_get_evolution_state(self, user_id: int, strategy: str = None, symbol: str = 'ALL'):
         """Current evolution state — one (strategy, symbol), or all for the user."""

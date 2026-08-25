@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoatBot V2 — Institutional Terminal</title>
-    <link rel="stylesheet" href="styles.css?v=10">
+    <link rel="stylesheet" href="styles.css?v=11">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://s3.tradingview.com/tv.js"></script>
     <script src="common/ChartManager.js?v=7"></script>
@@ -214,7 +214,6 @@
                 </div>
             </div>
         </section>
-        </section>
 
         <!-- ═══════════════════════════════════════
              CENTER: CHART & TERMINAL
@@ -416,15 +415,9 @@
                             Execution</span>
                         <h3 style="margin:0;">EXECUTION ENGINE</h3>
                     </div>
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <span
-                            style="font-size:9px; font-weight:800; color:var(--text-muted); margin-right:4px;">AUTO</span>
-                        <label class="switch" style="position:relative; display:inline-block; width:34px; height:18px;">
-                            <input type="checkbox" id="btnAutoTrade" style="opacity:0; width:0; height:0;">
-                            <span class="slider round"
-                                style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:#1e293b; transition:.4s; border-radius:34px;"></span>
-                        </label>
-                    </div>
+                    <!-- This panel is for MANUAL orders on the symbol being
+                         viewed. Automation lives in the Command Deck below. -->
+                    <span class="manual-badge">MANUAL</span>
                 </div>
                 <div class="side-selector">
                     <button class="side-btn active buy" id="buySide">BUY / LONG</button>
@@ -433,16 +426,51 @@
                 <div class="order-form">
                     <div class="field-group">
                         <label>Asset Symbol</label>
+                        <!-- Mirrors the chart; kept readonly so a manual order can
+                             never be sent for a symbol other than the one on screen. -->
                         <input type="text" class="field-input" value="BTCUSDT" id="orderSymbol" readonly>
                     </div>
                     <div class="field-group">
                         <label>Order Quantity</label>
-                        <input type="number" class="field-input" placeholder="0.000" id="orderQty" step="0.001">
+                        <!-- inputmode=decimal makes phones open the numeric keypad. -->
+                        <input type="number" class="field-input" placeholder="0.000" id="orderQty"
+                            step="any" min="0" inputmode="decimal" enterkeyhint="done">
                     </div>
                     <div class="field-group">
-                        <label>Price (Limit)</label>
-                        <input type="number" class="field-input" placeholder="Market" id="orderPrice">
+                        <label>Order Type</label>
+                        <select class="field-input" id="orderType">
+                            <option value="market" selected>Market — fill at current price</option>
+                            <option value="limit">Limit — set my own price</option>
+                        </select>
                     </div>
+                    <div class="field-group" id="limitPriceGroup" hidden>
+                        <label>Limit Price</label>
+                        <input type="number" class="field-input" placeholder="0.00" id="orderPrice"
+                            step="any" min="0" inputmode="decimal">
+                    </div>
+
+                    <!-- ── Exit controls ──
+                         Downside protection and target, set at order time. -->
+                    <div class="exit-controls">
+                        <div class="exit-controls-head">
+                            <span>Exit Conditions</span>
+                            <span class="exit-hint">optional</span>
+                        </div>
+                        <div class="exit-grid">
+                            <div class="field-group">
+                                <label>Stop Loss</label>
+                                <input type="number" class="field-input" placeholder="0.00" id="orderStopLoss"
+                                    step="any" min="0" inputmode="decimal">
+                            </div>
+                            <div class="field-group">
+                                <label>Take Profit</label>
+                                <input type="number" class="field-input" placeholder="0.00" id="orderTakeProfit"
+                                    step="any" min="0" inputmode="decimal">
+                            </div>
+                        </div>
+                        <div class="exit-summary" id="exitSummary"></div>
+                    </div>
+
                     <button class="btn-execute buy" id="btnExecuteOrder">Execute Order</button>
                     <div
                         style="margin-top:auto; padding-top:16px; display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
@@ -579,6 +607,55 @@
             </div>
         </div>
 
+        <!-- SECTION 3b: Bot Stock Screener -->
+        <div class="section-card" id="sectionScreener">
+            <div class="section-header">
+                <div>
+                    <span class="section-label">The Scout</span>
+                    <h2>BOT SCREENER <span id="screenerHitCount"
+                            style="color:var(--accent); font-family:var(--font-mono);">0</span></h2>
+                </div>
+                <button class="btn-action stop-all" id="btnRunScreener" style="padding:6px 12px; font-size:10px;"
+                    onclick="runScreener(true)">
+                    <i class="fas fa-radar"></i> Scan Now
+                </button>
+            </div>
+            <p class="evo-intro">
+                Scans the whole market with your selected strategy and ranks what it finds.
+                Actionable setups sort to the top &mdash; tap one to load it on the chart.
+            </p>
+            <div class="screener-controls">
+                <div class="field-group">
+                    <label>Market</label>
+                    <select class="field-input" id="screenerMarket">
+                        <option value="stocks">Stocks</option>
+                        <option value="crypto">Crypto</option>
+                        <option value="forex">Forex</option>
+                        <option value="commodities">Commodities</option>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <label>Timeframe</label>
+                    <select class="field-input" id="screenerInterval">
+                        <option value="5m">5 Minutes</option>
+                        <option value="15m" selected>15 Minutes</option>
+                        <option value="1h">1 Hour</option>
+                        <option value="1d">1 Day</option>
+                    </select>
+                </div>
+                <div class="field-group screener-auto">
+                    <label>Continuous</label>
+                    <label class="screener-switch">
+                        <input type="checkbox" id="screenerAuto">
+                        <span>Keep scanning</span>
+                    </label>
+                </div>
+            </div>
+            <div class="screener-results" id="screenerResults">
+                <div class="no-bots-message">Hit <strong>Scan Now</strong> to sweep the market.</div>
+            </div>
+        </div>
+
         <!-- SECTION 4: Custom Strategy Builder -->
         <div class="section-card" id="sectionStrategyBuilder">
             <div class="section-header">
@@ -710,15 +787,15 @@
             <h3 style="margin-bottom:24px;">Advanced Settings</h3>
             <div class="field-group" style="margin-bottom:16px;">
                 <label>Strategy Confluence</label>
-                <input type="number" class="field-input" id="settingConfluence" value="3">
+                <input type="number" class="field-input" id="modalConfluence" value="3">
             </div>
             <div class="field-group" style="margin-bottom:16px;">
                 <label>Position Size (%)</label>
-                <input type="number" class="field-input" id="settingPositionSize" value="10">
+                <input type="number" class="field-input" id="modalPositionSize" value="10">
             </div>
             <div class="field-group" style="margin-bottom:24px;">
                 <label>Stop Loss (%)</label>
-                <input type="number" class="field-input" id="settingStopLoss" value="2">
+                <input type="number" class="field-input" id="modalStopLoss" value="2">
             </div>
             <div style="display:flex; gap:12px;">
                 <button class="btn-execute buy" style="flex:1; margin:0;" onclick="saveSettings()">Save</button>
@@ -727,6 +804,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Breaking-news alerts land here (see pollAllMarketNews) -->
+    <div class="news-toast-stack" id="newsToastStack" aria-live="polite"></div>
 
     <!-- ═══════════════════════════════════════
          EVALUATE PICKER — choose which bot to evaluate
@@ -832,7 +912,7 @@
     </div>
 
     <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
-    <script src="paper_app_v3.js?v=9"></script>
+    <script src="paper_app_v3.js?v=10"></script>
     <style>
         /* Small utility additions for the switch and modal */
         .switch input:checked+.slider {

@@ -512,6 +512,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     _safeInit('assetSwitcher', initAssetSwitcher);
     _safeInit('eventListeners', initEventListeners);
     _safeInit('sidebarNav', initSidebarNav);
+    _safeInit('newsAlerts', initNewsAlerts);
+    _safeInit('screener', initScreener);
+    _safeInit('customStrategies', loadCustomStrategies);
 
     // Auto-refresh loops
     setInterval(() => {
@@ -621,14 +624,106 @@ function initSidebar() {
     });
 }
 
+/**
+ * Read the user's exit levels and validate them against the entry.
+ * Returns absolute prices plus the equivalent percentages the institutional
+ * risk checks already speak in.
+ */
+function readExitLevels(side, entryPrice) {
+    const sl = parseFloat(document.getElementById('orderStopLoss')?.value);
+    const tp = parseFloat(document.getElementById('orderTakeProfit')?.value);
+    const isLong = side === 'buy';
+    const px = v => formatSymbolPrice(state.currentSymbol, v);
+    const out = { stopLoss: null, takeProfit: null, stopLossPct: null, takeProfitPct: null };
+
+    if (sl > 0) {
+        // A stop on the wrong side of the entry would fire immediately.
+        if (isLong && sl >= entryPrice) {
+            return { error: 'Stop loss (' + px(sl) + ') must be BELOW the entry (' + px(entryPrice) + ') for a long.' };
+        }
+        if (!isLong && sl <= entryPrice) {
+            return { error: 'Stop loss (' + px(sl) + ') must be ABOVE the entry (' + px(entryPrice) + ') for a short.' };
+        }
+        out.stopLoss = sl;
+        out.stopLossPct = Math.abs((sl / entryPrice - 1) * 100);
+    }
+
+    if (tp > 0) {
+        if (isLong && tp <= entryPrice) {
+            return { error: 'Take profit (' + px(tp) + ') must be ABOVE the entry (' + px(entryPrice) + ') for a long.' };
+        }
+        if (!isLong && tp >= entryPrice) {
+            return { error: 'Take profit (' + px(tp) + ') must be BELOW the entry (' + px(entryPrice) + ') for a short.' };
+        }
+        out.takeProfit = tp;
+        out.takeProfitPct = Math.abs((tp / entryPrice - 1) * 100);
+    }
+
+    return out;
+}
+
+/** Live plain-English summary of the exit levels, so the risk stays legible. */
+function updateExitSummary() {
+    const el = document.getElementById('exitSummary');
+    if (!el) return;
+
+    const side = state.orderSide || 'buy';
+    const orderType = document.getElementById('orderType')?.value || 'market';
+    const typedLimit = parseFloat(document.getElementById('orderPrice')?.value);
+    const entry = (orderType === 'limit' && typedLimit > 0) ? typedLimit : state.lastPrice;
+    const qty = parseFloat(document.getElementById('orderQty')?.value) || 0;
+    const px = v => formatSymbolPrice(state.currentSymbol, v);
+
+    if (!(entry > 0)) { el.textContent = ''; return; }
+
+    const exit = readExitLevels(side, entry);
+    if (exit.error) {
+        el.innerHTML = '<span class="exit-warn"><i class="fas fa-triangle-exclamation"></i> ' + exit.error + '</span>';
+        return;
+    }
+    if (exit.stopLoss == null && exit.takeProfit == null) { el.textContent = ''; return; }
+
+    const parts = [];
+    if (exit.stopLoss != null) {
+        const risk = qty ? ' · risk ' + px(Math.abs(entry - exit.stopLoss) * qty) : '';
+        parts.push('<span class="exit-sl">Stop ' + px(exit.stopLoss) +
+                   ' (-' + exit.stopLossPct.toFixed(2) + '%)' + risk + '</span>');
+    }
+    if (exit.takeProfit != null) {
+        const reward = qty ? ' · target ' + px(Math.abs(exit.takeProfit - entry) * qty) : '';
+        parts.push('<span class="exit-tp">Target ' + px(exit.takeProfit) +
+                   ' (+' + exit.takeProfitPct.toFixed(2) + '%)' + reward + '</span>');
+    }
+    if (exit.stopLoss != null && exit.takeProfit != null) {
+        const rr = Math.abs(exit.takeProfit - entry) / Math.abs(entry - exit.stopLoss);
+        parts.push('<span class="exit-rr">R:R ' + rr.toFixed(2) + ':1</span>');
+    }
+    el.innerHTML = parts.join('');
+}
+
+/** Show the limit-price field only when it applies. */
+function applyOrderType() {
+    const type = document.getElementById('orderType')?.value || 'market';
+    const group = document.getElementById('limitPriceGroup');
+    const priceEl = document.getElementById('orderPrice');
+    if (group) group.hidden = type !== 'limit';
+
+    // Seed the limit box with the live price so the user edits a real number
+    // rather than typing one from scratch.
+    if (type === 'limit' && priceEl && !priceEl.value && state.lastPrice > 0) {
+        priceEl.value = state.lastPrice;
+    }
+    if (type === 'market' && priceEl) priceEl.value = '';
+    updateExitSummary();
+}
+
 function initOrderPanel() {
     const buyBtn = document.getElementById('buySide');
     const sellBtn = document.getElementById('sellSide');
     const executeBtn = document.getElementById('btnExecuteOrder');
-    const autoSwitch = document.getElementById('btnAutoTrade');
 
-    if (buyBtn) buyBtn.onclick = () => setOrderSide('buy');
-    if (sellBtn) sellBtn.onclick = () => setOrderSide('sell');
+    if (buyBtn) buyBtn.onclick = () => { setOrderSide('buy'); updateExitSummary(); };
+    if (sellBtn) sellBtn.onclick = () => { setOrderSide('sell'); updateExitSummary(); };
 
     if (executeBtn) {
         executeBtn.onclick = () => {
@@ -637,12 +732,12 @@ function initOrderPanel() {
         };
     }
 
-    if (autoSwitch) {
-        autoSwitch.onchange = (e) => {
-            if (e.target.checked) startBot();
-            else stopBot();
-        };
-    }
+    document.getElementById('orderType')?.addEventListener('change', applyOrderType);
+    ['orderQty', 'orderPrice', 'orderStopLoss', 'orderTakeProfit'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', updateExitSummary);
+    });
+
+    applyOrderType();
 }
 
 async function checkServerStatus() {
@@ -1467,12 +1562,39 @@ async function executeTrade(side) {
         return;
     }
 
+    // ── Order type ──
+    // A limit order must carry a price; a market order must not silently
+    // inherit a stale one left behind in the (now hidden) limit field.
+    const orderType = document.getElementById('orderType')?.value || 'market';
+    const typedLimit = parseFloat(document.getElementById('orderPrice')?.value);
+    if (orderType === 'limit' && !(typedLimit > 0)) {
+        alert('Enter a limit price, or switch the order type to Market.');
+        return;
+    }
+    const limitPrice = orderType === 'limit' ? typedLimit : null;
+    const currentPrice = limitPrice || state.lastPrice;
+
+    if (!(currentPrice > 0)) {
+        alert('No live price for this symbol yet — wait for the feed, or place a limit order.');
+        return;
+    }
+
+    // ── Exit conditions ──
+    // Absolute prices typed by the user. They win over the Command Deck's
+    // percentage defaults, which remain the fallback for bots.
+    const exit = readExitLevels(side, currentPrice);
+    if (exit.error) {
+        alert(exit.error);
+        return;
+    }
+
     // ── V2 Institutional Pre-Trade Validation ──
-    const stopLossPct = parseFloat(document.getElementById('settingStopLoss')?.value) || state.settings.stopLoss;
-    const takeProfitPct = parseFloat(document.getElementById('settingTakeProfit')?.value) || state.settings.takeProfit;
-    // Honor a typed limit price; fall back to the live market price for market orders
-    const limitPrice = parseFloat(document.getElementById('orderPrice')?.value);
-    const currentPrice = (limitPrice && limitPrice > 0) ? limitPrice : state.lastPrice;
+    const stopLossPct = exit.stopLossPct != null
+        ? exit.stopLossPct
+        : (parseFloat(document.getElementById('settingStopLoss')?.value) || state.settings.stopLoss);
+    const takeProfitPct = exit.takeProfitPct != null
+        ? exit.takeProfitPct
+        : (parseFloat(document.getElementById('settingTakeProfit')?.value) || state.settings.takeProfit);
     const equity = state.paperBalance || 100000;
 
     // A) R:R Enforcement
@@ -1502,6 +1624,10 @@ async function executeTrade(side) {
                 volatility: state.lastVolatility || 0.02,
                 volume: state.lastVolume || 100000000,
                 margin_mode: state.settings.marginMode || 'isolated',
+                order_type: orderType,
+                limit_price: limitPrice,
+                stop_loss_price: exit.stopLoss,
+                take_profit_price: exit.takeProfit,
                 user: document.getElementById('dropdownUsername')?.textContent || 'admin'
             })
         });
@@ -1701,7 +1827,7 @@ async function startBot() {
                 max_quantity: uiSettings.maxQuantity,
                 leverage: state.settings.leverage || 1.0,
                 risk_pct: state.settings.riskPct || 2.0,
-                sensitivity: document.getElementById('sensitivitySelect')?.value || 'conservative'
+                sensitivity: currentSensitivity()
             })
         });
 
@@ -1846,11 +1972,18 @@ function initEventListeners() {
         const saved = localStorage.getItem(SENSITIVITY_PREF_KEY);
         if (saved && SENSITIVITY_INFO[saved]) sensEl.value = saved;
 
-        sensEl.addEventListener('change', () => {
-            localStorage.setItem(SENSITIVITY_PREF_KEY, sensEl.value);
+        // 'change' does not fire on every mobile browser until the picker is
+        // dismissed; 'input' fires as soon as the value commits.
+        const syncSensitivity = () => {
+            state.sensitivity = sensEl.value;
+            try { localStorage.setItem(SENSITIVITY_PREF_KEY, sensEl.value); } catch { /* private mode */ }
             updateSensitivityHelp(sensEl.value);
             console.log(`[V2] Signal sensitivity → ${sensEl.value}`);
-        });
+        };
+        sensEl.addEventListener('change', syncSensitivity);
+        sensEl.addEventListener('input', syncSensitivity);
+
+        state.sensitivity = sensEl.value;
         updateSensitivityHelp(sensEl.value);
     }
 
@@ -2445,7 +2578,7 @@ async function startBot() {
                 take_profit: tp,
                 leverage: 1.0,
                 mode: 'paper',
-                sensitivity: document.getElementById('sensitivitySelect')?.value || 'conservative'
+                sensitivity: currentSensitivity()
             })
         });
         const data = await res.json();
@@ -2457,11 +2590,11 @@ async function startBot() {
             UI.elements.autoTradeStatus.style.color = 'var(--accent)';
         } else {
             showNotification(`Error: ${data.error}`, 'error');
-            document.getElementById('btnAutoTrade').checked = false;
+            // AUTO switch removed — automation is driven from the Command Deck.
         }
     } catch (err) {
         console.error('Failed to start bot', err);
-        document.getElementById('btnAutoTrade').checked = false;
+        // AUTO switch removed — automation is driven from the Command Deck.
     }
 }
 
@@ -2640,8 +2773,8 @@ function renderFromLocalState() {
                     <td><strong>${symbol}</strong></td>
                     <td class="${sideClass}">${pos.side === 'BUY' ? 'LONG' : 'SHORT'}</td>
                     <td>${pos.qty.toFixed(4)}</td>
-                    <td>$${pos.entryPrice.toLocaleString()}</td>
-                    <td>$${currentPrice.toLocaleString()}</td>
+                    <td>${formatSymbolPrice(symbol, pos.entryPrice)}</td>
+                    <td>${formatSymbolPrice(symbol, currentPrice)}</td>
                     <td class="${pnlClass}">$${netPnl.toFixed(2)} (${netPnlPct >= 0 ? '+' : ''}${netPnlPct.toFixed(2)}%)</td>
                     <td>-</td>
                     <td><button class="btn-close-pos" onclick="closePosition('${symbol}')">Close</button></td>
@@ -2670,17 +2803,28 @@ function renderOpenPositions() {
             const pnlClass = netPnl >= 0 ? 'p-positive' : 'p-negative';
             const sideClass = !isShort ? 'p-positive' : 'p-negative';
 
+            const sl = parseFloat(pos.stop_loss || 0);
+            const tp = parseFloat(pos.take_profit || 0);
+            const bracket = (sl > 0 || tp > 0)
+                ? `<span class="lbl">SL</span><span class="sl">${sl > 0 ? formatSymbolPrice(pos.symbol, sl) : '—'}</span>
+                   <span class="lbl">TP</span><span class="tp">${tp > 0 ? formatSymbolPrice(pos.symbol, tp) : '—'}</span>`
+                : '<span class="none">none set</span>';
+
             return `
                 <tr>
                     <td><strong>${pos.symbol}</strong></td>
                     <td class="${sideClass}">${pos.side || 'LONG'}</td>
                     <td>${qty.toFixed(4)}</td>
-                    <td style="font-family:var(--font-mono);">$${avgPrice.toLocaleString()}</td>
+                    <td style="font-family:var(--font-mono);">${formatSymbolPrice(pos.symbol, avgPrice)}</td>
                     <td class="${pnlClass}" style="font-weight:700;">
-                        $${netPnl.toFixed(2)} (${netPnlPct >= 0 ? '+' : ''}${netPnlPct.toFixed(2)}%)
+                        ${netPnl >= 0 ? '+' : '-'}$${Math.abs(netPnl).toFixed(2)} (${netPnlPct >= 0 ? '+' : ''}${netPnlPct.toFixed(2)}%)
                     </td>
                     <td>
-                        <button class="side-btn sell" style="padding:4px 8px; font-size:10px;" onclick="closePosition('${pos.symbol}')">CLOSE</button>
+                        <div class="pos-bracket">${bracket}</div>
+                        <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
+                            <button class="btn-bracket" onclick="editPositionBracket('${pos.symbol}')">Exits</button>
+                            <button class="side-btn sell" style="padding:4px 8px; font-size:10px;" onclick="closePosition('${pos.symbol}')">CLOSE</button>
+                        </div>
                     </td>
                 </tr>
             `;
@@ -3818,7 +3962,7 @@ async function startBotFromUI() {
     const stopLoss = parseFloat(document.getElementById('settingStopLoss')?.value || 2);
     const takeProfit = parseFloat(document.getElementById('settingTakeProfit')?.value || 6);
     const maxQty = parseFloat(document.getElementById('maxQuantity')?.value || 1);
-    const sensitivity = document.getElementById('sensitivitySelect')?.value || 'conservative';
+    const sensitivity = currentSensitivity();
 
     if (!symbol || !strategy) {
         alert('Please select a strategy and symbol.');
@@ -3856,7 +4000,9 @@ async function startBotFromUI() {
         const data = await res.json();
         if (data.success) {
             if (badge) { badge.textContent = 'RUNNING'; badge.style.color = 'var(--bullish)'; }
-            console.log(`[V2] Bot started: ${data.bot_id}`);
+            console.log(`[V2] Bot started: ${data.bot_id} (sensitivity=${sensitivity})`);
+            const sensLabel = (SENSITIVITY_INFO[sensitivity] || {}).label || sensitivity;
+            showNotification(`🚀 ${symbol} bot started · ${sensLabel}`);
             setTimeout(loadAndRenderBots, 1000);
         } else {
             if (badge) { badge.textContent = 'ERROR'; badge.style.color = 'var(--bearish)'; }
@@ -4378,6 +4524,357 @@ async function runEvolution(opts = {}) {
     loadEvolutionCards();
 }
 
+// ============================================================
+// MANAGE EXITS ON AN OPEN POSITION
+// ------------------------------------------------------------
+// Exit levels could only be set at order time. This lets the user
+// add or change them on a position that is already running.
+// ============================================================
+
+async function editPositionBracket(symbol) {
+    const pos = (positionsData.open || []).find(p => p.symbol === symbol);
+    if (!pos) { alert('Position not found — it may have just closed.'); return; }
+
+    const isShort = pos.side === 'SHORT' || pos.side === 'SELL';
+    const entry = parseFloat(pos.avg_price || 0);
+    const px = v => formatSymbolPrice(symbol, v);
+
+    const curSl = parseFloat(pos.stop_loss || 0) || '';
+    const curTp = parseFloat(pos.take_profit || 0) || '';
+
+    const slRaw = prompt(
+        `Stop loss for ${symbol} (${isShort ? 'SHORT' : 'LONG'})\n` +
+        `Entry ${px(entry)} — stop must be ${isShort ? 'ABOVE' : 'BELOW'} it.\n` +
+        `Leave blank to clear.`, curSl);
+    if (slRaw === null) return;
+
+    const tpRaw = prompt(
+        `Take profit for ${symbol} (${isShort ? 'SHORT' : 'LONG'})\n` +
+        `Entry ${px(entry)} — target must be ${isShort ? 'BELOW' : 'ABOVE'} it.\n` +
+        `Leave blank to clear.`, curTp);
+    if (tpRaw === null) return;
+
+    const sl = slRaw.trim() === '' ? 0 : parseFloat(slRaw);
+    const tp = tpRaw.trim() === '' ? 0 : parseFloat(tpRaw);
+
+    if (slRaw.trim() !== '' && !(sl > 0)) { alert('Stop loss must be a positive number.'); return; }
+    if (tpRaw.trim() !== '' && !(tp > 0)) { alert('Take profit must be a positive number.'); return; }
+
+    // Same sanity checks as the order ticket — a level on the wrong side of
+    // the entry would trigger the instant it is set.
+    if (sl > 0 && entry > 0) {
+        if (!isShort && sl >= entry) { alert(`Stop ${px(sl)} must be below the entry ${px(entry)}.`); return; }
+        if (isShort && sl <= entry) { alert(`Stop ${px(sl)} must be above the entry ${px(entry)}.`); return; }
+    }
+    if (tp > 0 && entry > 0) {
+        if (!isShort && tp <= entry) { alert(`Target ${px(tp)} must be above the entry ${px(entry)}.`); return; }
+        if (isShort && tp >= entry) { alert(`Target ${px(tp)} must be below the entry ${px(entry)}.`); return; }
+    }
+
+    try {
+        const res = await fetch('/api/v2/position/exits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol, stop_loss_price: sl, take_profit_price: tp })
+        });
+        const data = await res.json();
+        if (!data.success) { alert('Could not update exits: ' + (data.error || 'unknown error')); return; }
+
+        showNotification(
+            (sl || tp)
+                ? `🛡️ ${symbol} exits set — SL ${sl ? px(sl) : '—'} / TP ${tp ? px(tp) : '—'}`
+                : `${symbol} exit levels cleared`);
+        loadPositions();
+    } catch (e) {
+        console.error('[V2] Exit update failed:', e);
+        alert('Could not reach the server.');
+    }
+}
+
+// ============================================================
+// BOT STOCK SCREENER
+// ------------------------------------------------------------
+// Sweeps a whole market with the user's chosen strategy and ranks
+// the instruments by how strongly each one matches right now.
+// ============================================================
+
+let screenerTimer = null;
+const SCREENER_POLL_MS = 180000;   // 3 min — matches the server-side cache
+
+async function runScreener(force) {
+    const box = document.getElementById('screenerResults');
+    const btn = document.getElementById('btnRunScreener');
+    const countEl = document.getElementById('screenerHitCount');
+    if (!box) return;
+
+    const market = document.getElementById('screenerMarket')?.value || 'stocks';
+    const interval = document.getElementById('screenerInterval')?.value || '15m';
+    const strategy = state.currentStrategy || 'combined';
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Scanning'; }
+    if (!box.querySelector('.screener-row')) {
+        box.innerHTML = '<div class="no-bots-message">Scanning ' + market + '…</div>';
+    }
+
+    try {
+        const params = new URLSearchParams({
+            market, interval, strategy,
+            sensitivity: currentSensitivity(),
+            limit: '20'
+        });
+        if (force) params.set('refresh', '1');
+
+        const res = await fetch('/api/v2/screener?' + params.toString());
+        const data = await res.json();
+
+        if (!data.success) {
+            box.innerHTML = '<div class="no-bots-message">' +
+                (data.error || 'Screener unavailable') + '</div>';
+            return;
+        }
+
+        const rows = data.results || [];
+        const hits = rows.filter(r => r.signal === 'BUY' || r.signal === 'SELL');
+        if (countEl) countEl.textContent = hits.length;
+
+        if (!rows.length) {
+            box.innerHTML = '<div class="no-bots-message">Nothing returned for this market.</div>';
+            return;
+        }
+
+        const esc = v => String(v).replace(/'/g, "\\'");
+
+        box.innerHTML = rows.map(r => {
+            const sig = (r.signal || 'HOLD').toUpperCase();
+            const cls = sig === 'BUY' ? 'buy' : sig === 'SELL' ? 'sell' : 'hold';
+            const conviction = Math.round((Math.abs(r.score || 0)) * 100);
+            const priceTxt = r.price ? formatSymbolPrice(r.symbol, r.price) : '—';
+            const why = (r.reasons || []).join(' · ');
+            const bad = r.status && r.status !== 'ok';
+
+            return '<div class="screener-row ' + cls + (bad ? ' muted' : '') + '" ' +
+                'onclick="selectSuggestion(\'' + esc(r.symbol) + '\', \'' + esc(r.market) + '\')" ' +
+                'role="button" tabindex="0">' +
+                '<div class="screener-main">' +
+                    '<div class="screener-symbol">' + r.symbol +
+                        '<span class="screener-price">' + priceTxt + '</span></div>' +
+                    '<div class="screener-why">' +
+                        (bad ? 'No usable data for this instrument' : (why || 'No supporting signal')) +
+                    '</div>' +
+                '</div>' +
+                '<div class="screener-side">' +
+                    '<span class="screener-signal ' + cls + '">' + sig + '</span>' +
+                    (bad ? '' : '<span class="screener-conviction">' + conviction + '%</span>') +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        const age = data.cached ? ' (cached ' + data.age_seconds + 's ago)' : '';
+        box.insertAdjacentHTML('beforeend',
+            '<div class="screener-foot">' + rows.length + ' scanned · ' + hits.length +
+            ' actionable · ' + strategy + ' @ ' + interval + age + '</div>');
+
+    } catch (e) {
+        console.error('[SCREENER] failed:', e);
+        box.innerHTML = '<div class="no-bots-message">Screener request failed.</div>';
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-radar"></i> Scan Now'; }
+    }
+}
+
+function initScreener() {
+    document.getElementById('screenerMarket')?.addEventListener('change', () => runScreener(true));
+    document.getElementById('screenerInterval')?.addEventListener('change', () => runScreener(true));
+
+    // Default the screener to whatever market the user is already in.
+    const marketEl = document.getElementById('screenerMarket');
+    if (marketEl && state.currentMarket) marketEl.value = state.currentMarket;
+
+    const auto = document.getElementById('screenerAuto');
+    if (auto) {
+        auto.checked = localStorage.getItem('goatbot_screener_auto') === '1';
+        const apply = () => {
+            localStorage.setItem('goatbot_screener_auto', auto.checked ? '1' : '0');
+            if (screenerTimer) { clearInterval(screenerTimer); screenerTimer = null; }
+            if (auto.checked) {
+                runScreener(false);
+                screenerTimer = setInterval(() => runScreener(false), SCREENER_POLL_MS);
+            }
+        };
+        auto.addEventListener('change', apply);
+        apply();
+    }
+}
+
+// ============================================================
+// BREAKING NEWS ALERTS
+// ------------------------------------------------------------
+// The feed only ever showed the market you were already looking
+// at, so news breaking in another asset class went unseen. These
+// poll every market and surface new headlines as a toast that
+// jumps you to that market when tapped.
+// ============================================================
+
+const NEWS_MARKETS = ['crypto', 'stocks', 'forex', 'commodities'];
+const NEWS_MARKET_ICONS = {
+    crypto: 'fa-bitcoin-sign',
+    stocks: 'fa-chart-line',
+    forex: 'fa-money-bill-transfer',
+    commodities: 'fa-oil-well'
+};
+const NEWS_POLL_MS = 90000;   // 90s — the upstream feeds do not move faster
+const MAX_TOASTS = 3;
+const NEWS_SEEN_KEY = 'goatbot_seen_news';
+
+// Headlines already shown, per market. Seeded on the first pass so a page
+// load never dumps a backlog of "breaking" news that is hours old.
+const newsSeen = {};
+let newsPollTimer = null;
+
+function loadSeenNews() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(NEWS_SEEN_KEY) || '{}');
+        NEWS_MARKETS.forEach(m => { newsSeen[m] = new Set(raw[m] || []); });
+    } catch {
+        NEWS_MARKETS.forEach(m => { newsSeen[m] = new Set(); });
+    }
+}
+
+function saveSeenNews() {
+    try {
+        const out = {};
+        // Cap the memory so this cannot grow without bound.
+        NEWS_MARKETS.forEach(m => { out[m] = Array.from(newsSeen[m] || []).slice(-60); });
+        localStorage.setItem(NEWS_SEEN_KEY, JSON.stringify(out));
+    } catch { /* private mode — alerts still work for this session */ }
+}
+
+function newsKey(item) {
+    return item.url || item.id || item.title || '';
+}
+
+/** Poll every market and toast anything genuinely new. */
+async function pollAllMarketNews() {
+    for (const market of NEWS_MARKETS) {
+        try {
+            const res = await fetch(`/api/news?limit=8&market=${market}`);
+            const data = await res.json();
+            const items = data.news || [];
+            if (!items.length) continue;
+
+            const seen = newsSeen[market] || (newsSeen[market] = new Set());
+            const firstPass = seen.size === 0;
+            const fresh = [];
+
+            for (const item of items) {
+                const key = newsKey(item);
+                if (!key || seen.has(key)) continue;
+                seen.add(key);
+                if (!firstPass) fresh.push(item);
+            }
+
+            // On the first pass we only record what already exists.
+            if (firstPass) continue;
+
+            // Newest first, and never more than one toast per market per tick —
+            // a burst of headlines should not bury the screen.
+            if (fresh.length) {
+                showNewsToast(fresh[0], market, fresh.length - 1);
+            }
+        } catch (e) {
+            console.warn(`[NEWS] poll failed for ${market}:`, e);
+        }
+    }
+    saveSeenNews();
+}
+
+function showNewsToast(item, market, extraCount) {
+    const stack = document.getElementById('newsToastStack');
+    if (!stack) return;
+
+    // Oldest toast makes way once the stack is full.
+    while (stack.children.length >= MAX_TOASTS) {
+        stack.removeChild(stack.firstElementChild);
+    }
+
+    const sentiment = item.sentiment_label === 'BULLISH' ? 'bullish'
+        : item.sentiment_label === 'BEARISH' ? 'bearish' : '';
+
+    let title = (item.title || 'New headline').replace(/[-_]/g, ' ');
+    if (title.length > 110) title = title.slice(0, 107) + '...';
+
+    const isCurrent = market === state.currentMarket;
+    const more = extraCount > 0 ? ` +${extraCount} more` : '';
+
+    const el = document.createElement('div');
+    el.className = `news-toast ${sentiment}`;
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.innerHTML = `
+        <div class="news-toast-icon"><i class="fas ${NEWS_MARKET_ICONS[market] || 'fa-newspaper'}"></i></div>
+        <div class="news-toast-body">
+            <div class="news-toast-eyebrow">
+                <span class="news-toast-market">${market}</span>
+                <span>&middot;</span>
+                <span>${item.sentiment_label || 'NEWS'}${more}</span>
+            </div>
+            <div class="news-toast-title">${title}</div>
+            <div class="news-toast-cta">
+                ${isCurrent ? 'View in feed' : `Tap to open ${market}`} <i class="fas fa-arrow-right"></i>
+            </div>
+        </div>
+        <button class="news-toast-close" aria-label="Dismiss">&times;</button>`;
+
+    const dismiss = () => {
+        el.classList.add('leaving');
+        setTimeout(() => el.remove(), 220);
+    };
+
+    el.querySelector('.news-toast-close').addEventListener('click', (e) => {
+        e.stopPropagation();
+        dismiss();
+    });
+
+    const open = () => {
+        openNewsMarket(market);
+        dismiss();
+    };
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    });
+
+    stack.appendChild(el);
+
+    // Auto-dismiss, but leave it if the pointer is resting on it.
+    let timer = setTimeout(dismiss, 12000);
+    el.addEventListener('mouseenter', () => clearTimeout(timer));
+    el.addEventListener('mouseleave', () => { timer = setTimeout(dismiss, 4000); });
+}
+
+/** Jump to the market a headline belongs to and reveal its feed. */
+function openNewsMarket(market) {
+    if (market && market !== state.currentMarket) {
+        switchAsset(market);
+    } else {
+        loadNews();
+    }
+    const feed = document.getElementById('newsFeed');
+    if (feed) {
+        feed.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        feed.classList.add('news-flash');
+        setTimeout(() => feed.classList.remove('news-flash'), 1200);
+    }
+}
+
+function initNewsAlerts() {
+    loadSeenNews();
+    // Seed immediately, then poll. The seeding pass is silent by design.
+    pollAllMarketNews();
+    if (newsPollTimer) clearInterval(newsPollTimer);
+    newsPollTimer = setInterval(pollAllMarketNews, NEWS_POLL_MS);
+}
+
 // ── Mobile off-canvas sidebar ──
 function toggleMobileSidebar(forceClose) {
     const sidebar = document.querySelector('.slim-sidebar');
@@ -4435,6 +4932,27 @@ const SENSITIVITY_INFO = {
         help: '🔥 <strong>Aggressive</strong> — trades frequently, including calmer markets. More signals, but expect more noise and higher fee drag. Best when volatility is up.'
     }
 };
+
+/**
+ * The sensitivity the next bot will start with.
+ *
+ * Reading the <select> at click time was fragile: on mobile the Start button
+ * can be tapped while the native picker is still committing its value, and any
+ * boot-order hiccup that leaves the element unread silently yields
+ * 'conservative'. The choice is mirrored into state on change and persisted,
+ * so the value survives both.
+ */
+function currentSensitivity() {
+    const el = document.getElementById('sensitivitySelect');
+    const fromDom = el && el.value;
+    if (fromDom && SENSITIVITY_INFO[fromDom]) return fromDom;
+    if (state.sensitivity && SENSITIVITY_INFO[state.sensitivity]) return state.sensitivity;
+    try {
+        const saved = localStorage.getItem(SENSITIVITY_PREF_KEY);
+        if (saved && SENSITIVITY_INFO[saved]) return saved;
+    } catch { /* private mode */ }
+    return 'conservative';
+}
 
 function updateSensitivityHelp(value) {
     const el = document.getElementById('sensitivityHelp');
@@ -4515,14 +5033,65 @@ async function loadAndRenderBots() {
 // CUSTOM STRATEGY BUILDER
 // ============================================================
 
+// Strategies are stored server-side so they survive a cache clear, follow the
+// user across devices, and are visible to the training/evolution side.
+// localStorage is kept as an offline mirror only.
+//
+// NOTE: the reader and writer previously used DIFFERENT keys
+// ('godbot_...' vs 'goatbot_...'), so nothing saved was ever read back.
+const CUSTOM_STRATEGY_KEY = 'goatbot_custom_strategies';
+
 function getCustomStrategies() {
+    // Server copy loaded into state by loadCustomStrategies(); fall back to the
+    // local mirror when offline or before the first fetch resolves.
+    if (Array.isArray(state.customStrategies)) return state.customStrategies;
     try {
-        return JSON.parse(localStorage.getItem('godbot_custom_strategies') || '[]');
+        return JSON.parse(localStorage.getItem(CUSTOM_STRATEGY_KEY) || '[]');
     } catch { return []; }
 }
 
 function saveCustomStrategiesStore(strategies) {
-    localStorage.setItem('goatbot_custom_strategies', JSON.stringify(strategies));
+    state.customStrategies = strategies;
+    try {
+        localStorage.setItem(CUSTOM_STRATEGY_KEY, JSON.stringify(strategies));
+    } catch { /* private mode — the server copy is authoritative anyway */ }
+}
+
+/** Pull the user's saved strategies from the server. */
+async function loadCustomStrategies() {
+    try {
+        const res = await fetch('/api/v2/strategies/custom');
+        const data = await res.json();
+        if (data.success) {
+            saveCustomStrategiesStore(data.strategies || []);
+            renderSavedStrategies();
+            loadStrategies();
+            console.log(`[V2] Loaded ${(data.strategies || []).length} saved strategies`);
+        }
+    } catch (e) {
+        console.warn('[V2] Could not load saved strategies, using local copy:', e);
+    }
+}
+
+/** Persist one strategy server-side. */
+async function persistCustomStrategy(strategy) {
+    try {
+        const res = await fetch('/api/v2/strategies/custom', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...strategy, market: state.currentMarket })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert('Could not save strategy: ' + (data.error || 'unknown error'));
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.error('[V2] Strategy save failed:', e);
+        alert('Could not reach the server — the strategy is saved on this device only.');
+        return false;
+    }
 }
 
 function saveCustomStrategy() {
@@ -4546,9 +5115,15 @@ function saveCustomStrategy() {
     const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
     const strategy = { id, name, indicators, buyConditions, sellConditions, createdAt: new Date().toISOString() };
 
-    const strategies = getCustomStrategies();
+    const strategies = getCustomStrategies().slice();
     strategies.push(strategy);
     saveCustomStrategiesStore(strategies);
+
+    // Server copy — this is what makes it available for training and on
+    // another device.
+    persistCustomStrategy(strategy).then(ok => {
+        if (ok) showNotification(`💾 Strategy "${name}" saved`);
+    });
 
     // Refresh UI
     loadStrategies();
@@ -4562,9 +5137,15 @@ function saveCustomStrategy() {
 }
 
 function deleteCustomStrategy(id) {
-    let strategies = getCustomStrategies();
-    strategies = strategies.filter(s => s.id !== id);
+    const strategies = getCustomStrategies().filter(s => s.id !== id);
     saveCustomStrategiesStore(strategies);
+
+    fetch('/api/v2/strategies/custom', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+    }).catch(e => console.error('[V2] Strategy delete failed:', e));
+
     loadStrategies();
     renderSavedStrategies();
 }

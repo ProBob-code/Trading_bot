@@ -1459,17 +1459,52 @@ body[data-asset="stocks"]::after {
 
 .field-input {
     width: 100%;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--surface-1);
     border: 1px solid var(--glass-border);
     padding: 12px 16px;
     border-radius: 10px;
-    color: #fff;
+    /* Was hardcoded #fff — the Asset Symbol read as blank in light mode. */
+    color: var(--text-primary);
     font-family: var(--font-mono);
     font-size: 14px;
     outline: none;
+    -webkit-appearance: none;
+    appearance: none;
 }
 
-.field-input:focus { border-color: var(--accent); }
+.field-input::placeholder { color: var(--text-muted); opacity: 1; }
+
+.field-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* A readonly field is informational, not broken — say so visually. */
+.field-input[readonly] {
+    color: var(--text-primary);
+    background: var(--surface-2);
+    cursor: default;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+select.field-input {
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    /* Room for the caret drawn below. */
+    padding-right: 38px;
+    background-image:
+        linear-gradient(45deg, transparent 50%, currentColor 50%),
+        linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: right 18px center, right 13px center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+}
+
+/* Native dropdown lists inherit the OS palette, not ours. */
+select.field-input option { background: var(--bg-secondary); color: var(--text-primary); }
 
 .btn-execute {
     padding: 16px;
@@ -3369,4 +3404,443 @@ body[data-asset="stocks"]::after {
     .terminal-stats { gap: 12px; }
     .stat-value { font-size: 12px; }
     .market-item { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.9fr) 28px; }
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   EXECUTION ENGINE — manual order ticket
+   ════════════════════════════════════════════════════════════ */
+.manual-badge {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    color: var(--gold);
+    background: color-mix(in srgb, var(--gold) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold) 38%, transparent);
+    padding: 4px 9px;
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+/* color-mix is widely supported but not universal — keep a flat fallback. */
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+    .manual-badge { background: rgba(255, 215, 0, 0.12); border-color: rgba(255, 215, 0, 0.38); }
+}
+
+.exit-controls {
+    border: 1px solid var(--glass-border);
+    background: var(--surface-1);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+}
+
+.exit-controls-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.exit-hint {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: var(--text-muted);
+    text-transform: none;
+}
+
+.exit-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.exit-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    margin-top: 10px;
+    font-size: 10.5px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    line-height: 1.5;
+}
+.exit-summary:empty { display: none; margin-top: 0; }
+
+.exit-sl { color: var(--bearish); }
+.exit-tp { color: var(--bullish); }
+.exit-rr { color: var(--text-secondary); }
+.exit-warn {
+    color: var(--bearish);
+    font-family: var(--font-sans);
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    line-height: 1.45;
+}
+
+/* Positions table: inline bracket editing on an open trade */
+.pos-bracket {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+}
+.pos-bracket .lbl { color: var(--text-muted); font-weight: 700; }
+.pos-bracket .sl { color: var(--bearish); }
+.pos-bracket .tp { color: var(--bullish); }
+.pos-bracket .none { color: var(--text-muted); font-style: italic; }
+
+.btn-bracket {
+    background: var(--surface-2);
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    border-radius: 6px;
+    padding: 4px 9px;
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+}
+.btn-bracket:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ════════════════════════════════════════════════════════════
+   NEWS — light-mode rebuild
+   ------------------------------------------------------------
+   The feed is a dense list of headlines. In light mode it needs
+   real card separation and a readable sentiment rail rather than
+   translucent white on white.
+   ════════════════════════════════════════════════════════════ */
+.news-item {
+    display: block;
+    /* Grid keeps the sentiment chip pinned right regardless of title length. */
+    background: var(--surface-1);
+}
+
+.news-source { letter-spacing: 0.4px; }
+
+.news-sentiment {
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: color-mix(in srgb, currentColor 12%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    font-size: 8.5px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+    .news-sentiment { background: transparent; border-color: var(--glass-border); }
+}
+
+[data-theme="light"] .news-item {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.10);
+    box-shadow: var(--shadow-sm);
+}
+
+[data-theme="light"] .news-item:hover {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.16);
+    box-shadow: var(--shadow-md);
+}
+
+[data-theme="light"] .news-title { color: #0b1220; }
+[data-theme="light"] .news-source { color: #64748b; }
+
+/* Panel behind the feed: a flat tint reads cleaner than glass on white. */
+[data-theme="light"] .intel-panel { background: var(--surface-1); }
+[data-theme="light"] .news-feed-inline { background: transparent; }
+
+/* ════════════════════════════════════════════════════════════
+   NEWS ALERT TOAST
+   ------------------------------------------------------------
+   A breaking headline for a market you are NOT looking at is easy
+   to miss, so it announces itself and jumps you to that market.
+   ════════════════════════════════════════════════════════════ */
+.news-toast-stack {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 5000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: min(360px, calc(100vw - 36px));
+    pointer-events: none;
+}
+
+.news-toast {
+    pointer-events: auto;
+    position: relative;
+    display: flex;
+    gap: 11px;
+    padding: 13px 14px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    cursor: pointer;
+    animation: toastIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+[data-theme="light"] .news-toast { background: #ffffff; }
+
+.news-toast:hover { transform: translateX(-3px); border-color: var(--accent); }
+.news-toast.bullish { border-left-color: var(--bullish); }
+.news-toast.bearish { border-left-color: var(--bearish); }
+
+.news-toast.leaving { animation: toastOut 0.22s ease-in forwards; }
+
+@keyframes toastIn {
+    from { opacity: 0; transform: translateX(28px); }
+    to   { opacity: 1; transform: none; }
+}
+@keyframes toastOut {
+    from { opacity: 1; transform: none; }
+    to   { opacity: 0; transform: translateX(28px); }
+}
+
+.news-toast-icon {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    background: var(--surface-2);
+    color: var(--accent);
+}
+.news-toast.bullish .news-toast-icon { color: var(--bullish); }
+.news-toast.bearish .news-toast-icon { color: var(--bearish); }
+
+.news-toast-body { min-width: 0; flex: 1 1 auto; }
+
+.news-toast-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 8.5px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+}
+
+.news-toast-market {
+    color: var(--accent);
+    font-weight: 800;
+}
+
+.news-toast-title {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--text-primary);
+    /* Two lines max — a toast is a nudge, not the article. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.news-toast-cta {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-top: 5px;
+}
+
+.news-toast-close {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0 2px;
+    align-self: flex-start;
+    line-height: 1;
+}
+.news-toast-close:hover { color: var(--text-primary); }
+
+@media (max-width: 640px) {
+    /* Toasts sit above the thumb zone, full width, newest at the top. */
+    .news-toast-stack {
+        right: 8px;
+        left: 8px;
+        bottom: calc(10px + env(safe-area-inset-bottom));
+        width: auto;
+    }
+    .news-toast { padding: 11px 12px; }
+    .news-toast-title { font-size: 11.5px; }
+
+    /* The order ticket stacks; exits stay side by side to keep it compact. */
+    .exit-grid { gap: 8px; }
+    .exit-controls { padding: 10px 11px; }
+    .order-form { padding: 0 12px 14px; gap: 12px; }
+    .field-input { padding: 11px 13px; font-size: 15px; }
+    select.field-input { font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .news-toast, .news-toast.leaving { animation: none; }
+    .evo-live-dot { animation: none; }
+}
+
+/* Brief highlight when a toast drops you into the feed. */
+.news-flash { animation: newsFlash 1.2s ease-out; }
+@keyframes newsFlash {
+    0%   { box-shadow: inset 0 0 0 2px var(--accent); }
+    100% { box-shadow: inset 0 0 0 2px transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .news-flash { animation: none; } }
+
+
+/* ════════════════════════════════════════════════════════════
+   BOT SCREENER
+   ════════════════════════════════════════════════════════════ */
+.screener-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.screener-auto { display: flex; flex-direction: column; justify-content: flex-start; }
+
+.screener-switch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px;
+    background: var(--surface-1);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+.screener-switch input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+.screener-switch:hover { border-color: var(--accent); }
+
+.screener-results {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.screener-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 11px 14px;
+    background: var(--surface-1);
+    border: 1px solid var(--glass-border);
+    border-left: 3px solid var(--text-muted);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background 0.18s, border-color 0.18s, transform 0.18s;
+}
+.screener-row:hover { background: var(--surface-2); transform: translateX(2px); }
+.screener-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screener-row.buy  { border-left-color: var(--bullish); }
+.screener-row.sell { border-left-color: var(--bearish); }
+.screener-row.hold { border-left-color: var(--text-muted); }
+.screener-row.muted { opacity: 0.55; }
+
+.screener-main { min-width: 0; flex: 1 1 auto; }
+
+.screener-symbol {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.screener-price {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.screener-why {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    line-height: 1.45;
+    margin-top: 3px;
+    /* One line — the detail lives on the chart, not in the list. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.screener-side {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.screener-signal {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    padding: 4px 9px;
+    border-radius: 6px;
+    border: 1px solid currentColor;
+}
+.screener-signal.buy  { color: var(--bullish); }
+.screener-signal.sell { color: var(--bearish); }
+.screener-signal.hold { color: var(--text-muted); }
+
+.screener-conviction {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    min-width: 38px;
+    text-align: right;
+}
+
+.screener-foot {
+    margin-top: 6px;
+    padding-top: 9px;
+    border-top: 1px solid var(--divider);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.2px;
+}
+
+@media (max-width: 640px) {
+    .screener-controls { grid-template-columns: 1fr; gap: 10px; }
+    .screener-row { padding: 10px 12px; gap: 10px; }
+    .screener-symbol { font-size: 12px; }
+    /* The reason line is the first thing to sacrifice on a narrow screen. */
+    .screener-why { display: none; }
+    .screener-conviction { font-size: 11px; min-width: 32px; }
 }
