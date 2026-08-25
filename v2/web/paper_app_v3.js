@@ -1235,8 +1235,13 @@ function switchSymbol(symbol) {
     // Fetch and display live price immediately + start polling
     startPricePolling(symbol);
 
-    // Conditions are per instrument — re-read for the new one.
-    if (typeof loadConditions === 'function') loadConditions();
+    // Conditions are per instrument — reset the history and re-read.
+    if (typeof loadConditions === 'function') {
+        pulseHistory.length = 0;
+        conditionsScoreShown = 0;
+        renderPulseSpark();
+        loadConditions();
+    }
     
     // Update global state on server for intelligence loop
     if (state.socket) {
@@ -4642,14 +4647,19 @@ async function editPositionBracket(symbol) {
 // ============================================================
 
 let conditionsTimer = null;
-const CONDITIONS_POLL_MS = 60000;
+let conditionsAgeTimer = null;
+let conditionsLastAt = 0;
+let conditionsScoreShown = 0;
+let conditionsInFlight = false;
 
-const COND_METRIC_LABELS = {
-    trend: 'Trend',
-    volatility: 'Volatility',
-    volume: 'Participation',
-    stretch: 'Stretch',
-};
+// Reading often is the point — the panel should feel like it is watching the
+// chart, not polling a report once a minute.
+const CONDITIONS_POLL_MS = 20000;
+
+// Recent scores, so the sparkline shows a tracked history rather than a
+// single number that appears from nowhere.
+const PULSE_HISTORY_MAX = 24;
+const pulseHistory = [];
 
 async function loadConditions() {
     const scoreEl = document.getElementById('condScore');
@@ -4657,6 +4667,8 @@ async function loadConditions() {
 
     const symbol = state.currentSymbol;
     if (!symbol) return;
+
+    setPulseReading(true);
 
     try {
         const params = new URLSearchParams({
@@ -4671,12 +4683,75 @@ async function loadConditions() {
         if (d.symbol && d.symbol !== state.currentSymbol) return;
 
         renderConditions(d);
+
+        conditionsLastAt = Date.now();
+        if (d.available) {
+            pulseHistory.push(d.score);
+            if (pulseHistory.length > PULSE_HISTORY_MAX) pulseHistory.shift();
+            renderPulseSpark();
+        }
     } catch (e) {
-        console.warn('[CONDITIONS] load failed:', e);
+        console.warn('[PULSE] load failed:', e);
         renderConditions({ available: false, label: 'UNAVAILABLE',
-                           headline: 'Could not read conditions.', score: 0,
-                           reasons: [], metrics: {} });
+                           headline: 'Could not reach the market feed.', score: 0,
+                           reasons: [], metrics: {}, bands: {} });
+    } finally {
+        setPulseReading(false);
     }
+}
+
+/** Sweep the scanline and flip the badge while a read is in flight. */
+function setPulseReading(on) {
+    conditionsInFlight = on;
+    const line = document.getElementById('pulseScanline');
+    const txt = document.getElementById('pulseLiveText');
+    if (line) line.classList.toggle('active', on);
+    if (txt && on) txt.textContent = 'READING';
+}
+
+/** "3s ago" ticker, so the panel visibly keeps time between reads. */
+function tickPulseAge() {
+    const txt = document.getElementById('pulseLiveText');
+    if (!txt || conditionsInFlight || !conditionsLastAt) return;
+
+    const secs = Math.max(0, Math.round((Date.now() - conditionsLastAt) / 1000));
+    txt.textContent = secs < 3 ? 'LIVE' : `${secs}s ago`;
+}
+
+/** Count the score toward its new value instead of snapping to it. */
+function animatePulseScore(target) {
+    const el = document.getElementById('condScore');
+    if (!el) return;
+
+    const from = conditionsScoreShown;
+    const delta = target - from;
+    if (!delta) { el.textContent = target; return; }
+
+    const steps = 14;
+    let i = 0;
+    const step = () => {
+        i++;
+        // Ease out, so it settles rather than stopping dead.
+        const v = Math.round(from + delta * (1 - Math.pow(1 - i / steps, 3)));
+        el.textContent = v;
+        if (i < steps) setTimeout(step, 22);
+        else { el.textContent = target; conditionsScoreShown = target; }
+    };
+    step();
+}
+
+/** Bars of the recent readings — visible evidence it has been watching. */
+function renderPulseSpark() {
+    const el = document.getElementById('pulseSpark');
+    if (!el) return;
+    if (pulseHistory.length < 2) { el.innerHTML = ''; return; }
+
+    el.innerHTML = pulseHistory.map((v, i) => {
+        const tone = v >= 70 ? 'good' : v >= 45 ? 'warn' : 'bad';
+        const latest = i === pulseHistory.length - 1;
+        return `<span class="pulse-bar${latest ? ' latest' : ''}" data-tone="${tone}"
+                      style="height:${Math.max(8, v)}%" title="${v}"></span>`;
+    }).join('');
 }
 
 function renderConditions(d) {
@@ -4689,43 +4764,36 @@ function renderConditions(d) {
     const footEl = document.getElementById('condFoot');
     if (!scoreEl) return;
 
-    const tone = d.label === 'FAVOURABLE' ? 'good'
-        : d.label === 'MIXED' ? 'warn'
-        : d.label === 'POOR' ? 'bad' : 'none';
+    const tone = d.label === 'GOOD TO TRADE' ? 'good'
+        : d.label === 'BE SELECTIVE' ? 'warn'
+        : d.label === 'SIT THIS OUT' ? 'bad' : 'none';
 
-    scoreEl.textContent = d.available ? d.score : '--';
+    if (d.available) animatePulseScore(d.score);
+    else { scoreEl.textContent = '--'; conditionsScoreShown = 0; }
+
     if (labelEl) { labelEl.textContent = d.label || '—'; labelEl.dataset.tone = tone; }
     if (headEl) headEl.textContent = d.headline || '';
     if (ringEl) {
         ringEl.dataset.tone = tone;
-        // Conic sweep communicates the score without a chart library.
         ringEl.style.setProperty('--cond-pct', (d.available ? d.score : 0) + '%');
+        // Brief flash marks the moment a fresh read lands.
+        ringEl.classList.remove('refreshed');
+        void ringEl.offsetWidth;
+        if (d.available) ringEl.classList.add('refreshed');
     }
 
-    const m = d.metrics || {};
+    // Plain words up front; the exact figure lives in the tooltip.
+    const bands = d.bands || {};
     if (metricsEl) {
-        if (!d.available) {
-            metricsEl.innerHTML = '';
-        } else {
-            const dirArrow = m.trend_direction === 'up' ? '↑' : '↓';
-            const dirTone = m.trend_direction === 'up' ? 'good' : 'bad';
-            metricsEl.innerHTML = [
-                ['Trend', `${dirArrow} ${Math.round(m.trend_strength)}%`, dirTone,
-                 'How much price and its two trend references agree'],
-                ['Volatility', `${Math.round(m.volatility_rank)}%`, 'none',
-                 `Range vs its own recent normal · ${Number(m.volatility_pct).toFixed(2)}% per bar`],
-                ['Volume', `${Number(m.relative_volume).toFixed(2)}x`,
-                 m.relative_volume >= 1 ? 'good' : 'warn',
-                 'Current volume against its 20-bar average'],
-                ['Stretch', `${Number(m.stretch_z).toFixed(1)}σ`,
-                 Math.abs(m.stretch_z) > 2 ? 'warn' : 'none',
-                 'Distance from the recent mean, in deviations'],
-            ].map(([k, v, t, tip]) =>
-                `<div class="cond-metric" title="${tip}">
-                    <span class="cond-metric-k">${k}</span>
-                    <span class="cond-metric-v" data-tone="${t}">${v}</span>
-                 </div>`).join('');
-        }
+        const order = [['trend', 'Trend'], ['volatility', 'Movement'],
+                       ['volume', 'Activity'], ['stretch', 'Price vs Normal']];
+        metricsEl.innerHTML = (!d.available || !bands.trend) ? '' : order.map(([key, label]) => {
+            const b = bands[key] || {};
+            return `<div class="cond-metric" title="${(b.detail || '').replace(/"/g, '&quot;')}">
+                        <span class="cond-metric-k">${label}</span>
+                        <span class="cond-metric-v" data-tone="${b.tone || 'none'}">${b.word || '—'}</span>
+                    </div>`;
+        }).join('');
     }
 
     if (reasonsEl) {
@@ -4741,16 +4809,23 @@ function renderConditions(d) {
 
     if (footEl) {
         footEl.textContent = d.available
-            ? `${d.symbol} · ${state.currentInterval || '15m'} · a read of conditions, not a price forecast`
+            ? `Reading ${d.symbol} on the ${state.currentInterval || '15m'} chart · how good conditions are, not where price is going`
             : '';
     }
 }
 
 function initConditions() {
     document.getElementById('btnRefreshConditions')?.addEventListener('click', loadConditions);
+
+    // Clicking the live badge forces a fresh read.
+    document.getElementById('pulseLive')?.addEventListener('click', loadConditions);
+
     loadConditions();
     if (conditionsTimer) clearInterval(conditionsTimer);
     conditionsTimer = setInterval(loadConditions, CONDITIONS_POLL_MS);
+
+    if (conditionsAgeTimer) clearInterval(conditionsAgeTimer);
+    conditionsAgeTimer = setInterval(tickPulseAge, 1000);
 }
 
 // ============================================================

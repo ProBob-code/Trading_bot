@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoatBot V2 — Institutional Terminal</title>
-    <link rel="stylesheet" href="styles.css?v=13">
+    <link rel="stylesheet" href="styles.css?v=14">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://s3.tradingview.com/tv.js"></script>
     <script src="common/ChartManager.js?v=7"></script>
@@ -346,32 +346,40 @@
              RIGHT: AI & EXECUTION
              ═══════════════════════════════════════ -->
         <section class="panel glass-panel right-panel">
-            <!-- Market Conditions
-                 Replaces the old "AI Momentum Pulse", which showed a score
-                 derived from three if-statements beside a sentence chosen at
-                 random from a hardcoded list. Every figure here is measured. -->
-            <div class="glass-panel conditions-card" style="margin:0; border:none; border-radius:16px;">
+            <!-- Market Pulse
+                 The old "AI Momentum Pulse" felt alive but said nothing: a score
+                 from three if-statements beside a sentence picked at random.
+                 This keeps the living feel and makes every number real. -->
+            <div class="glass-panel pulse-card" style="margin:0; border:none; border-radius:16px;">
                 <div class="panel-header" style="border:none;">
                     <div style="display:flex; flex-direction:column;">
                         <span
                             style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:2px;">The
-                            Read</span>
-                        <h3 style="margin:0;">MARKET CONDITIONS</h3>
+                            Oracle</span>
+                        <h3 style="margin:0;">MARKET PULSE</h3>
                     </div>
-                    <button class="cond-refresh" id="btnRefreshConditions" title="Re-read conditions"
-                        aria-label="Re-read conditions"><i class="fas fa-rotate"></i></button>
+                    <div class="pulse-live" id="pulseLive" title="Continuously reading the chart">
+                        <span class="pulse-live-dot"></span>
+                        <span class="pulse-live-text" id="pulseLiveText">LIVE</span>
+                    </div>
                 </div>
+
+                <!-- Scanning bar: sweeps whenever a fresh read is in flight -->
+                <div class="pulse-scanline" id="pulseScanline"></div>
 
                 <div class="cond-verdict" id="condVerdict">
                     <div class="cond-score-ring" id="condRing">
                         <span class="cond-score" id="condScore">--</span>
-                        <span class="cond-score-cap">tradeability</span>
+                        <span class="cond-score-cap">pulse</span>
                     </div>
                     <div class="cond-verdict-text">
                         <div class="cond-label" id="condLabel">READING…</div>
-                        <div class="cond-headline" id="condHeadline">Measuring current conditions.</div>
+                        <div class="cond-headline" id="condHeadline">Watching every move on the chart.</div>
                     </div>
                 </div>
+
+                <!-- History of recent reads — proof it is tracking, not guessing -->
+                <div class="pulse-spark" id="pulseSpark" title="Recent pulse readings"></div>
 
                 <div class="cond-metrics" id="condMetrics"></div>
                 <div class="cond-reasons" id="condReasons"></div>
@@ -924,7 +932,7 @@
     </div>
 
     <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
-    <script src="paper_app_v3.js?v=11"></script>
+    <script src="paper_app_v3.js?v=12"></script>
     <style>
         /* Small utility additions for the switch and modal */
         .switch input:checked+.slider {
