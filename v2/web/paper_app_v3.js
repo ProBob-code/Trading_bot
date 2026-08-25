@@ -186,7 +186,7 @@ const state = {
     currentMarket: 'crypto',
     currentSymbol: 'BTCUSDT',
     currentInterval: '1m',
-    currentStrategy: 'ichimoku',
+    currentStrategy: 'GBX-01',   // public code; internal ids never reach the client
     chart: null,
     socket: null,
     tradingEnabled: false,
@@ -466,8 +466,11 @@ function renderMarketWatch(type) {
     });
 }
 
-function getStrategyName(slug) {
-    return state.strategies[slug] || slug;
+function getStrategyName(code) {
+    // `code` is a public catalog code (GBX-nn) or a user's own custom id.
+    const meta = (state.strategyMeta || {})[code];
+    if (meta && meta.name) return meta.name;
+    return state.strategies[code] || code;
 }
 
 // ============================================================
@@ -515,6 +518,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     _safeInit('newsAlerts', initNewsAlerts);
     _safeInit('screener', initScreener);
     _safeInit('customStrategies', loadCustomStrategies);
+    _safeInit('conditions', initConditions);
+    _safeInit('reports', initReports);
 
     // Auto-refresh loops
     setInterval(() => {
@@ -1229,6 +1234,9 @@ function switchSymbol(symbol) {
     
     // Fetch and display live price immediately + start polling
     startPricePolling(symbol);
+
+    // Conditions are per instrument — re-read for the new one.
+    if (typeof loadConditions === 'function') loadConditions();
     
     // Update global state on server for intelligence loop
     if (state.socket) {
@@ -1952,6 +1960,7 @@ function initEventListeners() {
     // Strategy selector — V2: multi-strategy, no hot-swap
     document.getElementById('strategySelect')?.addEventListener('change', (e) => {
         state.currentStrategy = e.target.value;
+        updateStrategyHelp(state.currentStrategy);
         const strategyName = getStrategyName(state.currentStrategy);
         const activeStrategyEl = document.getElementById('activeStrategy');
         if (activeStrategyEl) {
@@ -2274,8 +2283,13 @@ function populateStrategyDropdown(strategies) {
     const select = document.getElementById('strategySelect');
     if (!select) return;
 
+    // Descriptions are deliberately behavioural — what it does for the trader,
+    // never how it works. Kept here so the explainer can render them.
+    state.strategyMeta = {};
+    strategies.forEach(s => { state.strategyMeta[s.id] = s; });
+
     select.innerHTML = strategies.map(s =>
-        `<option value="${s.id}">${s.name}</option>`
+        `<option value="${s.id}">${s.icon ? s.icon + ' ' : ''}${s.name}</option>`
     ).join('');
 
     // Ensure current selection matches state or use first available
@@ -2285,6 +2299,23 @@ function populateStrategyDropdown(strategies) {
         state.currentStrategy = strategies[0].id;
         select.value = strategies[0].id;
     }
+
+    updateStrategyHelp(state.currentStrategy);
+}
+
+/** Show the public explanation for the selected strategy. */
+function updateStrategyHelp(code) {
+    const el = document.getElementById('strategyHelp');
+    if (!el) return;
+
+    const meta = (state.strategyMeta || {})[code];
+    if (!meta) { el.innerHTML = ''; return; }
+
+    el.innerHTML =
+        `<div class="strategy-help-head">${meta.icon || ''} <strong>${meta.name}</strong>` +
+        `<span class="strategy-code">${meta.id}</span></div>` +
+        `<p>${meta.description || ''}</p>` +
+        (meta.best_for ? `<div class="strategy-bestfor">Suits: ${meta.best_for}</div>` : '');
 }
 
 // ============================================================
@@ -3565,7 +3596,13 @@ function initDashboardFeatures() {
 // MARKET COMMAND CENTER (STAR FEATURES)
 // ============================================================
 
+// Retained as no-ops: the socket intelligence loop still calls these, and
+// the Market Conditions panel has replaced what they used to draw.
 function renderPulseGauge(data) {
+    return;
+}
+
+function _legacyRenderPulseGauge(data) {
     const { gaugeFill, pulseValue } = UI.elements;
     console.log('[V2] renderPulseGauge elements:', gaugeFill, pulseValue);
     console.log('[V2] renderPulseGauge data:', data);
@@ -3591,6 +3628,10 @@ function renderPulseGauge(data) {
 }
 
 function renderAIInsights(data) {
+    return;
+}
+
+function _legacyRenderAIInsights(data) {
     const { aiInsightText } = UI.elements;
     if (!aiInsightText) return;
 
@@ -4592,6 +4633,237 @@ async function editPositionBracket(symbol) {
 }
 
 // ============================================================
+// MARKET CONDITIONS
+// ------------------------------------------------------------
+// Replaces renderPulseGauge/renderAIInsights, which showed a
+// score from three if-statements next to a sentence picked at
+// random from a hardcoded list — the same line could appear in
+// opposite markets, and several named internal strategies.
+// ============================================================
+
+let conditionsTimer = null;
+const CONDITIONS_POLL_MS = 60000;
+
+const COND_METRIC_LABELS = {
+    trend: 'Trend',
+    volatility: 'Volatility',
+    volume: 'Participation',
+    stretch: 'Stretch',
+};
+
+async function loadConditions() {
+    const scoreEl = document.getElementById('condScore');
+    if (!scoreEl) return;
+
+    const symbol = state.currentSymbol;
+    if (!symbol) return;
+
+    try {
+        const params = new URLSearchParams({
+            market: state.currentMarket || 'crypto',
+            interval: state.currentInterval || '15m',
+        });
+        const res = await fetch(`/api/v2/conditions/${encodeURIComponent(symbol)}?${params}`);
+        const d = await res.json();
+
+        // A stale response for a symbol the user has already left would be
+        // worse than none at all.
+        if (d.symbol && d.symbol !== state.currentSymbol) return;
+
+        renderConditions(d);
+    } catch (e) {
+        console.warn('[CONDITIONS] load failed:', e);
+        renderConditions({ available: false, label: 'UNAVAILABLE',
+                           headline: 'Could not read conditions.', score: 0,
+                           reasons: [], metrics: {} });
+    }
+}
+
+function renderConditions(d) {
+    const scoreEl = document.getElementById('condScore');
+    const labelEl = document.getElementById('condLabel');
+    const headEl = document.getElementById('condHeadline');
+    const ringEl = document.getElementById('condRing');
+    const metricsEl = document.getElementById('condMetrics');
+    const reasonsEl = document.getElementById('condReasons');
+    const footEl = document.getElementById('condFoot');
+    if (!scoreEl) return;
+
+    const tone = d.label === 'FAVOURABLE' ? 'good'
+        : d.label === 'MIXED' ? 'warn'
+        : d.label === 'POOR' ? 'bad' : 'none';
+
+    scoreEl.textContent = d.available ? d.score : '--';
+    if (labelEl) { labelEl.textContent = d.label || '—'; labelEl.dataset.tone = tone; }
+    if (headEl) headEl.textContent = d.headline || '';
+    if (ringEl) {
+        ringEl.dataset.tone = tone;
+        // Conic sweep communicates the score without a chart library.
+        ringEl.style.setProperty('--cond-pct', (d.available ? d.score : 0) + '%');
+    }
+
+    const m = d.metrics || {};
+    if (metricsEl) {
+        if (!d.available) {
+            metricsEl.innerHTML = '';
+        } else {
+            const dirArrow = m.trend_direction === 'up' ? '↑' : '↓';
+            const dirTone = m.trend_direction === 'up' ? 'good' : 'bad';
+            metricsEl.innerHTML = [
+                ['Trend', `${dirArrow} ${Math.round(m.trend_strength)}%`, dirTone,
+                 'How much price and its two trend references agree'],
+                ['Volatility', `${Math.round(m.volatility_rank)}%`, 'none',
+                 `Range vs its own recent normal · ${Number(m.volatility_pct).toFixed(2)}% per bar`],
+                ['Volume', `${Number(m.relative_volume).toFixed(2)}x`,
+                 m.relative_volume >= 1 ? 'good' : 'warn',
+                 'Current volume against its 20-bar average'],
+                ['Stretch', `${Number(m.stretch_z).toFixed(1)}σ`,
+                 Math.abs(m.stretch_z) > 2 ? 'warn' : 'none',
+                 'Distance from the recent mean, in deviations'],
+            ].map(([k, v, t, tip]) =>
+                `<div class="cond-metric" title="${tip}">
+                    <span class="cond-metric-k">${k}</span>
+                    <span class="cond-metric-v" data-tone="${t}">${v}</span>
+                 </div>`).join('');
+        }
+    }
+
+    if (reasonsEl) {
+        const reasons = d.reasons || [];
+        reasonsEl.innerHTML = reasons.length
+            ? reasons.map(r => `<div class="cond-reason" data-kind="${r.kind}">
+                    <i class="fas ${r.kind === 'good' ? 'fa-circle-check'
+                        : r.kind === 'bad' ? 'fa-circle-xmark' : 'fa-triangle-exclamation'}"></i>
+                    <span>${r.text}</span>
+               </div>`).join('')
+            : '';
+    }
+
+    if (footEl) {
+        footEl.textContent = d.available
+            ? `${d.symbol} · ${state.currentInterval || '15m'} · a read of conditions, not a price forecast`
+            : '';
+    }
+}
+
+function initConditions() {
+    document.getElementById('btnRefreshConditions')?.addEventListener('click', loadConditions);
+    loadConditions();
+    if (conditionsTimer) clearInterval(conditionsTimer);
+    conditionsTimer = setInterval(loadConditions, CONDITIONS_POLL_MS);
+}
+
+// ============================================================
+// DAILY REPORTS (DISCORD)
+// ============================================================
+
+async function loadReportSubscription() {
+    const toggle = document.getElementById('reportOptIn');
+    if (!toggle) return;
+
+    try {
+        const res = await fetch('/api/v2/reports/subscription');
+        const d = await res.json();
+        if (!d.success) return;
+
+        toggle.checked = !!d.enabled;
+        applyReportUI(d);
+    } catch (e) {
+        console.warn('[REPORTS] state load failed:', e);
+    }
+}
+
+function applyReportUI(d) {
+    const stateEl = document.getElementById('reportState');
+    const chanEl = document.getElementById('reportChannel');
+    const noteEl = document.getElementById('reportNote');
+    const sendBtn = document.getElementById('btnSendReportNow');
+    const toggle = document.getElementById('reportOptIn');
+
+    if (stateEl) {
+        stateEl.textContent = d.enabled ? 'ON' : 'OFF';
+        stateEl.dataset.on = d.enabled ? '1' : '0';
+    }
+    if (chanEl) {
+        chanEl.innerHTML = d.enabled && d.channel_name
+            ? `<i class="fab fa-discord"></i> <code>#${d.channel_name}</code>`
+            : '';
+    }
+    if (sendBtn) sendBtn.disabled = !d.enabled;
+
+    if (noteEl) {
+        if (!d.configured) {
+            noteEl.textContent = 'Discord is not configured on this server yet.';
+            if (toggle) toggle.disabled = true;
+        } else if (d.enabled) {
+            noteEl.textContent = d.last_sent_date
+                ? `Last sent ${d.last_sent_date} · next at ${String(d.report_hour_utc).padStart(2, '0')}:00 UTC`
+                : `First report at ${String(d.report_hour_utc).padStart(2, '0')}:00 UTC`;
+        } else {
+            noteEl.textContent = '';
+        }
+    }
+}
+
+async function setReportSubscription(enabled) {
+    const toggle = document.getElementById('reportOptIn');
+    const noteEl = document.getElementById('reportNote');
+    if (noteEl) noteEl.textContent = enabled ? 'Creating your channel…' : 'Turning off…';
+
+    try {
+        const res = await fetch('/api/v2/reports/subscription', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+        const d = await res.json();
+
+        if (!d.success) {
+            // Put the control back where it was — the change did not take.
+            if (toggle) toggle.checked = !enabled;
+            if (noteEl) noteEl.textContent = d.error || 'Could not update reports.';
+            return;
+        }
+
+        showNotification(enabled
+            ? `📮 Daily reports on — posting to #${d.channel_name}`
+            : 'Daily reports turned off');
+
+        loadReportSubscription();
+    } catch (e) {
+        console.error('[REPORTS] update failed:', e);
+        if (toggle) toggle.checked = !enabled;
+        if (noteEl) noteEl.textContent = 'Could not reach the server.';
+    }
+}
+
+function initReports() {
+    const toggle = document.getElementById('reportOptIn');
+    if (toggle) {
+        toggle.addEventListener('change', () => setReportSubscription(toggle.checked));
+    }
+
+    document.getElementById('btnSendReportNow')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        const noteEl = document.getElementById('reportNote');
+        if (noteEl) noteEl.textContent = 'Sending…';
+        try {
+            const res = await fetch('/api/v2/reports/send-now', { method: 'POST' });
+            const d = await res.json();
+            if (noteEl) noteEl.textContent = d.message || (d.success ? 'Sent.' : 'Failed.');
+            if (d.success) showNotification('📮 Report sent to Discord');
+        } catch {
+            if (noteEl) noteEl.textContent = 'Could not reach the server.';
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    loadReportSubscription();
+}
+
+// ============================================================
 // BOT STOCK SCREENER
 // ------------------------------------------------------------
 // Sweeps a whole market with the user's chosen strategy and ranks
@@ -5012,7 +5284,7 @@ async function loadAndRenderBots() {
                         <span class="bot-status ${isRunning ? 'running' : 'stopped'}">${bot.status || 'unknown'}</span>
                     </div>
                     <div class="bot-meta">
-                        Strategy: <strong>${bot.strategy || 'combined'}</strong> · ${bot.interval || '1m'} · ${bot.mode || 'paper'}
+                        Strategy: <strong>${bot.strategy_name || getStrategyName(bot.strategy)}</strong> · ${bot.interval || '1m'} · ${bot.mode || 'paper'}
                         <span style="color:${sens.color}; font-weight:600;"> · ${sens.label}</span>
                     </div>
                     <div class="bot-stats">

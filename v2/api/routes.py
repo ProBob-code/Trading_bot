@@ -8,7 +8,8 @@ Registered as a Flask Blueprint into the main api_server.
 
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
-from datetime import datetime, date
+from datetime import datetime, date, timezone
+import os
 import threading
 import time
 import json
@@ -31,6 +32,9 @@ from v2.engine.core.risk_engine import RiskEngineV2
 from v2.engine.core.portfolio_engine import PortfolioEngineV2
 from v2.engine.core.pipeline import TradingPipelineV2
 from shared.logic.strategies.v3_quant_strategies import REGISTRY, atr as compute_atr, compute_smart_entry, compute_atr_position_size
+from shared.logic.strategies.public_catalog import (
+    public_catalog, public_meta, to_internal as strat_to_internal,
+    to_public as strat_to_public, mask_bot_id, unmask_bot_id)
 
 # TTL Cache for sessions
 _SESSIONS_CACHE = {'data': None, 'timestamp': 0}
@@ -66,6 +70,40 @@ v2_pipeline = TradingPipelineV2(
 )
 
 logger.info("[V2] Institutional engine components loaded")
+
+
+def _publicise_rows(rows):
+    """Swap the internal strategy id for its public code on outgoing rows."""
+    out = []
+    for r in (rows or []):
+        row = dict(r)
+        if row.get('strategy'):
+            internal = row['strategy']
+            row['strategy'] = strat_to_public(internal)
+            row['strategy_name'] = public_meta(internal)['name']
+        out.append(row)
+    return out
+
+
+def _internal_strategy_filter(value):
+    """A public code from a query string -> internal id (None means 'all')."""
+    if not value:
+        return None
+    return strat_to_internal(value, default=None)
+
+
+def _publicise_bot(bot: dict) -> dict:
+    """Strip a bot payload of anything that names the underlying strategy."""
+    out = dict(bot or {})
+    internal = out.get('strategy')
+    out['strategy'] = strat_to_public(internal)
+    out['strategy_name'] = public_meta(internal)['name']
+    out['bot_id'] = mask_bot_id(out.get('bot_id'))
+    # config_hash is derived from the internal id, but is not reversible on its
+    # own; the human-readable message is, so it never ships.
+    out.pop('message', None)
+    return out
+
 
 # ---------------------------------------------------------------------------
 # Module-level references (injected by init_v2)
@@ -132,6 +170,16 @@ def init_v2(
     except Exception as e:
         logger.warning(f"[V2] Could not start position monitor: {e}")
 
+    try:
+        from shared.logic.alerts import discord_reports as _dr
+        if _dr.is_configured():
+            _ensure_report_scheduler()
+        else:
+            logger.info("[V2] Discord reports dormant — set DISCORD_BOT_TOKEN "
+                        "and DISCORD_GUILD_ID to enable")
+    except Exception as e:
+        logger.warning(f"[V2] Could not start report scheduler: {e}")
+
     logger.info("[V2] Blueprint initialised with Modular Pipeline")
 
 
@@ -172,14 +220,17 @@ def v2_stop_session(session_id=None):
 
 @v2_bp.route('/api/v2/strategies', methods=['GET'])
 def get_v2_strategies():
-    """Return list of available V2 strategies."""
-    # Return registry without logic functions
-    strategies = []
-    for s in REGISTRY:
-        s_copy = s.copy()
-        s_copy.pop('logic', None)
-        strategies.append(s_copy)
-    return jsonify({'success': True, 'strategies': strategies})
+    """
+    Available strategies, as the PUBLIC catalog.
+
+    The registry's own ids and descriptions name the underlying technique, so
+    they are never serialised. Clients see an opaque code and a behavioural
+    summary; see shared/logic/strategies/public_catalog.py.
+    """
+    return jsonify({
+        'success': True,
+        'strategies': public_catalog([s.get('id') for s in REGISTRY]),
+    })
 
 
 # ============================================================
@@ -196,7 +247,9 @@ def v2_trade():
         side = data.get('side', 'BUY').upper()
         quantity = float(data.get('quantity', 0))
         leverage = float(data.get('leverage', 1.0))
-        strategy = data.get('strategy', 'manual')
+        strategy = data.get('strategy') or 'manual'
+        if strategy != 'manual':
+            strategy = strat_to_internal(strategy, default='manual')
         volatility = float(data.get('volatility', 0.02))
         volume = float(data.get('volume', 100_000_000))
         margin_mode = data.get('margin_mode', 'isolated')
@@ -436,7 +489,8 @@ def v2_screener():
     Query: market, strategy, interval, sensitivity, limit, refresh
     """
     market = (request.args.get('market') or 'stocks').lower()
-    strategy = request.args.get('strategy') or 'combined'
+    public_strategy = request.args.get('strategy') or 'GBX-01'
+    strategy = strat_to_internal(public_strategy)
     interval = request.args.get('interval') or '15m'
     sensitivity = (request.args.get('sensitivity') or 'conservative').lower()
     limit = max(1, min(50, int(request.args.get('limit', 12))))
@@ -455,7 +509,8 @@ def v2_screener():
         if hit and not refresh and (now - hit['at']) < SCREENER_TTL:
             return jsonify({'success': True, 'cached': True,
                             'age_seconds': int(now - hit['at']),
-                            'market': market, 'strategy': strategy,
+                            'market': market, 'strategy': strat_to_public(strategy),
+                            'strategy_name': public_meta(strategy)['name'],
                             'interval': interval, 'sensitivity': sensitivity,
                             'results': hit['results'][:limit]})
 
@@ -476,7 +531,9 @@ def v2_screener():
         _screener_cache[cache_key] = {'at': now, 'results': results}
 
     return jsonify({'success': True, 'cached': False, 'market': market,
-                    'strategy': strategy, 'interval': interval,
+                    'strategy': strat_to_public(strategy),
+                    'strategy_name': public_meta(strategy)['name'],
+                    'interval': interval,
                     'sensitivity': sensitivity, 'results': results[:limit]})
 
 
@@ -668,9 +725,10 @@ def v2_bot_execution_loop(bot_id):
                 'strength': getattr(signal, 'strength', 0),
                 'score': getattr(signal, 'score', 0),
                 'price': current_price,
-                'strategy': strategy_name,
+                'strategy': strat_to_public(strategy_name),
+                'strategy_name': public_meta(strategy_name)['name'],
                 'reasons': getattr(signal, 'reasons', [])[:3],
-                'bot_id': bot_id,
+                'bot_id': mask_bot_id(bot_id),
                 'symbol': symbol,
                 'engine': 'v2'
             }
@@ -883,7 +941,8 @@ def v2_start_bot():
             user_id=current_user.id,
             symbol=data.get('symbol', ''),
             market=data.get('market', 'crypto'),
-            strategy=data.get('strategy', 'combined'),
+            # Clients speak in public codes; the engine speaks internal ids.
+            strategy=strat_to_internal(data.get('strategy')),
             mode=data.get('mode', 'paper'),
             interval=data.get('interval', '1m'),
             position_size=float(data.get('position_size', 10.0)),
@@ -904,6 +963,11 @@ def v2_start_bot():
             
             v2_start_bot_thread(result['bot_id'])
 
+        if result.get('bot_id'):
+            result = dict(result)
+            result['bot_id'] = mask_bot_id(result['bot_id'])
+            result.pop('message', None)   # names the strategy in plain text
+
         return jsonify(result)
     except Exception as e:
         logger.error(f"[V2] Start bot error: {e}")
@@ -916,7 +980,7 @@ def v2_stop_bot():
     """Stop a V2 bot."""
     try:
         data = request.json
-        bot_id = data.get('bot_id', '')
+        bot_id = unmask_bot_id(data.get('bot_id', ''))
         result = bot_manager_v2.stop_bot(bot_id)
         
         # If no bots are running, stop the session
@@ -954,7 +1018,7 @@ def v2_list_bots():
             stats['realized_pnl'] = ls['realized_pnl']
             stats['total_pnl'] = ls['realized_pnl'] + float(stats.get('unrealized_pnl') or 0)
 
-    return jsonify({'success': True, 'bots': bots})
+    return jsonify({'success': True, 'bots': [_publicise_bot(b) for b in bots]})
 
 
 @v2_bp.route('/api/v2/positions', methods=['GET'])
@@ -1026,6 +1090,265 @@ def v2_set_position_exits():
                     'stop_loss': stop_loss, 'take_profit': take_profit})
 
 
+# ============================================================
+# MARKET CONDITIONS
+# ------------------------------------------------------------
+# Replaces the old momentum "pulse", which showed a score from
+# three if-statements next to a sentence picked at random from a
+# hardcoded list. Every number here is measured and explainable.
+# ============================================================
+
+_conditions_cache = {}
+_conditions_lock = threading.Lock()
+CONDITIONS_TTL = 45  # seconds
+
+
+@v2_bp.route('/api/v2/conditions/<symbol>', methods=['GET'])
+@login_required
+def v2_conditions(symbol):
+    """Is now a good time to trade this instrument, and why not."""
+    from v2.engine.intelligence import conditions as conditions_engine
+
+    symbol = (symbol or '').upper()
+    market = (request.args.get('market') or '').lower()
+    interval = request.args.get('interval') or '15m'
+
+    if not market:
+        market = 'crypto' if symbol.endswith(('USDT', 'USDC', 'BUSD')) else 'stocks'
+
+    key = (symbol, market, interval)
+    now = time.time()
+    with _conditions_lock:
+        hit = _conditions_cache.get(key)
+        if hit and (now - hit['at']) < CONDITIONS_TTL:
+            return jsonify({'success': True, 'cached': True, **hit['data']})
+
+    try:
+        if market == 'crypto' and crypto_provider:
+            df = crypto_provider.get_historical_klines(symbol=symbol, interval=interval, limit=150)
+        elif stock_provider:
+            df = stock_provider.get_historical_data(symbol=symbol, interval=interval, limit=150)
+        else:
+            return jsonify({'success': False, 'error': 'No data provider'}), 503
+
+        data = conditions_engine.read(df, symbol)
+    except Exception as e:
+        logger.error(f"[V2] Conditions error for {symbol}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    with _conditions_lock:
+        _conditions_cache[key] = {'at': now, 'data': data}
+
+    return jsonify({'success': True, 'cached': False, **data})
+
+
+# ============================================================
+# DISCORD DAILY REPORTS
+# ------------------------------------------------------------
+# Opt-in per user. On approval the bot creates #{username}_report
+# in the configured guild; a scheduler posts today's numbers plus
+# the running total once a day.
+# ============================================================
+
+_report_thread = None
+_report_thread_lock = threading.Lock()
+
+
+def _user_display_name(user_id: int) -> str:
+    """Best-effort username for the channel name and report title."""
+    try:
+        user = db_manager.get_user_by_id(user_id)
+        if user:
+            return (user.get('username') or user.get('name')
+                    or user.get('email', '').split('@')[0] or 'trader-%s' % user_id)
+    except Exception as e:
+        logger.debug(f"[REPORTS] username lookup failed: {e}")
+    return 'trader-%s' % user_id
+
+
+def _build_user_report(user_id: int):
+    """Today's figures and the running total for one user."""
+    from shared.logic.alerts import discord_reports as dr
+
+    all_trades = db_manager.v2_get_user_trades(user_id=user_id, limit=5000) or []
+
+    today = datetime.now(timezone.utc).date()
+    todays = []
+    for t in all_trades:
+        ts = t.get('timestamp') or t.get('trade_time')
+        if not ts:
+            continue
+        try:
+            when = ts.date() if hasattr(ts, 'date') else datetime.fromisoformat(str(ts)[:19]).date()
+        except Exception:
+            continue
+        if when == today:
+            todays.append(t)
+
+    balance, open_count = None, 0
+    try:
+        info = v2_paper_trader.get_account_info(user_id) or {}
+        balance = info.get('equity', info.get('total_value'))
+        open_count = len(v2_paper_trader.get_positions(user_id) or [])
+    except Exception as e:
+        logger.debug(f"[REPORTS] account snapshot failed: {e}")
+
+    return dr.build_embed(
+        _user_display_name(user_id),
+        dr.summarise(todays),
+        dr.summarise(all_trades),
+        balance=balance,
+        open_positions=open_count,
+    )
+
+
+def send_user_report(user_id: int, force: bool = False):
+    """Post one user's report. Returns (ok, message)."""
+    from shared.logic.alerts import discord_reports as dr
+
+    if not dr.is_configured():
+        return False, ('Discord is not configured on the server '
+                       '(DISCORD_BOT_TOKEN / DISCORD_GUILD_ID).')
+
+    sub = db_manager.get_report_subscription(user_id)
+    if not sub or not sub.get('enabled'):
+        return False, 'Reports are not enabled for this user.'
+
+    today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    if not force and sub.get('last_sent_date') == today_str:
+        return False, 'Already sent today.'
+
+    username = _user_display_name(user_id)
+    channel_id = dr.ensure_channel(username, sub.get('channel_id'))
+    if not channel_id:
+        return False, 'Could not create or reach the Discord channel.'
+
+    if channel_id != sub.get('channel_id'):
+        db_manager.save_report_subscription(
+            user_id, True, channel_id, dr.channel_name_for(username),
+            sub.get('last_sent_date'))
+
+    embed = _build_user_report(user_id)
+    if not dr.post_report(channel_id, embed):
+        return False, 'Discord rejected the message.'
+
+    db_manager.mark_report_sent(user_id, today_str)
+    logger.info(f"[REPORTS] daily report delivered for user {user_id}")
+    return True, 'Report sent.'
+
+
+def report_scheduler_loop():
+    """Post each subscriber's report once, after the configured hour."""
+    from shared.logic.alerts import discord_reports as dr
+
+    hour = int(os.getenv('DISCORD_REPORT_HOUR_UTC', '21'))
+    logger.info(f"📮 [REPORTS] scheduler running — daily post at {hour:02d}:00 UTC")
+
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            if now.hour >= hour and dr.is_configured():
+                today_str = now.strftime('%Y-%m-%d')
+                for sub in db_manager.get_report_subscribers():
+                    if sub.get('last_sent_date') == today_str:
+                        continue
+                    try:
+                        ok, msg = send_user_report(sub['user_id'])
+                        if not ok:
+                            logger.warning(f"[REPORTS] user {sub['user_id']}: {msg}")
+                    except Exception as e:
+                        logger.error(f"[REPORTS] send failed for {sub.get('user_id')}: {e}")
+        except Exception as e:
+            logger.error(f"[REPORTS] scheduler error: {e}")
+
+        # Checking every 15 minutes is plenty for a once-a-day post.
+        time.sleep(900)
+
+
+def _ensure_report_scheduler():
+    global _report_thread
+    with _report_thread_lock:
+        if _report_thread and _report_thread.is_alive():
+            return
+        _report_thread = threading.Thread(target=report_scheduler_loop,
+                                          daemon=True, name='v2-report-scheduler')
+        _report_thread.start()
+
+
+@v2_bp.route('/api/v2/reports/subscription', methods=['GET'])
+@login_required
+def v2_get_report_subscription():
+    """Current opt-in state for the signed-in user."""
+    from shared.logic.alerts import discord_reports as dr
+
+    sub = db_manager.get_report_subscription(current_user.id) or {}
+    username = _user_display_name(current_user.id)
+    return jsonify({
+        'success': True,
+        'enabled': bool(sub.get('enabled')),
+        'channel_name': sub.get('channel_name') or dr.channel_name_for(username),
+        'last_sent_date': sub.get('last_sent_date'),
+        'configured': dr.is_configured(),
+        'report_hour_utc': int(os.getenv('DISCORD_REPORT_HOUR_UTC', '21')),
+    })
+
+
+@v2_bp.route('/api/v2/reports/subscription', methods=['POST'])
+@login_required
+def v2_set_report_subscription():
+    """
+    Approve or revoke Discord reporting.
+
+    Approving creates the user's channel straight away so they can see where
+    their reports will land before the first one is due.
+    """
+    from shared.logic.alerts import discord_reports as dr
+
+    data = request.json or {}
+    enabled = bool(data.get('enabled'))
+    username = _user_display_name(current_user.id)
+
+    if not enabled:
+        db_manager.save_report_subscription(current_user.id, False)
+        logger.info(f"[REPORTS] user {current_user.id} opted out")
+        return jsonify({'success': True, 'enabled': False})
+
+    if not dr.is_configured():
+        return jsonify({
+            'success': False,
+            'error': 'Discord reporting is not configured on this server yet.',
+        }), 503
+
+    existing = db_manager.get_report_subscription(current_user.id) or {}
+    channel_id = dr.ensure_channel(username, existing.get('channel_id'))
+    if not channel_id:
+        return jsonify({
+            'success': False,
+            'error': 'Could not create your Discord channel. The bot may be '
+                     'missing the Manage Channels permission.',
+        }), 502
+
+    channel_name = dr.channel_name_for(username)
+    db_manager.save_report_subscription(current_user.id, True, channel_id, channel_name)
+    _ensure_report_scheduler()
+
+    dr.post_text(channel_id,
+                 '**Reports enabled** for `%s`. A summary of the day plus running '
+                 'totals will be posted here each day at %02d:00 UTC.'
+                 % (username, int(os.getenv('DISCORD_REPORT_HOUR_UTC', '21'))))
+
+    logger.info(f"[REPORTS] user {current_user.id} opted in -> #{channel_name}")
+    return jsonify({'success': True, 'enabled': True, 'channel_name': channel_name})
+
+
+@v2_bp.route('/api/v2/reports/send-now', methods=['POST'])
+@login_required
+def v2_send_report_now():
+    """Post the current report immediately — used to verify the setup."""
+    ok, msg = send_user_report(current_user.id, force=True)
+    return jsonify({'success': ok, 'message': msg}), (200 if ok else 400)
+
+
 @v2_bp.route('/api/v2/health', methods=['GET'])
 def v2_health():
     """Engine health & active session status with telemetry."""
@@ -1086,7 +1409,7 @@ def v2_list_sessions():
 @login_required
 def v2_trade_history():
     """Get V2 trade history with optional strategy, session, and date filters."""
-    strategy = request.args.get('strategy')
+    strategy = _internal_strategy_filter(request.args.get('strategy'))
     session_id = request.args.get('session_id')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
@@ -1141,7 +1464,8 @@ def v2_trade_history():
         'total': total,
         'limit': limit,
         'offset': offset,
-        'trades': trades
+        # The ledger stores internal strategy ids; the client only ever sees codes.
+        'trades': _publicise_rows(trades)
     })
 
 
@@ -1214,7 +1538,8 @@ def v2_evolution_status():
                 profiles = {}
 
         out.append({
-            'strategy': s,
+            'strategy': strat_to_public(s),
+            'strategy_name': public_meta(s)['name'],
             'symbol': sym,
             'running': (s, sym) in running_pairs,
             'generation': state.get('generation', 0),
@@ -1237,7 +1562,7 @@ def v2_evolution_status():
 @login_required
 def v2_evolution_history():
     """Generation-by-generation audit trail of what changed and why."""
-    strategy = request.args.get('strategy')
+    strategy = _internal_strategy_filter(request.args.get('strategy'))
     limit = int(request.args.get('limit', 100))
     rows = db_manager.v2_get_evolution_history(current_user.id, strategy, limit)
     for r in rows:
@@ -1247,7 +1572,7 @@ def v2_evolution_history():
                     r[k] = json.loads(r[k])
                 except Exception:
                     pass
-    return jsonify({'success': True, 'history': rows})
+    return jsonify({'success': True, 'history': _publicise_rows(rows)})
 
 
 @v2_bp.route('/api/v2/evolution/approve', methods=['POST'])
@@ -1257,7 +1582,9 @@ def v2_evolution_approve():
     from v2.engine.evolution.evolution_engine import evolution_engine, SENSITIVITY_BY_RANK
 
     data = request.json or {}
-    strategy = data.get('strategy')
+    # Clients send the public code; the engine keys on the internal id.
+    strategy = strat_to_internal(data.get('strategy'), default=None) \
+        if data.get('strategy') else None
     symbol = data.get('symbol', 'ALL')
     if not strategy:
         return jsonify({'success': False, 'error': 'strategy required'}), 400
@@ -1297,7 +1624,9 @@ def v2_evolution_dismiss():
     """Discard a pending lesson without applying it."""
     from v2.engine.evolution.evolution_engine import evolution_engine
     data = request.json or {}
-    strategy = data.get('strategy')
+    # Clients send the public code; the engine keys on the internal id.
+    strategy = strat_to_internal(data.get('strategy'), default=None) \
+        if data.get('strategy') else None
     symbol = data.get('symbol', 'ALL')
     if not strategy:
         return jsonify({'success': False, 'error': 'strategy required'}), 400
@@ -1345,6 +1674,8 @@ def v2_evolution_candidates():
         meter = evolution_engine.readiness(current_user.id, strategy, symbol)
         out.append({
             **entry,
+            'strategy': strat_to_public(strategy),
+            'strategy_name': public_meta(strategy)['name'],
             'generation': state.get('generation', 0),
             'status': state.get('status', 'active'),
             'has_pending': bool(state.get('pending_json')),
@@ -1360,7 +1691,9 @@ def v2_evolution_set_status():
     """Stop ('paused') or resume ('active') evaluation for one pair."""
     from v2.engine.evolution.evolution_engine import evolution_engine
     data = request.json or {}
-    strategy = data.get('strategy')
+    # Clients send the public code; the engine keys on the internal id.
+    strategy = strat_to_internal(data.get('strategy'), default=None) \
+        if data.get('strategy') else None
     symbol = data.get('symbol', 'ALL')
     status = str(data.get('status', 'paused')).lower()
     if not strategy:
@@ -1378,7 +1711,9 @@ def v2_evolution_run():
     """Manually trigger an evolution pass (normally automatic on each close)."""
     from v2.engine.evolution.evolution_engine import evolution_engine
     data = request.json or {}
-    strategy = data.get('strategy')
+    # Clients send the public code; the engine keys on the internal id.
+    strategy = strat_to_internal(data.get('strategy'), default=None) \
+        if data.get('strategy') else None
     force = bool(data.get('force', False))
     try:
         if strategy:
@@ -1426,7 +1761,7 @@ def v2_account():
 @login_required
 def v2_strategy_benchmark():
     """Get per-strategy metrics report with live fallback and session filtering."""
-    strategy = request.args.get('strategy')
+    strategy = _internal_strategy_filter(request.args.get('strategy'))
     session_id = request.args.get('session_id')
 
     # If session filtering is requested, we MUST compute live metrics
@@ -1434,7 +1769,7 @@ def v2_strategy_benchmark():
     if session_id:
         try:
             metrics = _compute_live_metrics(user_id=current_user.id, strategy_filter=strategy, session_id=session_id)
-            return jsonify({'success': True, 'metrics': metrics})
+            return jsonify({'success': True, 'metrics': _publicise_rows(metrics)})
         except Exception as e:
             logger.error(f"[V2] Session metrics error: {e}")
             return jsonify({'success': False, 'error': str(e)}), 500
@@ -1457,7 +1792,7 @@ def v2_strategy_benchmark():
         except Exception as e:
             logger.error(f"[V2] Live metrics fallback error: {e}")
 
-    return jsonify({'success': True, 'metrics': metrics})
+    return jsonify({'success': True, 'metrics': _publicise_rows(metrics)})
 
 
 def _compute_live_metrics(user_id, strategy_filter=None, session_id=None):

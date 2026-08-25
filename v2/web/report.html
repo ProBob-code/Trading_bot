@@ -761,11 +761,16 @@
         <div class="control-group">
             <select id="strategyFilter" onchange="loadAllReportData()">
                 <option value="">All Strategies</option>
-                <option value="ichimoku">Strategy 1 (Ichimoku)</option>
-                <option value="bollinger">Strategy 2 (Bollinger)</option>
-                <option value="macd_rsi">Strategy 3 (MACD RSI)</option>
-                <option value="ml_forecast">Strategy 4 (ML Forecast)</option>
-                <option value="combined">Strategy 5 (Combined)</option>
+                <!-- Public catalog codes only. Populated from /api/v2/strategies
+                     so the underlying technique is never published here. -->
+                <option value="GBX-01">Adaptive Core</option>
+                <option value="GBX-02">Trend Rider</option>
+                <option value="GBX-03">Range Fader</option>
+                <option value="GBX-04">Flow Momentum</option>
+                <option value="GBX-05">Predictive Model</option>
+                <option value="GBX-06">Multi-Signal Ensemble</option>
+                <option value="GBX-07">Statistical Reversion</option>
+                <option value="GBX-08">Persistence Engine</option>
             </select>
 
             <select id="sessionFilter" onchange="handleSessionChange()">
@@ -884,12 +889,17 @@
          * GoatBot V2 Report Page — Strategy Performance & Trade Ledger
          */
 
+        // Public catalog codes -> display names. The internal strategy ids
+        // (which name the technique) are never sent to this page.
         const STRATEGY_NAMES = {
-            'ichimoku': 'Strategy 1 (Ichimoku)',
-            'bollinger': 'Strategy 2 (Bollinger)',
-            'macd_rsi': 'Strategy 3 (MACD RSI)',
-            'ml_forecast': 'Strategy 4 (ML Forecast)',
-            'combined': 'Strategy 5 (Combined)'
+            'GBX-01': 'Adaptive Core',
+            'GBX-02': 'Trend Rider',
+            'GBX-03': 'Range Fader',
+            'GBX-04': 'Flow Momentum',
+            'GBX-05': 'Predictive Model',
+            'GBX-06': 'Multi-Signal Ensemble',
+            'GBX-07': 'Statistical Reversion',
+            'GBX-08': 'Persistence Engine'
         };
 
         function fmt$(val) {

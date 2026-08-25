@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoatBot V2 — Institutional Terminal</title>
-    <link rel="stylesheet" href="styles.css?v=11">
+    <link rel="stylesheet" href="styles.css?v=12">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://s3.tradingview.com/tv.js"></script>
     <script src="common/ChartManager.js?v=7"></script>
@@ -350,60 +350,36 @@
              RIGHT: AI & EXECUTION
              ═══════════════════════════════════════ -->
         <section class="panel glass-panel right-panel">
-            <!-- AI Pulse -->
-            <div class="glass-panel ai-card" style="margin:0; border:none; border-radius:16px;">
+            <!-- Market Conditions
+                 Replaces the old "AI Momentum Pulse", which showed a score
+                 derived from three if-statements beside a sentence chosen at
+                 random from a hardcoded list. Every figure here is measured. -->
+            <div class="glass-panel conditions-card" style="margin:0; border:none; border-radius:16px;">
                 <div class="panel-header" style="border:none;">
                     <div style="display:flex; flex-direction:column;">
                         <span
                             style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:2px;">The
-                            Oracle</span>
-                        <h3 style="margin:0;">AI Momentum Pulse</h3>
+                            Read</span>
+                        <h3 style="margin:0;">MARKET CONDITIONS</h3>
+                    </div>
+                    <button class="cond-refresh" id="btnRefreshConditions" title="Re-read conditions"
+                        aria-label="Re-read conditions"><i class="fas fa-rotate"></i></button>
+                </div>
+
+                <div class="cond-verdict" id="condVerdict">
+                    <div class="cond-score-ring" id="condRing">
+                        <span class="cond-score" id="condScore">--</span>
+                        <span class="cond-score-cap">tradeability</span>
+                    </div>
+                    <div class="cond-verdict-text">
+                        <div class="cond-label" id="condLabel">READING…</div>
+                        <div class="cond-headline" id="condHeadline">Measuring current conditions.</div>
                     </div>
                 </div>
-                <div class="gauge-container">
-                    <svg class="gauge-svg" viewBox="0 0 200 120">
-                        <defs>
-                            <linearGradient id="pulseGradient" x1="0%" y1="100%" x2="100%" y2="0%">
-                                <stop offset="0%" stop-color="var(--ai-pulse)" />
-                                <stop offset="100%" stop-color="var(--bullish)" />
-                            </linearGradient>
-                            <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
-                                <stop offset="0%" stop-color="rgba(124, 58, 237, 0.15)" />
-                                <stop offset="100%" stop-color="rgba(13, 20, 32, 0)" />
-                            </radialGradient>
-                        </defs>
-                        <!-- Background Glow -->
-                        <circle cx="100" cy="60" r="60" fill="url(#bgGlow)" />
-                        <!-- Radar Grid -->
-                        <circle cx="100" cy="60" r="40" fill="none" stroke="rgba(255, 255, 255, 0.02)" stroke-width="1"
-                            stroke-dasharray="2 4" />
-                        <circle cx="100" cy="60" r="30" fill="none" stroke="rgba(255, 255, 255, 0.02)"
-                            stroke-width="1" />
-                        <circle cx="100" cy="60" r="20" fill="none" stroke="rgba(255, 255, 255, 0.02)"
-                            stroke-width="1" />
-                        <!-- Crosshairs -->
-                        <line x1="100" y1="10" x2="100" y2="110" stroke="rgba(255, 255, 255, 0.01)" stroke-width="1" />
-                        <line x1="50" y1="60" x2="150" y2="60" stroke="rgba(255, 255, 255, 0.01)" stroke-width="1" />
-                        <!-- Background circle -->
-                        <circle cx="100" cy="60" r="50" fill="none" stroke="rgba(255, 255, 255, 0.03)"
-                            stroke-width="6" />
-                        <!-- Fill circle -->
-                        <circle cx="100" cy="60" r="50" class="gauge-fill" id="pulseGaugeFill" fill="none"
-                            stroke="url(#pulseGradient)" stroke-width="6" stroke-dasharray="314.16"
-                            stroke-dashoffset="314.16" stroke-linecap="round" transform="rotate(-90 100 60)" />
-                        <!-- Scanner Line (Rotating) -->
-                        <line x1="100" y1="60" x2="100" y2="10" class="scanner-line" stroke="var(--bullish)"
-                            stroke-width="1" opacity="0.5" transform="rotate(0 100 60)" />
-                        <!-- Value Text -->
-                        <text x="100" y="65" class="gauge-value" id="pulseValue">0</text>
-                        <!-- Label -->
-                        <text x="100" y="82" fill="var(--text-muted)" font-size="7" font-weight="700" letter-spacing="1"
-                            text-anchor="middle">MOMENTUM</text>
-                    </svg>
-                </div>
-                <div class="ai-insight-box">
-                    <p id="aiInsightText">Analyzing institutional order flow...</p>
-                </div>
+
+                <div class="cond-metrics" id="condMetrics"></div>
+                <div class="cond-reasons" id="condReasons"></div>
+                <div class="cond-foot" id="condFoot"></div>
             </div>
 
             <!-- Execution Panel -->
@@ -501,8 +477,10 @@
             <div class="control-bar">
                 <div class="field-group">
                     <label>Strategy</label>
+                    <!-- Options are the PUBLIC catalog (opaque codes + behavioural
+                         copy). The underlying technique is never sent to the client. -->
                     <select id="strategySelect">
-                        <option value="combined">⚡ Regime-Adaptive Ensemble</option>
+                        <option value="GBX-01">⚡ Adaptive Core</option>
                     </select>
                 </div>
                 <div class="field-group">
@@ -542,6 +520,7 @@
                         PANIC</button>
                 </div>
             </div>
+            <div id="strategyHelp" class="strategy-help"></div>
             <div id="sensitivityHelp" style="margin-top:10px; padding:10px 14px; border-radius:8px;
                 background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.25);
                 font-size:12px; line-height:1.5; color:var(--text-secondary);">
@@ -585,29 +564,8 @@
             </div>
         </div>
 
-        <!-- SECTION 3: Evolution Engine -->
-        <div class="section-card" id="sectionEvolution">
-            <div class="section-header">
-                <div>
-                    <span class="section-label">The Lab</span>
-                    <h2>EVOLUTION ENGINE <span id="evoReadyCount"
-                            style="color:var(--accent); font-family:var(--font-mono);">0</span></h2>
-                </div>
-                <button class="btn-action stop-all" id="btnRunEvolution" style="padding:6px 12px; font-size:10px;"
-                    onclick="openEvoPicker()">
-                    <i class="fas fa-bolt"></i> Evaluate
-                </button>
-            </div>
-            <p class="evo-intro">
-                Each strategy learns per instrument from its own <strong>closed</strong> trades.
-                When the meter fills, review the lesson and hit Proceed to apply it.
-            </p>
-            <div class="evo-card-grid" id="evolutionGrid">
-                <div class="no-bots-message">Loading evolution state…</div>
-            </div>
-        </div>
-
-        <!-- SECTION 3b: Bot Stock Screener -->
+        <!-- SECTION 3: Bot Screener (moved above the Lab: it finds
+             opportunities, so it belongs with the trading controls) -->
         <div class="section-card" id="sectionScreener">
             <div class="section-header">
                 <div>
@@ -656,7 +614,65 @@
             </div>
         </div>
 
-        <!-- SECTION 4: Custom Strategy Builder -->
+        <!-- SECTION 4: Evolution Engine -->
+        <div class="section-card" id="sectionEvolution">
+            <div class="section-header">
+                <div>
+                    <span class="section-label">The Lab</span>
+                    <h2>EVOLUTION ENGINE <span id="evoReadyCount"
+                            style="color:var(--accent); font-family:var(--font-mono);">0</span></h2>
+                </div>
+                <button class="btn-action stop-all" id="btnRunEvolution" style="padding:6px 12px; font-size:10px;"
+                    onclick="openEvoPicker()">
+                    <i class="fas fa-bolt"></i> Evaluate
+                </button>
+            </div>
+            <p class="evo-intro">
+                Each strategy learns per instrument from its own <strong>closed</strong> trades.
+                When the meter fills, review the lesson and hit Proceed to apply it.
+            </p>
+            <div class="evo-card-grid" id="evolutionGrid">
+                <div class="no-bots-message">Loading evolution state…</div>
+            </div>
+        </div>
+
+        <!-- SECTION 5: Daily Reports -->
+        <div class="section-card" id="sectionReports">
+            <div class="section-header">
+                <div>
+                    <span class="section-label">The Dispatch</span>
+                    <h2>DAILY REPORTS</h2>
+                </div>
+                <span class="report-state" id="reportState">OFF</span>
+            </div>
+            <p class="evo-intro">
+                Get an end-of-day summary of your bot&rsquo;s activity posted to Discord &mdash;
+                today&rsquo;s trades and P&amp;L alongside your running totals. Reports go to your
+                own channel, created when you turn this on.
+            </p>
+            <div class="report-panel">
+                <div class="report-row">
+                    <label class="report-toggle">
+                        <input type="checkbox" id="reportOptIn">
+                        <span>Send my daily report to Discord</span>
+                    </label>
+                    <div class="report-channel" id="reportChannel"></div>
+                </div>
+                <p class="report-consent" id="reportConsent">
+                    Turning this on publishes your trade counts, P&amp;L and win rate to a
+                    channel on the shared GoatBot Discord server. Anyone in that server can
+                    read it. You can turn it off at any time.
+                </p>
+                <div class="report-actions">
+                    <button class="btn-action stop-all" id="btnSendReportNow" style="padding:8px 14px; font-size:10px;" disabled>
+                        <i class="fas fa-paper-plane"></i> Send One Now
+                    </button>
+                    <span class="report-note" id="reportNote"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 6: Custom Strategy Builder -->
         <div class="section-card" id="sectionStrategyBuilder">
             <div class="section-header">
                 <div>
@@ -912,7 +928,7 @@
     </div>
 
     <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
-    <script src="paper_app_v3.js?v=10"></script>
+    <script src="paper_app_v3.js?v=11"></script>
     <style>
         /* Small utility additions for the switch and modal */
         .switch input:checked+.slider {

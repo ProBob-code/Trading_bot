@@ -811,6 +811,22 @@ class DatabaseManager:
                 ) ENGINE=InnoDB
             ''')
 
+            # ── Discord Report Subscriptions (explicit opt-in) ──
+            # Trading activity is personal data. Nothing is published to
+            # Discord until the user turns it on here, and turning it off
+            # stops delivery immediately.
+            self._execute(cursor, '''
+                CREATE TABLE IF NOT EXISTS v2_report_subscriptions (
+                    user_id INT PRIMARY KEY,
+                    enabled TINYINT DEFAULT 0,
+                    channel_id VARCHAR(40),
+                    channel_name VARCHAR(120),
+                    last_sent_date VARCHAR(20),
+                    approved_at DATETIME,
+                    updated_at DATETIME
+                ) ENGINE=InnoDB
+            ''')
+
             # Run Migrations
             if not self.use_sqlite:
                 self._migrate_v2_positions(cursor)
@@ -1433,6 +1449,85 @@ class DatabaseManager:
         finally:
             if cursor is not None:
                 self._safe_close(conn, cursor)
+
+    # ── Discord Report Subscriptions ───────────────────────────
+
+    def get_report_subscription(self, user_id: int) -> Optional[Dict]:
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor,
+                          "SELECT * FROM v2_report_subscriptions WHERE user_id=%s",
+                          (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except Exception as e:
+            logger.warning(f"[REPORTS] read failed: {e}")
+            return None
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def get_report_subscribers(self) -> List[Dict]:
+        """Everyone who has opted in — the scheduler's work list."""
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor,
+                          "SELECT * FROM v2_report_subscriptions WHERE enabled=1")
+            return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            logger.warning(f"[REPORTS] subscriber read failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def save_report_subscription(self, user_id: int, enabled: bool,
+                                 channel_id: str = None, channel_name: str = None,
+                                 last_sent_date: str = None) -> bool:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            now = datetime.now(timezone.utc)
+            cols = ("(user_id, enabled, channel_id, channel_name, last_sent_date, "
+                    "approved_at, updated_at)")
+            vals = (user_id, 1 if enabled else 0, channel_id, channel_name,
+                    last_sent_date, now if enabled else None, now)
+            if self.use_sqlite:
+                q = ("INSERT OR REPLACE INTO v2_report_subscriptions %s "
+                     "VALUES (%%s,%%s,%%s,%%s,%%s,%%s,%%s)" % cols)
+            else:
+                q = ("INSERT INTO v2_report_subscriptions %s "
+                     "VALUES (%%s,%%s,%%s,%%s,%%s,%%s,%%s) "
+                     "ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), "
+                     "channel_id=VALUES(channel_id), channel_name=VALUES(channel_name), "
+                     "last_sent_date=VALUES(last_sent_date), "
+                     "approved_at=VALUES(approved_at), updated_at=VALUES(updated_at)" % cols)
+            self._execute(cursor, q, vals)
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.warning(f"[REPORTS] save failed: {e}")
+            return False
+        finally:
+            self._safe_close(conn, cursor)
+
+    def mark_report_sent(self, user_id: int, date_str: str):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            self._execute(cursor,
+                          "UPDATE v2_report_subscriptions SET last_sent_date=%s, updated_at=%s "
+                          "WHERE user_id=%s",
+                          (date_str, datetime.now(timezone.utc), user_id))
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"[REPORTS] mark sent failed: {e}")
+        finally:
+            self._safe_close(conn, cursor)
 
     # ── User Strategies ────────────────────────────────────────
 
