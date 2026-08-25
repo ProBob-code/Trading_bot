@@ -123,6 +123,86 @@ def analyse(df: pd.DataFrame) -> Optional[Dict]:
     }
 
 
+def plain_bands(m: Dict) -> Dict:
+    """
+    Turn each measurement into a word a trader reads at a glance.
+
+    The raw figures (a z-score, a percentile, a volume multiple) are accurate
+    but they are not what someone wants to read mid-session. Each band keeps
+    the exact number alongside for the tooltip.
+    """
+    trend = m['trend']
+    vol = m['volatility']
+    part = m['participation']
+    z = m['stretch']['z']
+
+    ts = trend['strength']
+    if ts >= 80:
+        trend_word, trend_tone = 'Strong', 'good'
+    elif ts >= 50:
+        trend_word, trend_tone = 'Building', 'good'
+    elif ts >= 25:
+        trend_word, trend_tone = 'Weak', 'warn'
+    else:
+        trend_word, trend_tone = 'None', 'bad'
+
+    vr = vol['rank']
+    if vr < 20:
+        vol_word, vol_tone = 'Quiet', 'bad'
+    elif vr < 70:
+        vol_word, vol_tone = 'Normal', 'good'
+    elif vr < 88:
+        vol_word, vol_tone = 'Lively', 'good'
+    else:
+        vol_word, vol_tone = 'Wild', 'warn'
+
+    rv = part['relative']
+    if rv < 0.6:
+        vol2_word, vol2_tone = 'Thin', 'bad'
+    elif rv < 1.4:
+        vol2_word, vol2_tone = 'Normal', 'none'
+    elif rv < 2.5:
+        vol2_word, vol2_tone = 'Busy', 'good'
+    else:
+        vol2_word, vol2_tone = 'Heavy', 'good'
+
+    az = abs(z)
+    if az < 0.8:
+        st_word, st_tone = 'Fair value', 'good'
+    elif az < 1.6:
+        st_word, st_tone = 'Drifting', 'none'
+    elif az < 2.2:
+        st_word, st_tone = 'Stretched', 'warn'
+    else:
+        st_word, st_tone = 'Overstretched', 'bad'
+
+    arrow = '\u2191' if trend['direction'] == 'up' else '\u2193'
+
+    return {
+        'trend': {
+            'word': '%s %s' % (arrow, trend_word),
+            'tone': trend_tone if trend_word != 'None' else 'bad',
+            'detail': 'Price and its two trend references agree %d%% of the way.' % round(ts),
+        },
+        'volatility': {
+            'word': vol_word,
+            'tone': vol_tone,
+            'detail': 'Today\u2019s range sits above %d%% of recent sessions (%.2f%% per bar).'
+                      % (round(vr), vol['atr_pct']),
+        },
+        'volume': {
+            'word': vol2_word,
+            'tone': vol2_tone,
+            'detail': 'Trading %.2f\u00d7 the recent average volume.' % rv,
+        },
+        'stretch': {
+            'word': st_word,
+            'tone': st_tone,
+            'detail': 'Price is %.1f standard deviations from its recent average.' % z,
+        },
+    }
+
+
 def verdict(m: Dict) -> Dict:
     """
     Turn measurements into a tradeability call plus the reasoning.
@@ -144,13 +224,13 @@ def verdict(m: Dict) -> Dict:
         score += 18
         reasons.append({
             'kind': 'good',
-            'text': 'Price and both trend references agree the direction is %s.' % trend['direction'],
+            'text': 'Everything points the same way \u2014 the market is heading %s.' % trend['direction'],
         })
     elif trend['strength'] <= 33:
         score -= 18
         reasons.append({
             'kind': 'bad',
-            'text': 'Trend references disagree with each other — the market has no committed direction.',
+            'text': 'The market keeps changing its mind — there is no clear direction to trade.',
         })
 
     # Volatility: too little means nothing to capture, too much means stops get hit.
@@ -158,21 +238,21 @@ def verdict(m: Dict) -> Dict:
         score -= 15
         reasons.append({
             'kind': 'bad',
-            'text': 'Range is in the bottom %d%% of recent readings — moves may be too small to cover costs.'
+            'text': 'Barely moving — quieter than %d%% of recent sessions, so gains may not cover costs.'
                     % round(vol['rank']),
         })
     elif vol['rank'] > 85:
         score -= 10
         reasons.append({
             'kind': 'warn',
-            'text': 'Range is in the top %d%% of recent readings — size down, stops need more room.'
+            'text': 'Moving unusually hard — wilder than %d%% of recent sessions. Trade smaller and give stops room.'
                     % round(vol['rank']),
         })
     else:
         score += 12
         reasons.append({
             'kind': 'good',
-            'text': 'Range is in a workable band (%d%% of recent readings).' % round(vol['rank']),
+            'text': 'Moving a healthy amount — enough to trade, not so much it whipsaws you.',
         })
 
     # Participation: a move without volume behind it is easily reversed.
@@ -180,14 +260,13 @@ def verdict(m: Dict) -> Dict:
         score -= 12
         reasons.append({
             'kind': 'bad',
-            'text': 'Volume is %.1fx its recent average — thin books mean worse fills.' % part['relative'],
+            'text': 'Few people trading right now — expect worse prices getting in and out.',
         })
     elif part['relative'] > 1.4:
         score += 10
         reasons.append({
             'kind': 'good',
-            'text': 'Volume is %.1fx its recent average — there is real participation behind this move.'
-                    % part['relative'],
+            'text': 'Plenty of people trading — there is real weight behind this move.',
         })
 
     # Stretch matters differently depending on what you intend to do.
@@ -195,24 +274,24 @@ def verdict(m: Dict) -> Dict:
     if abs(z) > 2:
         reasons.append({
             'kind': 'warn',
-            'text': 'Price is %.1f deviations from its recent mean — late to join, and exposed to a snap back.' % z,
+            'text': 'Price has run a long way from normal — late to join, and it may snap back.',
         })
         score -= 8
     elif abs(z) < 0.5 and trend['strength'] >= 66:
         reasons.append({
             'kind': 'good',
-            'text': 'Price is close to its mean while the trend holds — entries here carry less give-back risk.',
+            'text': 'Price is near its normal level while the trend holds — a lower-risk place to join.',
         })
         score += 8
 
     score = max(0.0, min(100.0, score))
 
     if score >= 70:
-        label, headline = 'FAVOURABLE', 'Conditions support taking positions.'
+        label, headline = 'GOOD TO TRADE', 'The market is behaving \u2014 conditions favour taking a position.'
     elif score >= 45:
         label, headline = 'MIXED', 'Conditions are workable but not clean — be selective.'
     else:
-        label, headline = 'POOR', 'Conditions argue for staying out.'
+        label, headline = 'SIT THIS OUT', 'The market is not offering much right now. Patience pays here.'
 
     return {
         'score': round(score),
@@ -230,6 +309,7 @@ def read(df: pd.DataFrame, symbol: str = '') -> Dict:
             return {
                 'available': False,
                 'symbol': symbol,
+                'bands': {},
                 'label': 'NO DATA',
                 'score': 0,
                 'headline': 'Not enough history for this instrument yet.',
@@ -245,6 +325,7 @@ def read(df: pd.DataFrame, symbol: str = '') -> Dict:
             'label': v['label'],
             'headline': v['headline'],
             'reasons': v['reasons'],
+            'bands': plain_bands(m),
             'metrics': {
                 'trend_direction': m['trend']['direction'],
                 'trend_strength': m['trend']['strength'],
@@ -257,6 +338,6 @@ def read(df: pd.DataFrame, symbol: str = '') -> Dict:
     except Exception as e:
         logger.error(f"[CONDITIONS] read failed for {symbol}: {e}")
         return {
-            'available': False, 'symbol': symbol, 'label': 'UNAVAILABLE',
+            'available': False, 'symbol': symbol, 'bands': {}, 'label': 'UNAVAILABLE',
             'score': 0, 'headline': 'Could not read conditions.', 'reasons': [], 'metrics': {},
         }
