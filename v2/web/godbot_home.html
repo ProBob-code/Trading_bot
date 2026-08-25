@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoatBot V2 — Institutional Terminal</title>
-    <link rel="stylesheet" href="styles.css?v=14">
+    <link rel="stylesheet" href="styles.css?v=15">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://s3.tradingview.com/tv.js"></script>
     <script src="common/ChartManager.js?v=7"></script>
@@ -22,45 +22,8 @@
 
 <body>
     <div class="main-layout">
-        <!-- ═══════════════════════════════════════
-             SIDEBAR (NAV)
-             ═══════════════════════════════════════ -->
-        <aside class="slim-sidebar">
-            <nav class="sidebar-nav">
-                <a href="#" class="nav-item active" title="Home" data-route="home">
-                    <i class="fas fa-home"></i>
-                    <span class="nav-label">Home</span>
-                </a>
-                <a href="#" class="nav-item" title="Report" data-route="report">
-                    <i class="fas fa-file-invoice"></i>
-                    <span class="nav-label">Report</span>
-                </a>
-                <a href="#" class="nav-item" title="Paper Trade" data-route="paper">
-                    <i class="fas fa-vial"></i>
-                    <span class="nav-label">Paper Trade</span>
-                </a>
-                <a href="#" class="nav-item" title="Live Trade" data-route="live">
-                    <i class="fas fa-rocket"></i>
-                    <span class="nav-label">Live Trade</span>
-                </a>
-                <a href="#" class="nav-item" title="Portfolio" data-route="portfolio">
-                    <i class="fas fa-wallet"></i>
-                    <span class="nav-label">Portfolio</span>
-                </a>
-                <a href="#" class="nav-item" title="Profile Settings" data-route="profile">
-                    <i class="fas fa-user-cog"></i>
-                    <span class="nav-label">Profile Settings</span>
-                </a>
-            </nav>
-            <div style="margin-top: auto; padding-bottom: 20px; width: 100%;">
-                <button class="nav-item" id="logoutBtn"
-                    style="background:none; border:none; cursor:pointer; width:100%; text-align:left;">
-                    <i class="fas fa-sign-out-alt"></i>
-                    <span class="nav-label">Logout</span>
-                </button>
-            </div>
-        </aside>
-        <div class="sidebar-overlay"></div>
+        <!-- Navigation is the shared drawer from common/nav.js,
+             identical on every page. -->
 
         <!-- ═══════════════════════════════════════
              HEADER (COMMAND BAR)
@@ -68,7 +31,6 @@
         <header class="header">
             <div class="header-left" style="display: flex; align-items: center; gap: 12px;">
                 <div class="header-brand-row">
-                    <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu" onclick="toggleMobileSidebar()"><i class="fas fa-bars"></i></button>
                     <img src="/logo.svg" alt="GoatBot Logo" style="height: 32px; width: 32px; object-fit: contain; filter: drop-shadow(0 0 6px rgba(0, 255, 178, 0.3));">
                     <span class="header-brand-text" style="font-size: 20px; font-weight: 800; letter-spacing: 0.5px;">GoatBot <span class="accent-text">Trade</span></span>
                 </div>
@@ -933,6 +895,8 @@
 
     <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
     <script src="paper_app_v3.js?v=12"></script>
+    <!-- Same nav drawer as every other page -->
+    <script src="/common/nav.js?v=2"></script>
     <style>
         /* Small utility additions for the switch and modal */
         .switch input:checked+.slider {

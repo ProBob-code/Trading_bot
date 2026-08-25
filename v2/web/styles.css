@@ -47,7 +47,10 @@
     --shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
 
     /* 📐 Layout Constants */
-    --sidebar-width: 72px;
+    /* The persistent rail is gone — navigation is the shared drawer, so the
+       layout no longer reserves a column for it. The variable stays because
+       the grid, header, footer and below-fold all offset by it. */
+    --sidebar-width: 0px;
     --sidebar-expanded: 240px;
     --header-height: 88px;
     --footer-height: 38px;
@@ -339,7 +342,10 @@ body[data-asset="stocks"]::after {
    header. The brand lives in the header; every page's nav now looks the same. */
 .sidebar-logo,
 .logo-icon,
-.logo-text { display: none !important; }
+.logo-text,
+.slim-sidebar,
+.sidebar-overlay,
+.mobile-menu-btn { display: none !important; }
 
 .slim-sidebar { padding-top: 14px; }
 
@@ -4371,4 +4377,177 @@ select.field-input option { background: var(--bg-secondary); color: var(--text-p
     .pulse-scanline { margin: 0 14px 10px; }
     .pulse-spark { margin: 0 14px 12px; height: 28px; }
     .pulse-live-text { min-width: 40px; }
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   APP SHELL — drawer navigation
+   ------------------------------------------------------------
+   The persistent 72px rail is gone; navigation is the shared
+   drawer (common/nav.js) on every page. The header just needs
+   to clear the floating hamburger.
+   ════════════════════════════════════════════════════════════ */
+.header { padding-left: 70px; }
+
+@media (max-width: 640px) {
+    .header { padding-left: 62px; }
+    /* The brand row starts beside the button, so it needs the room too. */
+    .header-brand-row { padding-left: 0; }
+}
+
+/* ════════════════════════════════════════════════════════════
+   SCROLLBARS
+   ------------------------------------------------------------
+   The page scroller was the OS default on Windows — a wide grey
+   trough with arrow buttons that broke the dark UI. This gives
+   every scroller the same slim, themed treatment.
+   ════════════════════════════════════════════════════════════ */
+:root {
+    --scroll-thumb: rgba(148, 163, 184, 0.32);
+    --scroll-thumb-hover: rgba(168, 85, 247, 0.75);
+    --scroll-track: transparent;
+}
+
+[data-theme="light"] {
+    --scroll-thumb: rgba(15, 23, 42, 0.22);
+    --scroll-thumb-hover: rgba(168, 85, 247, 0.7);
+}
+
+/* Firefox */
+html {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+/* WebKit / Chromium — wider than the old 4px so it is actually grabbable */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+
+::-webkit-scrollbar-track {
+    background: var(--scroll-track);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb);
+    border-radius: 10px;
+    /* Transparent border + background-clip keeps the thumb visually slim
+       while leaving a full-width hit area. */
+    border: 3px solid transparent;
+    background-clip: content-box;
+    transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-thumb-hover);
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Kill the stepper arrows Windows draws at each end. */
+::-webkit-scrollbar-button { display: none; height: 0; width: 0; }
+
+/* Inner panels get a narrower version so they do not compete with the page. */
+.market-list::-webkit-scrollbar,
+.news-feed-inline::-webkit-scrollbar,
+.side-tab-content::-webkit-scrollbar,
+.terminal-content::-webkit-scrollbar,
+.evo-picker-list::-webkit-scrollbar,
+.screener-results::-webkit-scrollbar,
+.gb-nav-drawer::-webkit-scrollbar { width: 7px; height: 7px; }
+
+/* Touch devices draw their own overlay scrollbars. */
+@media (hover: none) {
+    ::-webkit-scrollbar { width: 0; height: 0; }
+    html { scrollbar-width: none; }
+}
+
+/* ════════════════════════════════════════════════════════════
+   LIGHT MODE — shell polish
+   ════════════════════════════════════════════════════════════ */
+[data-theme="light"] .header {
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.82));
+    border-bottom-color: rgba(15, 23, 42, 0.09);
+    box-shadow: 0 4px 20px -12px rgba(15, 23, 42, 0.22);
+}
+
+[data-theme="light"] .footer {
+    background: rgba(255, 255, 255, 0.92);
+    border-top-color: rgba(15, 23, 42, 0.09);
+    color: var(--text-secondary);
+}
+
+/* Terminal panels read as flat cards on white rather than smoked glass. */
+[data-theme="light"] .glass-panel,
+[data-theme="light"] .panel {
+    background: rgba(255, 255, 255, 0.96);
+    border-color: rgba(15, 23, 42, 0.09);
+}
+
+[data-theme="light"] .panel-header {
+    border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+/* The market pills were near-white on near-white. */
+[data-theme="light"] .nav-pill {
+    color: var(--text-secondary);
+    background: rgba(15, 23, 42, 0.04);
+}
+[data-theme="light"] .nav-pill:hover { background: rgba(15, 23, 42, 0.08); }
+[data-theme="light"] .nav-pill.active { color: #fff; }
+
+[data-theme="light"] .search-box input {
+    background: rgba(15, 23, 42, 0.04);
+    color: var(--text-primary);
+}
+[data-theme="light"] .search-box input::placeholder { color: var(--text-muted); }
+
+[data-theme="light"] .tab-btn,
+[data-theme="light"] .interval-btn { color: var(--text-secondary); }
+[data-theme="light"] .interval-btn.active { color: #fff; }
+
+/* Tables: zebra striping instead of relying on translucent white rows. */
+[data-theme="light"] .positions-table tbody tr:nth-child(even),
+[data-theme="light"] .trades-table tbody tr:nth-child(even),
+[data-theme="light"] .trade-table tbody tr:nth-child(even) {
+    background: rgba(15, 23, 42, 0.025);
+}
+[data-theme="light"] .positions-table th,
+[data-theme="light"] .trades-table th,
+[data-theme="light"] .trade-table th {
+    background: rgba(15, 23, 42, 0.05);
+    color: var(--text-secondary);
+}
+
+[data-theme="light"] .user-dropdown {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.1);
+    box-shadow: var(--shadow-lg);
+}
+
+[data-theme="light"] .search-results {
+    background: #ffffff;
+    box-shadow: var(--shadow-lg);
+}
+
+/* ════════════════════════════════════════════════════════════
+   MOBILE — shell
+   ════════════════════════════════════════════════════════════ */
+@media (max-width: 1024px) {
+    /* No rail to offset against any more. */
+    .left-panel { margin-left: 0; }
+    .header { left: 0; }
+}
+
+@media (max-width: 640px) {
+    /* The header stacks; the hamburger overlays its first row, so only
+       that row needs the indent. */
+    .header { padding-left: 12px; }
+    .header-left { padding-left: 56px; }
+
+    /* Long-press targets and no accidental horizontal scroll. */
+    body { -webkit-text-size-adjust: 100%; }
+    .below-fold > * { max-width: 100%; }
+
+    /* Respect the notch / home indicator. */
+    .footer { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
 }

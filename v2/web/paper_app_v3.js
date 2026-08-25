@@ -5223,15 +5223,10 @@ function initNewsAlerts() {
 }
 
 // ── Mobile off-canvas sidebar ──
-function toggleMobileSidebar(forceClose) {
-    const sidebar = document.querySelector('.slim-sidebar');
-    const overlay = document.querySelector('.sidebar-overlay');
-    if (!sidebar) return;
-    const open = forceClose === true ? false : !sidebar.classList.contains('mobile-open');
-    sidebar.classList.toggle('mobile-open', open);
-    if (overlay) overlay.classList.toggle('active', open);
-    document.body.style.overflow = open ? 'hidden' : '';
-}
+// The bespoke 72px rail is gone; navigation is the shared drawer in
+// common/nav.js, which owns its own open/close behaviour. This stays as a
+// no-op because older markup may still reference it from an inline handler.
+function toggleMobileSidebar() { /* handled by common/nav.js */ }
 
 // Wire overlay tap + nav-item tap to close the drawer, once DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
@@ -5254,10 +5249,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (cockpitModal && !cockpitModal.classList.contains('hidden')) toggleCockpitVisionModal(false);
     });
 
-    const overlay = document.querySelector('.sidebar-overlay');
-    if (overlay) overlay.addEventListener('click', () => toggleMobileSidebar(true));
-    document.querySelectorAll('.slim-sidebar .nav-item').forEach(item =>
-        item.addEventListener('click', () => toggleMobileSidebar(true)));
+    // Drawer open/close wiring lives in common/nav.js.
 });
 
 // Signal Sensitivity: explainer copy + card badge styling
