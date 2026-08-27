@@ -34,3 +34,5 @@ yfinance>=0.2.30
 
 # Database
 mysql-connector-python>=8.0.33
+pyotp>=2.9.0  # TOTP for Angel One SmartAPI login
+websocket-client>=1.7.0  # Binance live price stream

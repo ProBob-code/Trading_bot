@@ -4551,3 +4551,47 @@ html {
     /* Respect the notch / home indicator. */
     .footer { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
 }
+
+/* A price served from the last-known tick rather than a live one. Shown dimmed
+   so a frozen number is never mistaken for a current quote. */
+.price-stale {
+    opacity: 0.55;
+    font-style: italic;
+}
+
+/* ── GoatBot native chart (shown when TradingView cannot serve a symbol) ── */
+.native-chart-badge {
+    position: absolute;
+    top: 10px;
+    left: 12px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--text-dim, #94A3B8);
+    background: color-mix(in srgb, var(--panel-bg, #0d1420) 78%, transparent);
+    border: 1px solid var(--border, rgba(148, 163, 184, 0.18));
+    border-radius: 4px;
+    padding: 3px 8px;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.native-chart-readout {
+    position: absolute;
+    top: 10px;
+    right: 78px;
+    display: none;
+    gap: 12px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10px;
+    color: var(--text-dim, #94A3B8);
+    background: color-mix(in srgb, var(--panel-bg, #0d1420) 78%, transparent);
+    border: 1px solid var(--border, rgba(148, 163, 184, 0.18));
+    border-radius: 4px;
+    padding: 3px 10px;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 2;
+}
+
+.native-chart-readout b { font-weight: 700; color: var(--text, #e2e8f0); }

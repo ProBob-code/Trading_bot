@@ -65,7 +65,7 @@ const UI = {
             return `
             <div class="market-item" data-symbol="${asset.symbol}">
                 <div class="symbol-box"><span class="symbol">${asset.symbol}</span><span class="name">${asset.name || ''}</span></div>
-                <div class="price-box" data-price-symbol="${asset.symbol}" style="font-family:var(--font-mono); font-weight:600;">${formatSymbolPrice(asset.symbol, asset.price || 0)}</div>
+                <div class="price-box" data-price-symbol="${asset.symbol}" style="font-family:var(--font-mono); font-weight:600;">${asset.price ? formatSymbolPrice(asset.symbol, asset.price) : '...'}</div>
                 <div class="change-box ${asset.change >= 0 ? 'p-positive' : 'p-negative'}" data-change-symbol="${asset.symbol}" style="font-family:var(--font-mono); font-weight:700; text-align:right;">
                     ${asset.change >= 0 ? '+' : ''}${asset.change.toFixed(2)}%
                 </div>
@@ -86,14 +86,21 @@ const UI = {
         });
     },
 
-    updatePrice(data) {
-        const { currentPrice, priceChange, high24h, low24h, volume24h } = this.elements;
-        if (!currentPrice) return;
+    // `previousPrice` is passed in by PriceStore: by the time this runs the store
+    // has already recorded the new tick, so reading state.lastPrice here would
+    // compare the price against itself and the up/down flash would never fire.
+    updatePrice(data, previousPrice) {
+        const { currentPrice, priceChange, high24h, low24h, volume24h,
+                assetPrice, assetChange, assetTrend } = this.elements;
 
+        // NOTE: there is no #currentPrice element on this page - the panel header
+        // uses #assetPrice. Gating the whole function on `currentPrice` therefore
+        // returned on every call and left the header frozen on its hardcoded
+        // "$0.00 / +0.00% / up-arrow" markup while every other panel ticked along.
+        // Each element is optional; none of them may gate the others.
         const price = parseFloat(data.price);
-        const previousPrice = state.lastPrice;
-        state.lastPrice = price;
-        state.prices[data.symbol] = price;
+        if (!isFinite(price)) return;
+        if (!isFinite(previousPrice)) previousPrice = price;
 
         // An instrument's price belongs to its own quote currency — it is not
         // a portfolio value, so it must not be run through the account's
@@ -101,7 +108,6 @@ const UI = {
         if (currentPrice) currentPrice.textContent = formatSymbolPrice(data.symbol, price);
 
         // Update Portfolio Header (Asset Specific Display)
-        const { assetPrice, assetChange, assetTrend } = this.elements;
         if (assetPrice) {
             assetPrice.textContent = formatSymbolPrice(data.symbol, price);
             assetPrice.style.color = price > previousPrice ? 'var(--bullish)' : (price < previousPrice ? 'var(--bearish)' : '');
@@ -130,9 +136,9 @@ const UI = {
             }
         }
 
-        if (high24h) high24h.textContent = formatSymbolPrice(data.symbol, data.high_24h);
-        if (low24h) low24h.textContent = formatSymbolPrice(data.symbol, data.low_24h);
-        if (volume24h) volume24h.textContent = formatVolume(data.volume_24h);
+        if (high24h && data.high_24h) high24h.textContent = formatSymbolPrice(data.symbol, data.high_24h);
+        if (low24h && data.low_24h) low24h.textContent = formatSymbolPrice(data.symbol, data.low_24h);
+        if (volume24h && data.volume_24h) volume24h.textContent = formatVolume(data.volume_24h);
     },
 
     updateAccount(account) {
@@ -267,6 +273,31 @@ const marketAssets = {
         { symbol: 'XTIUSD', name: 'WTI Oil' },
         { symbol: 'XCUUSD', name: 'Copper' },
         { symbol: 'XNGUSD', name: 'Natural Gas' }
+    ],
+    // Indian markets. Indices lead because that is what an NSE trader reads
+    // first; they are also the instruments Yahoo could never serve, since they
+    // need their own tickers (^NSEI) rather than the ".NS" equity form.
+    india: [
+        { symbol: 'NIFTY', name: 'Nifty 50' },
+        { symbol: 'BANKNIFTY', name: 'Nifty Bank' },
+        { symbol: 'SENSEX', name: 'BSE Sensex' },
+        { symbol: 'RELIANCE', name: 'Reliance Ind.' },
+        { symbol: 'TCS', name: 'TCS' },
+        { symbol: 'HDFCBANK', name: 'HDFC Bank' },
+        { symbol: 'ICICIBANK', name: 'ICICI Bank' },
+        { symbol: 'INFY', name: 'Infosys' },
+        { symbol: 'SBIN', name: 'State Bank of India' },
+        { symbol: 'TATAMOTORS', name: 'Tata Motors' },
+        { symbol: 'TATASTEEL', name: 'Tata Steel' },
+        { symbol: 'ITC', name: 'ITC' },
+        { symbol: 'BHARTIARTL', name: 'Bharti Airtel' },
+        { symbol: 'LT', name: 'Larsen & Toubro' },
+        { symbol: 'AXISBANK', name: 'Axis Bank' },
+        { symbol: 'NTPC', name: 'NTPC' },
+        { symbol: 'ONGC', name: 'ONGC' },
+        { symbol: 'TATAPOWER', name: 'Tata Power' },
+        { symbol: 'SUZLON', name: 'Suzlon Energy' },
+        { symbol: 'IRFC', name: 'IRFC' }
     ]
 };
 
@@ -340,70 +371,225 @@ function formatSymbolPrice(symbol, price) {
 }
 
 // ============================================================
-// LIVE PRICE FETCHING (Binance API + Backend Proxy)
+// PRICE STORE — one tick per symbol, one number on the screen
 // ============================================================
-let pricePollingInterval = null;
+//
+// Every price on this page used to be fetched by whoever needed it: the header
+// polled `/api/v2/price/BTCUSDT` on its own 10s timer, Market Watch fired one
+// request per row when it rendered, the watchlist fired its own set again, and
+// each wrote straight into its own DOM node. Three requests landing three
+// seconds apart on a market that moves every tick is three different prices for
+// the same coin — which is exactly what the panels were showing.
+//
+// Now there is exactly one poller. It fetches every visible symbol in a single
+// batch request, so one snapshot paints the whole page, and every node bound to
+// a symbol is repainted together from that snapshot. Socket ticks feed the same
+// store, guarded by timestamp so a late-arriving older tick can never overwrite
+// a newer one.
+
+const PriceStore = {
+    ticks: {},            // symbol -> canonical tick {price, change_pct, ts, ...}
+    _extra: new Set(),    // symbols wanted beyond Market Watch + watchlist
+    _timer: null,
+    _batchSupported: true,
+    _rooms: '',
+    // Polling is now the safety net, not the delivery mechanism: the WebSocket
+    // pushes every trade. When the socket is down we poll hard, because then it
+    // IS the delivery mechanism.
+    POLL_LIVE_MS: 15000,
+    POLL_FALLBACK_MS: 3000,
+
+    get POLL_MS() {
+        const live = state.socket && state.socket.connected;
+        return live ? this.POLL_LIVE_MS : this.POLL_FALLBACK_MS;
+    },
+
+    /** Keep a symbol refreshed even when it is not in a visible list. */
+    subscribe(...symbols) {
+        symbols.flat().filter(Boolean).forEach(s => this._extra.add(String(s).toUpperCase()));
+    },
+
+    /** Every symbol currently shown anywhere on the page. */
+    symbols() {
+        const set = new Set(this._extra);
+        if (state.currentSymbol) set.add(state.currentSymbol.toUpperCase());
+        (marketAssets[state.currentMarket] || marketAssets.crypto || [])
+            .forEach(a => set.add(a.symbol.toUpperCase()));
+        (state.userWatchlist || []).forEach(w => set.add(String(w.symbol).toUpperCase()));
+        // Anything bound in the DOM that the lists above missed (open positions,
+        // bot cards) still gets refreshed rather than sitting on a stale number.
+        document.querySelectorAll('[data-price-symbol]').forEach(el => {
+            const s = el.getAttribute('data-price-symbol');
+            if (s) set.add(s.toUpperCase());
+        });
+        return [...set];
+    },
+
+    /**
+     * Accept a tick from any source (batch poll or socket) and repaint.
+     * Older ticks are dropped: out-of-order delivery is what let one panel sit
+     * on a price the rest of the page had already moved past.
+     */
+    apply(tick) {
+        if (!tick) return;
+        const symbol = String(tick.symbol || '').toUpperCase();
+        const price = parseFloat(tick.price);
+        if (!symbol || !isFinite(price) || price <= 0) return;
+
+        const ts = Number(tick.ts) || (Date.now() / 1000);
+        const prev = this.ticks[symbol];
+        if (prev && ts < prev.ts) return;
+
+        if (tick.currency) symbolCurrencies[symbol] = tick.currency;
+
+        this.ticks[symbol] = {
+            symbol,
+            price,
+            change_pct: parseFloat(tick.change_pct) || 0,
+            high_24h: parseFloat(tick.high_24h) || 0,
+            low_24h: parseFloat(tick.low_24h) || 0,
+            volume_24h: parseFloat(tick.volume_24h) || 0,
+            currency: tick.currency || symbolCurrencies[symbol] || 'USD',
+            stale: !!tick.stale,
+            source: tick.source || '',
+            ts
+        };
+        state.prices[symbol] = price;
+        if (symbol === (state.currentSymbol || '').toUpperCase()) state.lastPrice = price;
+
+        this.paint(symbol, prev ? prev.price : price);
+    },
+
+    /** Repaint *every* node bound to this symbol from the one stored tick. */
+    paint(symbol, previousPrice) {
+        const tick = this.ticks[symbol];
+        if (!tick) return;
+        const prev = isFinite(previousPrice) ? previousPrice : tick.price;
+        const up = tick.price > prev;
+        const flash = tick.price === prev ? '' : (up ? 'var(--bullish)' : 'var(--bearish)');
+
+        document.querySelectorAll(`[data-price-symbol="${symbol}"]`).forEach(el => {
+            el.textContent = formatSymbolPrice(symbol, tick.price);
+            // A stale tick is the last good price, not a live one — say so rather
+            // than presenting a frozen number as current.
+            el.classList.toggle('price-stale', tick.stale);
+            if (flash) {
+                el.style.color = flash;
+                setTimeout(() => { el.style.color = ''; }, 400);
+            }
+        });
+
+        const changeText = `${tick.change_pct >= 0 ? '+' : ''}${tick.change_pct.toFixed(2)}%`;
+        document.querySelectorAll(`[data-change-symbol="${symbol}"]`).forEach(el => {
+            el.textContent = changeText;
+            el.classList.remove('p-positive', 'p-negative');
+            el.classList.add(tick.change_pct >= 0 ? 'p-positive' : 'p-negative');
+        });
+
+        if (symbol === (state.currentSymbol || '').toUpperCase()) {
+            UI.updatePrice(tick, prev);
+            // When GoatBot is drawing the chart itself, fold the tick into the
+            // newest candle so it moves like the TradingView one does.
+            if (window.ChartManager && ChartManager.onTick) {
+                ChartManager.onTick(symbol, tick.price);
+            }
+        }
+    },
+
+    /**
+     * Fetch the given symbols (default: everything visible) in ONE request.
+     * A single response is a single instant — that is what keeps the header,
+     * Market Watch and the watchlist agreeing to the cent.
+     */
+    async refresh(symbols) {
+        const list = [...new Set(
+            (symbols && symbols.length ? [].concat(symbols) : this.symbols())
+                .filter(Boolean).map(s => String(s).toUpperCase())
+        )];
+        if (!list.length) return;
+
+        this.syncRooms();
+
+        if (this._batchSupported) {
+            try {
+                const res = await fetch(`/api/v2/prices?symbols=${encodeURIComponent(list.join(','))}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.success && data.prices) {
+                        Object.values(data.prices).forEach(t => this.apply(t));
+                        return;
+                    }
+                } else if (res.status === 404) {
+                    // Server predates the batch endpoint — degrade instead of dying.
+                    console.warn('[V2] /api/v2/prices unavailable, using per-symbol fetch');
+                    this._batchSupported = false;
+                }
+            } catch (err) {
+                console.warn('[V2] batch price refresh failed:', err);
+            }
+        }
+
+        if (!this._batchSupported) {
+            await Promise.all(list.map(s => fetchLivePrice(s)));
+        }
+    },
+
+    /**
+     * Subscribe the socket to exactly the symbols on screen.
+     *
+     * Without this the server only ever streamed the symbols joined at page load,
+     * so a symbol added to the watchlist later got no live ticks and fell back to
+     * whatever the slow poll delivered - one panel moving while its neighbour sat
+     * still.
+     */
+    syncRooms(symbols) {
+        if (!state.socket || !state.socket.connected) return;
+        const list = (symbols && symbols.length ? symbols : this.symbols()).slice().sort();
+        const key = list.join(',');
+        if (key === this._rooms) return;      // nothing changed
+        this._rooms = key;
+        state.socket.emit('join_ticker_rooms', { symbols: list });
+        console.log(`[V2] streaming ${list.length} symbols`);
+    },
+
+    /**
+     * Safety-net poll loop. The socket is the primary path; this exists to fill
+     * the first paint and to cover anything the stream cannot carry.
+     */
+    start() {
+        if (this._timer) clearInterval(this._timer);
+        this.refresh();
+        this.syncRooms();
+        const tick = () => {
+            this.refresh();
+            this.syncRooms();
+            // Re-arm each time so a socket connect/drop changes the cadence
+            // immediately rather than at the next restart.
+            this._timer = setTimeout(tick, this.POLL_MS);
+        };
+        this._timer = setTimeout(tick, this.POLL_MS);
+        console.log('[V2] PriceStore started');
+    },
+
+    stop() {
+        if (this._timer) clearTimeout(this._timer);
+        this._timer = null;
+    }
+};
+window.PriceStore = PriceStore;
 
 /**
- * Fetch live price for a symbol from backend proxy (which calls Binance for crypto)
- * @param {string} symbol - The symbol to fetch
- * @param {boolean} updateHeader - Whether to update panel header
+ * Fetch one symbol and push it through the store.
+ * Kept for the batch-endpoint fallback and for callers that need a single
+ * symbol on demand; it no longer writes to the DOM itself.
  */
-async function fetchLivePrice(symbol, updateHeader = true) {
+async function fetchLivePrice(symbol) {
     try {
         const res = await fetch(`/api/v2/price/${symbol}`);
         const data = await res.json();
-
         if (data.success && data.price > 0) {
-            const price = parseFloat(data.price);
-            const changePct = parseFloat(data.change_pct) || 0;
-            const high = parseFloat(data.high_24h) || 0;
-            const low = parseFloat(data.low_24h) || 0;
-            const volume = parseFloat(data.volume_24h) || 0;
-
-            // Remember what the provider quotes this instrument in
-            if (data.currency) symbolCurrencies[symbol.toUpperCase()] = data.currency;
-
-            // Store in prices map
-            const previousPrice = state.prices[symbol] || price;
-            state.prices[symbol] = price;
-
-            if (updateHeader && symbol === state.currentSymbol) {
-                // Update panel header
-                const assetPriceEl = document.getElementById('assetPrice');
-                const assetChangeEl = document.getElementById('assetChange');
-                const assetTrendEl = document.getElementById('assetTrend');
-
-                if (assetPriceEl) {
-                    assetPriceEl.textContent = formatSymbolPrice(symbol, price);
-                    // Flash color on price change
-                    assetPriceEl.style.color = price > previousPrice ? 'var(--bullish)' : (price < previousPrice ? 'var(--bearish)' : 'var(--accent)');
-                    setTimeout(() => { assetPriceEl.style.color = 'var(--accent)'; }, 600);
-                }
-                if (assetChangeEl) {
-                    assetChangeEl.textContent = `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`;
-                    assetChangeEl.className = changePct >= 0 ? 'p-positive' : 'p-negative';
-                }
-                if (assetTrendEl) {
-                    assetTrendEl.textContent = changePct >= 0 ? '↑' : '↓';
-                    assetTrendEl.style.color = changePct >= 0 ? 'var(--bullish)' : 'var(--bearish)';
-                }
-
-                // Also update lastPrice for trade execution
-                state.lastPrice = price;
-
-                // Update main price display
-                UI.updatePrice({
-                    symbol: symbol,
-                    price: price,
-                    change_pct: changePct,
-                    high_24h: high,
-                    low_24h: low,
-                    volume_24h: volume
-                });
-            }
-
-            return { price, changePct, high, low, volume };
+            PriceStore.apply(data);
+            return PriceStore.ticks[String(symbol).toUpperCase()];
         }
     } catch (err) {
         console.warn(`[V2] fetchLivePrice failed for ${symbol}:`, err);
@@ -412,24 +598,14 @@ async function fetchLivePrice(symbol, updateHeader = true) {
 }
 
 /**
- * Start polling live price for the active symbol
+ * Make `symbol` the active instrument and ensure it is being polled.
+ * The per-symbol timer this replaced is gone: one loop covers every symbol on
+ * the page, so switching assets can no longer leave two pollers racing.
  */
 function startPricePolling(symbol) {
-    // Clear previous polling
-    if (pricePollingInterval) {
-        clearInterval(pricePollingInterval);
-        pricePollingInterval = null;
-    }
-
-    // Immediate fetch
-    fetchLivePrice(symbol, true);
-
-    // Poll every 10 seconds
-    pricePollingInterval = setInterval(() => {
-        fetchLivePrice(symbol, true);
-    }, 10000);
-
-    console.log(`[V2] Price polling started for ${symbol}`);
+    PriceStore.subscribe(symbol);
+    PriceStore.refresh([symbol]);
+    if (!PriceStore._timer) PriceStore.start();
 }
 
 /**
@@ -438,32 +614,24 @@ function startPricePolling(symbol) {
 function renderMarketWatch(type) {
     const assets = marketAssets[type] || marketAssets.crypto;
 
-    // Render with placeholder prices, then fetch live
-    const assetsWithPrices = assets.map(a => ({
-        ...a,
-        market: type,
-        price: state.prices[a.symbol] || 0,
-        change: 0
-    }));
+    // Paint from whatever the store already holds, so a symbol the page is
+    // already tracking does not blink through 0.00 on every re-render.
+    const assetsWithPrices = assets.map(a => {
+        const tick = PriceStore.ticks[a.symbol.toUpperCase()];
+        return {
+            ...a,
+            market: type,
+            price: tick ? tick.price : (state.prices[a.symbol] || 0),
+            change: tick ? tick.change_pct : 0
+        };
+    });
 
     UI.updateMarketWatch(assetsWithPrices);
 
-    // Fetch live prices for all assets in this market
-    assets.forEach(async (asset) => {
-        const data = await fetchLivePrice(asset.symbol, false);
-        if (data) {
-            // Update the specific market watch item
-            const priceEl = document.querySelector(`[data-price-symbol="${asset.symbol}"]`);
-            const changeEl = document.querySelector(`[data-change-symbol="${asset.symbol}"]`);
-            if (priceEl) {
-                priceEl.textContent = formatSymbolPrice(asset.symbol, data.price);
-            }
-            if (changeEl) {
-                changeEl.textContent = `${data.changePct >= 0 ? '+' : ''}${data.changePct.toFixed(2)}%`;
-                changeEl.className = `change-box ${data.changePct >= 0 ? 'p-positive' : 'p-negative'}`;
-            }
-        }
-    });
+    // One batch request for the whole list — the rows are then painted from a
+    // single snapshot instead of from N replies that each landed at a different
+    // moment, which is what made neighbouring panels disagree.
+    PriceStore.refresh(assets.map(a => a.symbol));
 }
 
 function getStrategyName(code) {
@@ -560,9 +728,11 @@ window.setOrderSide = (side) => {
 };
 
 function syncTradingViewTheme(theme) {
-    // Delegate to ChartManager which handles theme-aware widget re-creation
+    // Both renderers read the theme at draw time, so a re-draw is all that is
+    // needed. Gate on containerId, not on `widget`: in native mode there is no
+    // TradingView widget and the old check re-initialised the chart every time.
     const symbol = state.currentSymbol || "BTCUSDT";
-    if (ChartManager.widget) {
+    if (ChartManager.containerId) {
         ChartManager.setSymbol(symbol, state.currentInterval);
     } else {
         ChartManager.init('tradingview_chart', symbol, state.currentInterval);
@@ -825,11 +995,11 @@ function initChart() {
 }
 
 async function loadChartData() {
-    if (ChartManager.widget) {
+    if (ChartManager.containerId) {
         ChartManager.setSymbol(state.currentSymbol, state.currentInterval);
     } else {
-        console.warn("[V2] loadChartData called but widget not ready yet");
-        // We could also call initChart here if it hasn't been called
+        // Not "not ready" — just never initialised. Draw it rather than warn.
+        initChart();
     }
 }
 
@@ -855,10 +1025,14 @@ function initSocket() {
     state.socket.on('connect', () => {
         console.log('Connected to GoatBotTrade server');
         UI.updateStatus(true);
-        
-        // Re-subscribe to Market Watch tickers on connect/reconnect
-        const defaultSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
-        state.socket.emit('join_ticker_rooms', { symbols: defaultSymbols });
+
+        // Re-subscribe on every connect AND reconnect. A hardcoded default list
+        // was the old behaviour and it left anything else on screen unstreamed;
+        // the store knows the real set, so ask it. Clearing `_rooms` forces the
+        // emit even if the set is unchanged, because the server lost our rooms
+        // when the socket dropped.
+        PriceStore._rooms = '';
+        PriceStore.syncRooms();
         state.socket.emit('change_market', { market: 'crypto', symbol: state.currentSymbol });
     });
 
@@ -872,31 +1046,11 @@ function initSocket() {
     });
 
     state.socket.on('price_update', (data) => {
-        // 1. Update main display if matches current symbol
-        if (data.symbol === state.currentSymbol) {
-            UI.updatePrice(data);
-        }
-
-        // 2. Update Market Watch list in real-time
-        const priceEl = document.querySelector(`[data-price-symbol="${data.symbol}"]`);
-        const changeEl = document.querySelector(`[data-change-symbol="${data.symbol}"]`);
-        
-        if (priceEl) {
-            const price = parseFloat(data.price);
-            priceEl.textContent = formatSymbolPrice(data.symbol, price);
-            // Subtle flash
-            const isUp = price > (state.prices[data.symbol] || 0);
-            priceEl.style.color = isUp ? 'var(--bullish)' : 'var(--bearish)';
-            setTimeout(() => priceEl.style.color = '', 300);
-        }
-        
-        if (changeEl) {
-            const changePct = parseFloat(data.change_pct) || 0;
-            changeEl.textContent = `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`;
-            changeEl.className = `change-box ${changePct >= 0 ? 'p-positive' : 'p-negative'}`;
-        }
-
-        state.prices[data.symbol] = parseFloat(data.price);
+        // Socket ticks go through the same store as the poller — one code path
+        // repaints the header, Market Watch and the watchlist together. Feeding
+        // them separately (as this used to) is how a socket tick could update one
+        // panel while the others kept showing the last polled price.
+        PriceStore.apply(data);
     });
 
     state.socket.on('v2_account_update', (data) => {
@@ -1206,8 +1360,23 @@ function syncSymbolSelect() {
     select.value = state.currentSymbol;
 }
 
-function switchSymbol(symbol) {
+async function switchSymbol(symbol) {
     console.log(`[V2] Switching to: ${symbol}`);
+
+    // A ticker that was renamed on-exchange (MATIC -> POL) must be adopted by the
+    // WHOLE page, not just the chart. Otherwise the order ticket would still say
+    // MATICUSDT while the chart drew POLUSDT, and the fill would be priced off a
+    // pair the exchange no longer trades.
+    if (window.ChartManager && ChartManager.resolve) {
+        try {
+            const r = await ChartManager.resolve(symbol);
+            if (r && r.symbol && r.symbol !== symbol.toUpperCase()) {
+                if (r.note) showNotification(r.note);
+                symbol = r.symbol;
+            }
+        } catch (e) { /* resolution is an optimisation, never a blocker */ }
+    }
+
     state.currentSymbol = symbol;
 
     // Keep the Auto-Trade panel pointed at whatever is being watched.
@@ -1225,8 +1394,8 @@ function switchSymbol(symbol) {
     const orderSymbolEl = document.getElementById('orderSymbol');
     if (orderSymbolEl) orderSymbolEl.value = symbol;
     
-    // Use ChartManager to switch symbol (handles exchange prefix mapping)
-    if (ChartManager.widget) {
+    // ChartManager resolves the ticker and picks TradingView or our own renderer.
+    if (ChartManager.containerId) {
         ChartManager.setSymbol(symbol, state.currentInterval);
     } else {
         initChart();
@@ -1297,7 +1466,8 @@ function switchAsset(type, updateState = true) {
 
     // Update news panel title
     const newsTitle = document.getElementById('newsTitle');
-    const titleMap = { crypto: 'CRYPTO NEWS', stocks: 'STOCK NEWS', forex: 'FOREX NEWS', commodities: 'COMMODITY NEWS' };
+    const titleMap = { crypto: 'CRYPTO NEWS', stocks: 'STOCK NEWS', forex: 'FOREX NEWS',
+                      commodities: 'COMMODITY NEWS', india: 'INDIA MARKET NEWS' };
     if (newsTitle) newsTitle.textContent = titleMap[type] || 'MARKET NEWS';
 
     if (updateState) {
@@ -1308,7 +1478,8 @@ function switchAsset(type, updateState = true) {
             crypto: 'BTCUSDT',
             stocks: 'AAPL',
             forex: 'EURUSD',
-            commodities: 'XAUUSD'
+            commodities: 'XAUUSD',
+            india: 'NIFTY'
         };
         const newSymbol = defaults[type] || 'BTCUSDT';
         
@@ -1530,8 +1701,9 @@ function renderUserWatchlist() {
     }
 
     body.innerHTML = watchlist.map(item => {
-        const price = state.prices[item.symbol];
-        const priceStr = price ? formatSymbolPrice(item.symbol, price) : '...';
+        const sym = String(item.symbol).toUpperCase();
+        const tick = PriceStore.ticks[sym];
+        const priceStr = tick ? formatSymbolPrice(item.symbol, tick.price) : '...';
         return `
             <div class="watchlist-item" onclick="selectSuggestion('${item.symbol}', '${item.market}')">
                 <div class="watchlist-item-left">
@@ -1539,7 +1711,7 @@ function renderUserWatchlist() {
                     <span class="watchlist-item-name">${item.name || item.market}</span>
                 </div>
                 <div class="watchlist-item-right">
-                    <span class="watchlist-item-price" data-wl-price="${item.symbol}">${priceStr}</span>
+                    <span class="watchlist-item-price" data-price-symbol="${sym}">${priceStr}</span>
                     <button class="fav-btn active" onclick="event.stopPropagation(); removeFromWatchlist('${item.symbol}')" title="Remove from watchlist" aria-label="Remove from watchlist">
                         <i class="fas fa-heart"></i>
                     </button>
@@ -1547,19 +1719,11 @@ function renderUserWatchlist() {
             </div>`;
     }).join('');
 
-    // Fetch live prices for all watchlist items
-    watchlist.forEach(async (item) => {
-        const data = await fetchLivePrice(item.symbol, false);
-        if (data) {
-            const el = document.querySelector(`[data-wl-price="${item.symbol}"]`);
-            if (el) {
-                el.textContent = formatSymbolPrice(item.symbol, data.price);
-                // Brief flash effect
-                el.style.color = 'var(--accent)';
-                setTimeout(() => { el.style.color = ''; }, 500);
-            }
-        }
-    });
+    // The rows now carry the same `data-price-symbol` binding Market Watch uses,
+    // so one store update repaints both lists with the same number. A watchlist
+    // symbol that is not in the current market still needs polling.
+    PriceStore.subscribe(watchlist.map(i => i.symbol));
+    PriceStore.refresh(watchlist.map(i => i.symbol));
 }
 
 
@@ -2244,11 +2408,13 @@ async function loadInitialData() {
         } catch(e) { /* silent */ }
     }, 10000);
 
-    // Initial Market Watch population — use live price fetching
+    // Initial Market Watch population — rows render, then the store fills them
     renderMarketWatch(state.currentMarket);
 
-    // Fetch live price for current symbol immediately
-    startPricePolling(state.currentSymbol);
+    // The one price loop for the whole page. Every panel reads from it; nothing
+    // else is allowed to fetch a price on its own timer.
+    PriceStore.subscribe(state.currentSymbol);
+    PriceStore.start();
 
     // V2: Join ticker rooms for all Market Watch assets for real-time updates
     if (state.socket && state.socket.connected) {

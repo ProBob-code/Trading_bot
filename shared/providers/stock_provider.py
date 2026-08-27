@@ -104,10 +104,26 @@ class YahooFinanceProvider:
     INR_QUOTED = {"RELIANCE", "TCS", "INFY", "HDFCBANK", "TATAMOTORS",
                   "ICICIBANK", "SBIN", "WIPRO"}
 
+    # Crypto quote assets. A pair ending in one of these is dollar-denominated,
+    # and Yahoo serves it as "<BASE>-USD".
+    CRYPTO_QUOTES = ("USDT", "BUSD", "USDC", "FDUSD", "TUSD")
+
     @classmethod
     def to_yahoo_symbol(cls, symbol: str) -> str:
         """Translate a UI ticker into the ticker Yahoo Finance actually serves."""
-        return cls.YAHOO_SYMBOL_MAP.get(symbol.strip().upper(), symbol.strip().upper())
+        s = symbol.strip().upper()
+        mapped = cls.YAHOO_SYMBOL_MAP.get(s)
+        if mapped:
+            return mapped
+
+        # Yahoo keeps quotes and history for coins the exchanges have retired, so
+        # it is the backstop when Binance no longer lists a pair. Without this a
+        # delisted ticker had no data source at all and the chart went blank.
+        for q in cls.CRYPTO_QUOTES:
+            if s.endswith(q) and len(s) > len(q):
+                return f"{s[:-len(q)]}-USD"
+
+        return s
 
     @classmethod
     def quote_currency(cls, symbol: str) -> str:

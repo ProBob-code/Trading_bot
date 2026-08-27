@@ -1,13 +1,29 @@
 /**
  * ChartManager.js
- * Unified TradingView Chart Manager for GodBotTrade
+ * Unified Chart Manager for GodBotTrade
+ *
+ * Chooses a renderer per symbol and never ends in an error state:
+ *   - TradingView, when the backend confirms TradingView actually carries it
+ *   - GoatBot's own canvas chart (NativeChart), drawn from /api/v2/candles,
+ *     for everything else
+ *
+ * The old version guessed an exchange prefix from a hardcoded list and handed it
+ * straight to the widget. When a pair was renamed on-exchange (MATIC -> POL) the
+ * guess went stale, TradingView answered "This symbol doesn't exist" inside a
+ * cross-origin iframe we cannot read or override, and the user was stuck looking
+ * at a dead panel for a coin we could still price and chart perfectly well.
  */
 
 const ChartManager = {
     widget: null,
     containerId: null,
-    currentSymbol: null,
+    currentSymbol: null,     // TradingView-prefixed, e.g. BINANCE:POLUSDT
+    rawSymbol: null,         // as the app knows it, e.g. MATICUSDT
     currentInterval: null,
+    mode: 'tradingview',     // 'tradingview' | 'native'
+    resolution: null,        // last /api/v2/symbol payload
+    _retryTimer: null,
+    _retryAttempt: 0,
 
     // ── User-customisable chart preferences (persisted in localStorage) ──
     // TradingView "style" codes for the main series.
@@ -122,16 +138,10 @@ const ChartManager = {
         };
     },
 
-    /** Rebuild the widget in place (TradingView's embed API has no live setters). */
+    /** Rebuild in place (TradingView's embed API has no live setters). */
     _recreate() {
         if (!this.containerId) return;
-        const container = document.getElementById(this.containerId);
-        if (container) container.innerHTML = '';
-        try {
-            this.widget = new TradingView.widget(this._buildConfig());
-        } catch (e) {
-            console.error('[ChartManager] ❌ Exception during widget rebuild:', e);
-        }
+        return this._draw();
     },
 
     /** Change the main series style (candles / line / Heikin Ashi / …). */
@@ -151,83 +161,162 @@ const ChartManager = {
     },
 
     /**
-     * Initialize the TradingView Advanced Chart Widget
+     * Initialize the chart.
      * @param {string} containerId - The ID of the div container
      * @param {string} symbol - Initial symbol (e.g., BTCUSDT)
+     * @param {string} interval - UI interval (1m, 5m, 1h, 1d)
      */
     init(containerId, symbol, interval) {
         this.containerId = containerId;
+        this.rawSymbol = String(symbol || 'BTCUSDT').toUpperCase();
         this.currentSymbol = this.formatSymbol(symbol);
         this.currentInterval = this.formatInterval(interval);
         this.loadPrefs();
+        return this._draw();
+    },
 
-        if (typeof TradingView === 'undefined') {
-            console.error('[ChartManager] ❌ ERROR: TradingView library (tv.js) not loaded!');
-            const container = document.getElementById(containerId);
-            if (container) {
-                container.innerHTML = 
-                    '<div style="color: #ef4444; padding: 20px; text-align: center;">' +
-                    '❌ TradingView Library Error<br><small>Check internet connection or script source.</small></div>';
-            }
-            return;
+    /**
+     * Decide who draws this symbol, then draw it.
+     *
+     * TradingView is only asked when the backend has confirmed it carries the
+     * symbol. Otherwise GoatBot renders its own candles. There is no path out of
+     * this function that leaves the user looking at an error.
+     */
+    async _draw() {
+        const container = document.getElementById(this.containerId);
+        if (!container) return false;
+
+        const resolution = await this.resolve(this.rawSymbol);
+        this.resolution = resolution;
+
+        if (resolution && resolution.symbol && resolution.symbol !== this.rawSymbol) {
+            // A migrated ticker (MATIC -> POL) charts under its live name.
+            console.log(`[ChartManager] ${this.rawSymbol} resolved to ${resolution.symbol}`);
         }
 
-        console.log(`[ChartManager] 🚀 Initializing for ${this.currentSymbol} (${this.currentInterval}) on #${containerId}`);
+        const tvSymbol = (resolution && resolution.tv_symbol) || this.formatSymbol(this.rawSymbol);
+        const tvUsable = typeof TradingView !== 'undefined'
+            && (!resolution || resolution.chart === 'tradingview');
 
+        if (tvUsable) {
+            this.currentSymbol = tvSymbol;
+            this.mode = 'tradingview';
+            if (window.NativeChart) NativeChart.destroy();
+            try {
+                container.innerHTML = '';
+                this.widget = new TradingView.widget(this._buildConfig());
+                console.log(`[ChartManager] TradingView chart for ${tvSymbol}`);
+                return true;
+            } catch (e) {
+                console.error('[ChartManager] TradingView widget failed, falling back:', e);
+            }
+        }
+
+        // Either TradingView cannot serve this instrument or its library never
+        // loaded. Draw from our own candles rather than showing a dead panel.
+        this.mode = 'native';
+        this.widget = null;
+        const drawn = await NativeChart.render(
+            this.containerId,
+            (resolution && resolution.symbol) || this.rawSymbol,
+            this._uiInterval(this.currentInterval),
+            { note: resolution && resolution.note, source: null }
+        );
+        if (!drawn) this._scheduleRetry();
+        return drawn;
+    },
+
+    /**
+     * Ask the backend what this ticker really is and who can chart it.
+     * A failed lookup returns null, which keeps the TradingView-first behaviour —
+     * an unreachable backend must not downgrade a chart that would have worked.
+     */
+    async resolve(symbol) {
         try {
-            this.widget = new TradingView.widget(this._buildConfig());
-            console.log("[ChartManager] ✅ Widget constructor called successfully");
+            const tvGuess = this.formatSymbol(symbol);
+            const res = await fetch(
+                `/api/v2/symbol/${encodeURIComponent(symbol)}?tv=${encodeURIComponent(tvGuess)}`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data.success ? data : null;
         } catch (e) {
-            console.error("[ChartManager] ❌ Exception during widget creation:", e);
+            console.warn('[ChartManager] symbol resolve failed:', e);
+            return null;
         }
     },
 
     /**
-     * Update the symbol and/or interval
+     * A feed that is briefly down is not a permanent "no". Keep retrying in the
+     * background so the panel fills itself the moment a source responds.
+     */
+    _scheduleRetry() {
+        if (this._retryTimer) clearTimeout(this._retryTimer);
+        this._retryAttempt = Math.min((this._retryAttempt || 0) + 1, 5);
+        const delay = Math.min(5000 * this._retryAttempt, 30000);
+        console.warn(`[ChartManager] no data yet for ${this.rawSymbol}, retrying in ${delay}ms`);
+        this._retryTimer = setTimeout(() => this._draw(), delay);
+    },
+
+    /** TradingView interval code → the UI/backend interval string. */
+    _uiInterval(tv) {
+        const map = { '1': '1m', '5': '5m', '15': '15m', '30': '30m',
+                      '60': '1h', '240': '4h', 'D': '1d' };
+        return map[String(tv)] || '1m';
+    },
+
+    /** Feed a live tick to whichever renderer is active. */
+    onTick(symbol, price) {
+        if (this.mode !== 'native' || !window.NativeChart) return;
+        const active = (this.resolution && this.resolution.symbol) || this.rawSymbol;
+        if (String(symbol).toUpperCase() === String(active).toUpperCase()) {
+            NativeChart.applyTick(price);
+        }
+    },
+
+    /**
+     * Update the symbol and/or interval.
      * @param {string} symbol - New symbol
      * @param {string} interval - New interval (optional)
      */
     setSymbol(symbol, interval = null) {
-        if (!this.widget) return;
+        if (!this.containerId) return;
 
+        // Guard on containerId, not on `this.widget`: in native mode there is no
+        // TradingView widget, and the old check made the chart unswitchable once
+        // a symbol had fallen back to our own renderer.
+        if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+        this._retryAttempt = 0;
+
+        this.rawSymbol = String(symbol || '').toUpperCase();
         this.currentSymbol = this.formatSymbol(symbol);
-        if (interval) {
-            this.currentInterval = this.formatInterval(interval);
-        }
+        if (interval) this.currentInterval = this.formatInterval(interval);
 
-        console.log(`[ChartManager] Switching to ${this.currentSymbol} (${this.currentInterval})`);
-        
-        // Re-create widget with new symbol (TradingView widget.setSymbol doesn't exist on the embed API)
-        const container = document.getElementById(this.containerId);
-        if (container) {
-            container.innerHTML = '';
-        }
-        
-        const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-        
-        try {
-            this.widget = new TradingView.widget(this._buildConfig(theme));
-            console.log(`[ChartManager] ✅ Widget re-created for ${this.currentSymbol}`);
-        } catch (e) {
-            console.error("[ChartManager] ❌ Exception during widget re-creation:", e);
-        }
+        console.log(`[ChartManager] Switching to ${this.rawSymbol} (${this.currentInterval})`);
+        return this._draw();
     },
 
     /**
-     * Update only the interval
+     * Update only the interval.
      * @param {string} interval - New interval (1, 5, 15, 60, D)
      */
     setInterval(interval) {
-        if (!this.widget) return;
-
+        if (!this.containerId) return;
         this.currentInterval = this.formatInterval(interval);
         console.log(`[ChartManager] Changing interval to ${this.currentInterval}`);
-        // Re-create with current symbol and new interval
-        this.setSymbol(this.currentSymbol.split(':').pop(), this.currentInterval);
+        return this._draw();
+    },
+
+    // Tickers renamed on-exchange. The backend registry is the authority; this
+    // copy just stops the very first guess being wrong.
+    RENAMES: {
+        'MATICUSDT': 'POLUSDT', 'MATIC': 'POL',
+        'LUNAUSDT': 'LUNCUSDT', 'LUNA': 'LUNC',
+        'FTMUSDT': 'SUSDT', 'FTM': 'S'
     },
 
     /**
-     * Format symbol to TradingView standard matching our backend logic
+     * Format symbol to TradingView standard matching our backend logic.
+     * This is a *guess*; /api/v2/symbol validates it before it reaches the widget.
      * @param {string} symbol - Raw symbol from UI (e.g., BTCUSDT or BTC/USDT)
      * @returns {string} - Formatted symbol (e.g., BINANCE:BTCUSDT)
      */
@@ -235,6 +324,7 @@ const ChartManager = {
         if (!symbol) return "BINANCE:BTCUSDT";
 
         let cleanSymbol = symbol.toUpperCase().replace('/', '');
+        cleanSymbol = this.RENAMES[cleanSymbol] || cleanSymbol;
 
         // Already has exchange prefix?
         if (cleanSymbol.includes(':')) return cleanSymbol;
@@ -249,11 +339,22 @@ const ChartManager = {
             'ADANIPORTS', 'ULTRACEMCO', 'JSWSTEEL', 'TECHM', 'INDUSINDBK',
             'HINDALCO', 'DRREDDY', 'CIPLA', 'EICHERMOT', 'DIVISLAB',
             'BPCL', 'GRASIM', 'APOLLOHOSP', 'HEROMOTOCO', 'TATACONSUM',
-            'SBILIFE', 'HDFCLIFE', 'BRITANNIA', 'KOTAKBANK', 'BAJAJ_AUTO',
-            'NIFTY', 'BANKNIFTY', 'SENSEX'
+            'SBILIFE', 'HDFCLIFE', 'BRITANNIA', 'KOTAKBANK', 'BAJAJ_AUTO'
         ];
         if (nseStocks.includes(cleanSymbol)) {
             return `NSE:${cleanSymbol}`;
+        }
+
+        // NSE indices are not equities — they live under different tickers.
+        const indianIndices = {
+            'NIFTY': 'NSE:NIFTY',
+            'NIFTY50': 'NSE:NIFTY',
+            'BANKNIFTY': 'NSE:BANKNIFTY',
+            'FINNIFTY': 'NSE:CNXFINANCE',
+            'SENSEX': 'BSE:SENSEX'
+        };
+        if (indianIndices[cleanSymbol]) {
+            return indianIndices[cleanSymbol];
         }
 
         // ── NASDAQ Stocks ──
@@ -294,12 +395,12 @@ const ChartManager = {
         const commodityMap = {
             'XAUUSD': 'TVC:GOLD',
             'XAGUSD': 'TVC:SILVER',
-            'GOLD': 'TVC:GOLD',
-            'SILVER': 'TVC:SILVER',
             'XCUUSD': 'COMEX:HG1!',
             'XBRUSD': 'TVC:UKOIL',
             'XTIUSD': 'TVC:USOIL',
             'XNGUSD': 'NYMEX:NG1!',
+            'GOLD': 'TVC:GOLD',
+            'SILVER': 'TVC:SILVER',
             'COPPER': 'COMEX:HG1!',
             'PLATINUM': 'TVC:PLATINUM',
             'PALLADIUM': 'TVC:PALLADIUM'
@@ -308,7 +409,7 @@ const ChartManager = {
             return commodityMap[cleanSymbol];
         }
 
-        // ── Crypto (ends with USDT/USD/BTC/ETH) → Binance ──
+        // ── Crypto (ends with USDT/BUSD/USDC) → Binance ──
         if (cleanSymbol.endsWith('USDT') || cleanSymbol.endsWith('BUSD') || cleanSymbol.endsWith('USDC')) {
             return `BINANCE:${cleanSymbol}`;
         }
@@ -324,9 +425,8 @@ const ChartManager = {
             return indexMap[cleanSymbol];
         }
 
-        // ── Fallback: try BINANCE for crypto-like symbols, otherwise plain ──
+        // ── Fallback: short alpha-only symbols are most likely US equities ──
         if (cleanSymbol.length <= 6 && /^[A-Z]+$/.test(cleanSymbol)) {
-            // Short alpha-only symbols → likely stocks, try NASDAQ
             return `NASDAQ:${cleanSymbol}`;
         }
 
@@ -350,3 +450,5 @@ const ChartManager = {
         return i;
     }
 };
+
+window.ChartManager = ChartManager;

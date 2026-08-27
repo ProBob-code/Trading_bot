@@ -5,10 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoatBot V2 — Institutional Terminal</title>
-    <link rel="stylesheet" href="styles.css?v=15">
+    <link rel="stylesheet" href="styles.css?v=18">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://s3.tradingview.com/tv.js"></script>
-    <script src="common/ChartManager.js?v=7"></script>
+    <script src="common/NativeChart.js?v=1"></script>
+    <script src="common/ChartManager.js?v=8"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
         // FOUC Prevention: Apply theme BEFORE CSS loads
@@ -40,6 +41,8 @@
                     <button class="nav-pill" data-market="forex" onclick="switchAsset('forex')">Forex</button>
                     <button class="nav-pill" data-market="commodities"
                         onclick="switchAsset('commodities')">Commodities</button>
+                    <button class="nav-pill" data-market="india"
+                        onclick="switchAsset('india')">India</button>
                 </div>
             </div>
 
@@ -556,6 +559,7 @@
                         <option value="crypto">Crypto</option>
                         <option value="forex">Forex</option>
                         <option value="commodities">Commodities</option>
+                        <option value="india">India (NSE)</option>
                     </select>
                 </div>
                 <div class="field-group">
@@ -894,7 +898,7 @@
     </div>
 
     <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
-    <script src="paper_app_v3.js?v=12"></script>
+    <script src="paper_app_v3.js?v=17"></script>
     <!-- Same nav drawer as every other page -->
     <script src="/common/nav.js?v=2"></script>
     <style>

@@ -13,6 +13,7 @@ import os
 import threading
 import time
 import json
+import math
 
 from loguru import logger
 
@@ -28,6 +29,8 @@ from v2.engine.intelligence.regime_detector import RegimeDetector
 from v2.engine.intelligence.volatility_filter import VolatilityFilter
 from v2.engine.bot_manager_v2 import BotManagerV2, bot_manager_v2
 from shared.database.db_manager import db_manager
+from shared.services.quote_service import quote_service
+from shared.services.symbol_registry import symbol_registry
 from v2.engine.core.risk_engine import RiskEngineV2
 from v2.engine.core.portfolio_engine import PortfolioEngineV2
 from v2.engine.core.pipeline import TradingPipelineV2
@@ -113,16 +116,20 @@ strategy_engine = None
 db_manager = None
 crypto_provider = None
 stock_provider = None
+coingecko_provider = None
+smartapi_provider = None
 system_state_fn = None  # get_system_state callable
 
 
 def init_v2(
     _socketio, _strategy_engine, _db_manager,
-    _crypto_provider, _stock_provider, _system_state_fn
+    _crypto_provider, _stock_provider, _system_state_fn,
+    _coingecko_provider=None, _smartapi_provider=None
 ):
     """Inject shared dependencies from api_server.py."""
     global socketio, strategy_engine, db_manager
     global crypto_provider, stock_provider, system_state_fn
+    global coingecko_provider, smartapi_provider
     global v2_analytics
 
     socketio = _socketio
@@ -131,6 +138,10 @@ def init_v2(
     crypto_provider = _crypto_provider
     stock_provider = _stock_provider
     system_state_fn = _system_state_fn
+    # Optional so an older caller still works; the candle cascade simply skips
+    # any source whose provider is absent.
+    coingecko_provider = _coingecko_provider
+    smartapi_provider = _smartapi_provider
 
     # Analytics needs db_manager
     v2_analytics = StrategyAnalytics(db_manager=db_manager)
@@ -1895,82 +1906,161 @@ def v2_update_strategy_profile(strategy):
 @v2_bp.route('/api/v2/price/<symbol>', methods=['GET'])
 def v2_price_proxy(symbol):
     """
-    Fetch live price data for a symbol.
-    - Crypto (USDT pairs): proxies Binance /api/v3/ticker/24hr
-    - Stocks/Forex/Commodities: returns cached data from providers if available
+    Live price for one symbol, served from the shared quote cache.
+
+    This route used to run its own Binance request, independent of the one the
+    socket streamer ran, so the header and Market Watch could show two prices for
+    the same coin seconds apart. Both now read `quote_service`, which fetches once
+    per TTL window and hands every caller the identical tick.
     """
-    import requests as http_requests
+    return jsonify(quote_service.get(symbol.upper()))
 
-    symbol = symbol.upper()
 
-    # Crypto: Binance API (no key needed for public ticker)
-    if symbol.endswith('USDT') or symbol.endswith('BUSD') or symbol.endswith('USDC'):
-        try:
-            resp = http_requests.get(
-                f'https://api.binance.com/api/v3/ticker/24hr',
-                params={'symbol': symbol},
-                timeout=5
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return jsonify({
-                    'success': True,
-                    'symbol': symbol,
-                    'price': float(data.get('lastPrice', 0)),
-                    'change_pct': float(data.get('priceChangePercent', 0)),
-                    'high_24h': float(data.get('highPrice', 0)),
-                    'low_24h': float(data.get('lowPrice', 0)),
-                    'volume_24h': float(data.get('quoteVolume', 0)),
-                    'open': float(data.get('openPrice', 0)),
-                    'currency': 'USD',  # USDT/USDC/BUSD pairs are dollar-quoted
-                    'source': 'binance'
-                })
-            else:
-                logger.warning(f"[V2] Binance API returned {resp.status_code} for {symbol}")
-        except Exception as e:
-            logger.error(f"[V2] Binance price fetch error for {symbol}: {e}")
+@v2_bp.route('/api/v2/prices', methods=['GET'])
+def v2_prices_batch():
+    """
+    Live prices for many symbols in one request: /api/v2/prices?symbols=BTCUSDT,ETHUSDT
 
-    # Non-crypto: try our internal providers
+    The frontend renders the header, Market Watch and the watchlist from a single
+    response, so every panel on the page is painted from the same snapshot rather
+    than from N separate requests that each landed at a different instant.
+    """
+    raw = request.args.get('symbols', '')
+    symbols = [s.strip().upper() for s in raw.split(',') if s.strip()]
+
+    if not symbols:
+        return jsonify({'success': False, 'error': 'No symbols requested', 'prices': {}}), 400
+    if len(symbols) > 50:
+        symbols = symbols[:50]
+
+    ticks = quote_service.get_many(symbols)
+    return jsonify({
+        'success': True,
+        'prices': {t['symbol']: t for t in ticks},
+        'ts': time.time(),
+    })
+
+
+def clean_nan(val):
+    """NaN/Inf -> JSON null. A NaN in a candle silently kills the whole chart."""
     try:
-        if crypto_provider and symbol.endswith('USDT'):
-            price_data = crypto_provider.get_current_price(symbol)
-            if price_data:
-                return jsonify({
-                    'success': True,
-                    'symbol': symbol,
-                    'price': price_data.get('price', 0),
-                    'change_pct': price_data.get('change_pct', 0),
-                    'high_24h': price_data.get('high_24h', 0),
-                    'low_24h': price_data.get('low_24h', 0),
-                    'volume_24h': price_data.get('volume_24h', 0),
-                    'source': 'internal_crypto'
-                })
+        if val is None or math.isnan(float(val)) or math.isinf(float(val)):
+            return None
+    except (TypeError, ValueError):
+        return None
+    return float(val)
 
-        if stock_provider:
-            quote = stock_provider.get_current_quote(symbol)
-            if quote and quote.get('price'):
-                return jsonify({
-                    'success': True,
-                    'symbol': symbol,
-                    'price': quote.get('price', 0),
-                    'change_pct': quote.get('change_pct', 0),
-                    'high_24h': quote.get('high', 0),
-                    'low_24h': quote.get('low', 0),
-                    'volume_24h': quote.get('volume', 0),
-                    # An instrument is priced in its own quote currency — the UI
-                    # needs this to avoid stamping "$" on a rupee or yen price.
-                    'currency': quote.get('currency', 'USD'),
-                    'stale': bool(quote.get('stale')),
-                    'source': quote.get('source', 'internal_stock')
-                })
-    except Exception as e:
-        logger.warning(f"[V2] Internal price provider error for {symbol}: {e}")
 
-    # Fallback: no data available
+@v2_bp.route('/api/v2/symbol/<symbol>', methods=['GET'])
+def v2_resolve_symbol(symbol):
+    """
+    Resolve a ticker before anything tries to chart it.
+
+    The frontend used to guess an exchange prefix from a hardcoded list and hand
+    `BINANCE:MATICUSDT` to TradingView, which refused it because Binance had
+    migrated the pair to POL - and the user got "This symbol doesn't exist" on a
+    coin we could still price. This asks the exchange what it actually lists, and
+    always names a way to draw the chart.
+    """
+    market_hint = request.args.get('market')
+    # `tv` is ChartManager's exchange-prefix guess. We check it against TradingView's
+    # own catalogue instead of trusting it - that check is what turns a dead panel
+    # into an automatic fallback.
+    tv_candidate = request.args.get('tv')
+    return jsonify({
+        'success': True,
+        **symbol_registry.resolve(symbol, market_hint, tv_candidate)
+    })
+
+
+# Yahoo serves intraday crypto/equity candles at these granularities only; asking
+# for anything else returns an empty frame, which is what a blank chart looks like.
+_YAHOO_INTERVALS = {'1m', '5m', '15m', '30m', '1h', '1d'}
+
+
+@v2_bp.route('/api/v2/candles/<symbol>', methods=['GET'])
+def v2_candles(symbol):
+    """
+    OHLCV for any instrument, from whichever source answers first.
+
+    This is what GoatBot draws when TradingView cannot serve a symbol. It walks the
+    sources the registry named - Binance, then Yahoo - and only reports failure
+    once every one of them has actually been tried and come back empty.
+    """
+    interval = request.args.get('interval', '1m')
+    try:
+        limit = max(10, min(int(request.args.get('limit', 300)), 1000))
+    except ValueError:
+        limit = 300
+
+    info = symbol_registry.resolve(symbol, request.args.get('market'))
+    target = info['symbol']
+    attempted = []
+
+    for source in info['data_sources']:
+        try:
+            if source == 'binance' and crypto_provider:
+                attempted.append('binance')
+                df = crypto_provider.get_historical_klines(
+                    symbol=target, interval=interval, limit=limit)
+            elif source == 'smartapi' and smartapi_provider:
+                # Live NSE/BSE candles. Only reached for Indian instruments, and
+                # only when credentials are configured.
+                attempted.append('smartapi')
+                df = smartapi_provider.get_historical_data(
+                    symbol=target, interval=interval, limit=limit)
+            elif source == 'coingecko' and coingecko_provider:
+                # Crypto Binance has dropped. Granularity is CoinGecko's choice,
+                # not ours - coarse candles beat an empty chart.
+                attempted.append('coingecko')
+                df = coingecko_provider.get_historical_data(
+                    symbol=target, interval=interval, limit=limit)
+            elif source == 'yahoo' and stock_provider:
+                attempted.append('yahoo')
+                yf_interval = interval if interval in _YAHOO_INTERVALS else '1d'
+                # An index has its own Yahoo ticker (^NSEI), which is neither the
+                # bare name nor the ".NS" equity form.
+                yahoo_target = info.get('yahoo_symbol') or target
+                df = stock_provider.get_historical_data(
+                    symbol=yahoo_target, interval=yf_interval, limit=limit)
+            else:
+                continue
+        except Exception as e:
+            logger.warning(f"[V2] candles: {source} failed for {target}: {e}")
+            continue
+
+        if df is None or df.empty:
+            continue
+
+        candles = [{
+            'time': int(idx.timestamp()),
+            'open': clean_nan(row['open']),
+            'high': clean_nan(row['high']),
+            'low': clean_nan(row['low']),
+            'close': clean_nan(row['close']),
+            'volume': clean_nan(row.get('volume', 0)),
+        } for idx, row in df.iterrows()]
+
+        return jsonify({
+            'success': True,
+            'symbol': target,
+            'requested': info['requested'],
+            'renamed_from': info['renamed_from'],
+            'note': info['note'],
+            'interval': interval,
+            'source': source,
+            'currency': info.get('currency') or ('USD' if info['market'] == 'crypto' else None),
+            'candles': candles,
+        })
+
+    logger.warning(f"[V2] candles: no source served {target} (tried {attempted})")
     return jsonify({
         'success': False,
-        'symbol': symbol,
-        'price': 0,
-        'change_pct': 0,
-        'error': f'No price data available for {symbol}'
+        'symbol': target,
+        'requested': info['requested'],
+        'interval': interval,
+        'attempted': attempted,
+        'candles': [],
+        'error': f'No candle data for {target} from any source',
     })
+

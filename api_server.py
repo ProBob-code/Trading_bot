@@ -126,6 +126,73 @@ paper_trader.set_order_manager(order_manager)
 crypto_provider = BinanceCryptoProvider()
 stock_provider = YahooFinanceProvider()
 
+# CoinGecko covers the crypto Binance has delisted; SmartAPI is the live NSE/BSE
+# feed. Both are optional at runtime - CoinGecko needs no key, and SmartAPI stays
+# dormant until its credentials are set, with the app falling back to Yahoo.
+from shared.providers.coingecko_provider import coingecko_provider
+from shared.providers.smartapi_provider import smartapi_provider
+
+# Every price the UI sees - REST proxy, socket stream, bot fills - reads through
+# this one cache, so no two panels can be quoting different ticks for one symbol.
+from shared.services.quote_service import quote_service
+from shared.services.symbol_registry import symbol_registry
+
+quote_service.configure(
+    crypto_provider=crypto_provider,
+    stock_provider=stock_provider,
+    coingecko_provider=coingecko_provider,
+    smartapi_provider=smartapi_provider,
+)
+# The registry needs to know whether the broker feed is live: that decides whether
+# an Indian symbol is served real-time or from Yahoo's delayed data.
+symbol_registry.configure(smartapi_provider=smartapi_provider)
+
+if smartapi_provider.configured:
+    logger.info("[startup] SmartAPI configured - Indian markets will use the live Angel One feed")
+else:
+    logger.info("[startup] SmartAPI credentials absent - Indian markets fall back to Yahoo (delayed)")
+
+# ── Live crypto stream ──────────────────────────────────────────────────────
+# Polling is what made the panels trail the chart: the browser asked every 5s and
+# this server refreshed each symbol every 2-4s, while TradingView streamed. This
+# pushes Binance ticks straight through the same quote cache the REST endpoints
+# read, so both sides of the screen move on the same clock.
+from shared.services.binance_stream import binance_stream, is_streamable
+
+
+def _on_stream_tick(tick):
+    """Fan a streamed tick out to the cache, the paper traders and the browser."""
+    stored = quote_service.ingest(tick)
+    if not stored:
+        return   # an out-of-order frame; the newer price already stands
+
+    symbol = stored['symbol']
+    price = stored['price']
+
+    if not system_state.is_paused():
+        paper_trader.set_prices({symbol: price})
+        v2_paper_trader.set_prices({symbol: price})
+
+    socketio.emit('price_update', {
+        'symbol': symbol,
+        'market': 'crypto',
+        'price': price,
+        'change_pct': stored.get('change_pct', 0),
+        'high_24h': stored.get('high_24h', 0),
+        'low_24h': stored.get('low_24h', 0),
+        'volume_24h': stored.get('volume_24h', 0),
+        'currency': stored.get('currency', 'USD'),
+        'stale': False,
+        'live': True,
+        # The exchange's event time, so the client can discard a frame older than
+        # what it already has.
+        'ts': stored.get('ts'),
+        'timestamp': datetime.now().isoformat(),
+    }, room=f"ticker_{symbol}")
+
+
+binance_stream.configure(_on_stream_tick)
+
 # Strategy engine
 strategy_engine = get_strategy_engine(min_confluence=3)
 
@@ -193,6 +260,8 @@ init_v2(
     _crypto_provider=crypto_provider,
     _stock_provider=stock_provider,
     _system_state_fn=get_system_state,
+    _coingecko_provider=coingecko_provider,
+    _smartapi_provider=smartapi_provider,
 )
 
 # V2 SESSION INITIALIZATION (Lazy Loading Moved to BotManagerV2)
@@ -1307,6 +1376,11 @@ def get_top_movers():
 # State for multi-user streaming
 user_watched_symbols = {}  # sid -> {'symbol': str, 'market': str}
 
+# Every symbol each client has a ticker room for. `user_watched_symbols` only ever
+# held the ONE active symbol per client, so a Market Watch row or a watchlist entry
+# joined a room the stream was never subscribed to and simply never ticked.
+ticker_room_symbols = {}   # sid -> set[symbol]
+
 def get_active_symbols():
     """Get all symbols currently being watched by users or bots."""
     symbols = set()
@@ -1314,7 +1388,14 @@ def get_active_symbols():
     for watcher in user_watched_symbols.values():
         symbols.add((watcher['symbol'], watcher['market']))
 
-    # 2. From default symbols (always keep BTCUSDT and ETHUSDT live)
+    # 2. Everything any client has a ticker room open for - Market Watch rows,
+    #    watchlist entries, the active symbol. If it is on someone's screen it
+    #    needs to stream.
+    for subscribed in list(ticker_room_symbols.values()):
+        for sym in subscribed:
+            symbols.add((sym, 'crypto' if 'USDT' in sym else 'stock'))
+
+    # 3. Defaults (always keep BTCUSDT and ETHUSDT live)
     symbols.add(('BTCUSDT', 'crypto'))
     symbols.add(('ETHUSDT', 'crypto'))
 
@@ -1338,24 +1419,28 @@ def price_stream():
         try:
             active_symbols = get_active_symbols()
 
+            # Keep the WebSocket subscribed to exactly what is being watched.
+            try:
+                binance_stream.set_symbols(
+                    [sym for sym, _ in active_symbols if is_streamable(sym)])
+            except Exception as e:
+                logger.warning(f"[stream] could not update subscriptions: {e}")
+
             for symbol, market in active_symbols:
                 try:
-                    # Fetch data
-                    is_crypto = market == 'crypto'
-                    if is_crypto:
-                        price_data = crypto_provider.get_current_price(symbol)
-                        ticker = crypto_provider.get_ticker_24h(symbol)
-                    else:
-                        price_data = stock_provider.get_current_quote(symbol)
-                        ticker = {
-                            'price_change': price_data.get('change', 0),
-                            'price_change_pct': price_data.get('change_pct', 0),
-                            'high_24h': price_data.get('high', 0),
-                            'low_24h': price_data.get('low', 0),
-                            'volume_24h': price_data.get('volume', 0)
-                        }
+                    # Anything the stream is already pushing is skipped: polling it
+                    # would spend a REST round-trip to re-fetch a price the socket
+                    # delivered milliseconds ago, and could publish a staler one.
+                    if binance_stream.connected and is_streamable(symbol):
+                        continue
 
-                    price = price_data.get('price', 0)
+                    # One canonical tick, shared with the REST proxy. Previously this
+                    # loop fetched the price and the 24h change in two separate
+                    # requests, so the pair it broadcast never described one moment -
+                    # and it disagreed with whatever /api/v2/price had just returned.
+                    tick = quote_service.get(symbol)
+
+                    price = tick.get('price', 0)
                     if price <= 0:
                         logger.warning(f"⚠️ Skipping 0 price for {symbol}")
                         continue
@@ -1369,10 +1454,15 @@ def price_stream():
                         'symbol': symbol,
                         'market': market,
                         'price': price,
-                        'change_pct': ticker.get('price_change_pct', 0),
-                        'high_24h': ticker.get('high_24h', 0),
-                        'low_24h': ticker.get('low_24h', 0),
-                        'volume_24h': ticker.get('volume_24h', 0),
+                        'change_pct': tick.get('change_pct', 0),
+                        'high_24h': tick.get('high_24h', 0),
+                        'low_24h': tick.get('low_24h', 0),
+                        'volume_24h': tick.get('volume_24h', 0),
+                        'currency': tick.get('currency', 'USD'),
+                        'stale': tick.get('stale', False),
+                        # The tick's own fetch time, not "now" - the client uses this
+                        # to discard an update that is older than what it already has.
+                        'ts': tick.get('ts'),
                         'timestamp': datetime.now().isoformat()
                     }
                     socketio.emit('price_update', update_payload, room=f"ticker_{symbol}")
@@ -1457,6 +1547,13 @@ def handle_connect():
     if not is_streaming or stream_thread is None or not stream_thread.is_alive():
         logger.info("📡 Starting price stream loop...")
         is_streaming = True
+        # Open the live feed alongside the polling thread. The poller stays on as
+        # the fallback for anything Binance cannot stream (equities, FX, NSE) and
+        # for whenever the socket is down.
+        try:
+            binance_stream.start([current_symbol])
+        except Exception as e:
+            logger.warning(f"[stream] could not start live feed, polling only: {e}")
         stream_thread = threading.Thread(target=price_stream, daemon=True)
         stream_thread.start()
 
@@ -1473,6 +1570,7 @@ def handle_disconnect():
     sid = request.sid
     if sid in user_watched_symbols:
         del user_watched_symbols[sid]
+    ticker_room_symbols.pop(sid, None)
 
     if current_user.is_authenticated:
         user_room = f"user_{current_user.id}"
@@ -1502,11 +1600,23 @@ def handle_symbol_change(data):
 def handle_join_ticker_rooms(data):
     """Join multiple ticker rooms for the Market Watch list."""
     sid = request.sid
-    symbols = data.get('symbols', [])
-    for s in symbols:
-        room = f"ticker_{s.upper()}"
-        join_room(room)
-    logger.info(f"📡 Sid {sid} joined {len(symbols)} ticker rooms for Market Watch")
+    symbols = [str(x).upper() for x in (data.get('symbols') or []) if x]
+    for sym in symbols:
+        join_room(f"ticker_{sym}")
+
+    ticker_room_symbols[sid] = set(symbols)
+
+    # Subscribe the live feed now. Waiting for the poll loop would leave a newly
+    # added symbol silent for a second or more - exactly the lag being fixed.
+    try:
+        streamable = {sym for subs in ticker_room_symbols.values()
+                      for sym in subs if is_streamable(sym)}
+        streamable.update({'BTCUSDT', 'ETHUSDT'})
+        binance_stream.set_symbols(streamable)
+    except Exception as e:
+        logger.warning(f"[stream] subscription update failed: {e}")
+
+    logger.info(f"📡 Sid {sid} streaming {len(symbols)} symbols")
 
 @socketio.on('change_market')
 def handle_market_change(data):
