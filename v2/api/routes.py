@@ -1510,9 +1510,31 @@ def v2_evolution_status():
 
     # Evolution is per (strategy, symbol) — the same strategy needs different
     # stops on BTC than on a forex pair.
-    pairs = {(t.get('strategy'), t.get('symbol')) for t in
-             db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000)
+    #
+    # Everything below is derived from THREE queries, not three per pair. Each
+    # helper used to load its own trades, state and history, so rendering N
+    # pairs opened roughly 7N database connections — fine on an empty account,
+    # slow enough to look hung on a real one.
+    all_trades = db_manager.v2_get_user_trades(user_id=current_user.id, limit=20000)
+    pairs = {(t.get('strategy'), t.get('symbol')) for t in all_trades
              if t.get('strategy') and t.get('symbol')}
+
+    # Closing events per pair, oldest first — the journey needs the order, and
+    # the metrics window is a slice off the end of it.
+    from v2.engine.evolution.evolution_engine import CLOSING_ACTIONS, _ts_key
+    closes_by_pair = {}
+    for t in all_trades:
+        if t.get('action') in CLOSING_ACTIONS and t.get('strategy') and t.get('symbol'):
+            closes_by_pair.setdefault((t['strategy'], t['symbol']), []).append(t)
+    for rows in closes_by_pair.values():
+        rows.sort(key=_ts_key)
+
+    states_by_pair = {(st.get('strategy'), st.get('symbol')): st
+                      for st in (db_manager.v2_get_evolution_state(current_user.id) or [])}
+
+    history_by_strategy = {}
+    for h in db_manager.v2_get_evolution_history(current_user.id, None, limit=500):
+        history_by_strategy.setdefault(h.get('strategy'), []).append(h)
 
     # Include running bots too. Without this a bot that hasn't closed a trade
     # yet has no card at all, so there is nothing to evaluate or stop.
@@ -1528,11 +1550,15 @@ def v2_evolution_status():
 
     out = []
     for s, sym in sorted(pairs):
-        trades = db_manager.v2_get_closed_trades_for_eval(current_user.id, s, sym)
-        m = evolution_engine.compute_metrics(trades)
-        state = db_manager.v2_get_evolution_state(current_user.id, s, sym) or {}
-        params = evolution_engine.live_params(current_user.id, s, sym)
-        meter = evolution_engine.readiness(current_user.id, s, sym)
+        closes = closes_by_pair.get((s, sym), [])
+        # Metrics read the most recent slice, matching the engine's own query
+        # bound; the journey needs the whole run so it can show where it began.
+        recent = closes[-200:]
+        state = states_by_pair.get((s, sym)) or {}
+        m = evolution_engine.compute_metrics(recent)
+        params = evolution_engine.live_params(current_user.id, s, sym, state=state or None)
+        meter = evolution_engine.readiness(current_user.id, s, sym,
+                                           trades=recent, state=state)
 
         pending = None
         if state.get('pending_json'):
@@ -1567,7 +1593,9 @@ def v2_evolution_status():
             'meter': meter,
             # Where the win rate started vs where it is now — the evidence that
             # the bot actually learned from its mistakes.
-            'journey': evolution_engine.win_rate_journey(current_user.id, s, sym, state),
+            'journey': evolution_engine.win_rate_journey(
+                current_user.id, s, sym, state, series=closes,
+                history=history_by_strategy.get(s, [])),
             'regime': state.get('regime') or 'unknown',
             'profiles': profiles,          # what it learned per market regime
             'pending': pending,            # the lesson awaiting Proceed
