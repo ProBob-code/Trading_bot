@@ -50,6 +50,12 @@ services:
       - MYSQLUSER=probobindb
       - MYSQLPASSWORD=probobindb
       - MYSQLDATABASE=trading_bot
+      # Admin console credentials. Substituted from .env, which is gitignored —
+      # the password must not be written into this file, which is committed.
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - ADMIN_USERNAMES=${ADMIN_USERNAMES:-}
+      - ADMIN_MOBILES=${ADMIN_MOBILES:-}
     volumes:
       - godbot_data:/app/data
 

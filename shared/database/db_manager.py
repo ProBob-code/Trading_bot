@@ -1890,6 +1890,47 @@ class DatabaseManager:
         finally:
             self._safe_close(conn, cursor)
 
+    def upsert_admin_account(self, username: str, password: str) -> Optional[int]:
+        """Create (or refresh) a username/password-only administrator account.
+
+        Deliberately has **no mobile number**. The register flow looks an
+        account up by mobile and then overwrites its username and password on a
+        successful OTP — so any admin reachable by a known mobile could be taken
+        over by re-registering it. With mobile NULL that path cannot reach this
+        account at all; it signs in with username + password only.
+
+        Re-runs are idempotent: an existing account has its password and admin
+        flag refreshed, so changing ADMIN_PASSWORD and redeploying is enough.
+        """
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor, "SELECT id FROM users WHERE username = %s", (username,))
+            row = cursor.fetchone()
+            existing = (dict(row)['id'] if row else None)
+            cursor.close()
+
+            cursor = conn.cursor()
+            if existing:
+                self._execute(cursor,
+                              "UPDATE users SET password_hash=%s, is_verified=1, is_admin=1 "
+                              "WHERE id=%s", (password, existing))
+                conn.commit()
+                return existing
+
+            self._execute(cursor,
+                          "INSERT INTO users (username, password_hash, mobile, is_verified, "
+                          "is_admin) VALUES (%s, %s, NULL, 1, 1)", (username, password))
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            logger.error(f"[ADMIN] could not provision admin account '{username}': {e}")
+            return None
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
     def count_admins(self) -> int:
         conn = self._get_connection()
         cursor = conn.cursor()

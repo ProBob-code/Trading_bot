@@ -291,13 +291,34 @@ app.register_blueprint(admin_bp)
 
 
 def _bootstrap_admins():
-    """Promote the accounts named in the environment to administrator.
+    """Provision administrators from the environment at boot.
 
-    ADMIN_USERNAMES / ADMIN_MOBILES are comma-separated. This is the only way
-    the FIRST admin can appear — after that, admins grant it to each other from
-    the console. Nothing here ever revokes the flag, so removing a name from the
-    environment does not silently lock someone out mid-deploy.
+    Two ways in, both idempotent:
+
+    * ADMIN_USERNAME + ADMIN_PASSWORD create a dedicated admin account if it is
+      missing, and refresh its password if it already exists. Use this when the
+      operator should not have to share a trading account — the account carries
+      no mobile number, so it can only be reached by username and password.
+    * ADMIN_USERNAMES / ADMIN_MOBILES (comma-separated) promote accounts that
+      already exist, for granting admin to a real trader.
+
+    This is the only way the FIRST admin can appear — after that, admins grant
+    it to each other from the console. Nothing here ever revokes the flag, so
+    removing a name from the environment cannot lock someone out mid-deploy.
     """
+    admin_user = (os.getenv('ADMIN_USERNAME') or '').strip()
+    admin_pass = os.getenv('ADMIN_PASSWORD') or ''
+    if admin_user and admin_pass:
+        try:
+            uid = db_manager.upsert_admin_account(admin_user, admin_pass)
+            if uid:
+                logger.info(f"👑 [ADMIN] admin account '{admin_user}' ready (id={uid})")
+        except Exception as e:
+            logger.warning(f"[ADMIN] could not provision '{admin_user}': {e}")
+    elif admin_user:
+        logger.warning("[ADMIN] ADMIN_USERNAME is set but ADMIN_PASSWORD is empty — "
+                       "refusing to create a password-less administrator.")
+
     names = {n.strip().lower() for n in os.getenv('ADMIN_USERNAMES', '').split(',') if n.strip()}
     mobiles = {m.strip() for m in os.getenv('ADMIN_MOBILES', '').split(',') if m.strip()}
     if not names and not mobiles:
