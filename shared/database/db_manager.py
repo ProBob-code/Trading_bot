@@ -394,6 +394,7 @@ class DatabaseManager:
                     is_verified TINYINT DEFAULT 0,
                     initial_capital DOUBLE DEFAULT 100000.0,
                     cash DOUBLE DEFAULT 100000.0,
+                    is_admin TINYINT DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB
             ''')
@@ -620,6 +621,10 @@ class DatabaseManager:
                     pending_json TEXT,      -- proposal awaiting user approval
                     regime VARCHAR(20),     -- market regime at last evaluation
                     profiles_json TEXT,     -- params learned per regime
+                    auto_apply TINYINT DEFAULT 1,     -- autopilot: apply protective lessons itself
+                    baseline_win_rate DOUBLE DEFAULT NULL,  -- win rate when learning began
+                    baseline_trades INT DEFAULT 0,
+                    baseline_at DATETIME,
                     updated_at DATETIME,
                     PRIMARY KEY (user_id, strategy, symbol)
                 ) ENGINE=InnoDB
@@ -690,12 +695,25 @@ class DatabaseManager:
                     conn.commit()
                 except Exception: pass
 
+                # users: admin flag for the operator console
+                try:
+                    cursor.execute("ALTER TABLE users ADD COLUMN is_admin TINYINT DEFAULT 0")
+                    conn.commit()
+                except Exception: pass
+
                 # v2_evolution_state: approval gate + per-regime memory
                 for col, ddl in (
                     ('pending_json', 'TEXT'),
                     ('regime', 'VARCHAR(20)'),
                     ('profiles_json', 'TEXT'),
                     ('symbol', "VARCHAR(20) DEFAULT 'ALL'"),
+                    # Autopilot: learning applies its own protective lessons so a
+                    # bot keeps improving while nobody is watching the dashboard.
+                    ('auto_apply', 'TINYINT DEFAULT 1'),
+                    # Where the win rate started, so the journey has an origin.
+                    ('baseline_win_rate', 'DOUBLE DEFAULT NULL'),
+                    ('baseline_trades', 'INT DEFAULT 0'),
+                    ('baseline_at', 'DATETIME'),
                 ):
                     try:
                         cursor.execute(f"ALTER TABLE v2_evolution_state ADD COLUMN {col} {ddl}")
@@ -774,6 +792,24 @@ class DatabaseManager:
                     conn.commit()
                 except Exception: pass
 
+                # users: admin flag for the operator console
+                try:
+                    cursor.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
+                    conn.commit()
+                except Exception: pass
+
+                # v2_evolution_state: autopilot + win-rate origin
+                for col, ddl in (
+                    ('auto_apply', 'INTEGER DEFAULT 1'),
+                    ('baseline_win_rate', 'REAL DEFAULT NULL'),
+                    ('baseline_trades', 'INTEGER DEFAULT 0'),
+                    ('baseline_at', 'TEXT'),
+                ):
+                    try:
+                        cursor.execute(f"ALTER TABLE v2_evolution_state ADD COLUMN {col} {ddl}")
+                        conn.commit()
+                    except Exception: pass
+
             # NOTE: db_schema_version was removed — it was created but never read
             # or written, so it tracked nothing. Migrations here are idempotent
             # ADD COLUMN/CREATE INDEX attempts, which need no version marker.
@@ -832,7 +868,9 @@ class DatabaseManager:
                 self._migrate_v2_positions(cursor)
                 self._migrate_v2_sessions(cursor)
                 conn.commit()
-            
+
+            self._unstick_auto_paused_evolution(cursor, conn)
+
             logger.info(f"{'SQLite' if self.use_sqlite else 'MySQL'} database initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
@@ -1233,6 +1271,43 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"⚠️ Failed to add {col} to v2_sessions: {e}")
 
+    def _unstick_auto_paused_evolution(self, cursor, conn):
+        """One-time: reactivate strategies the old engine paused on its own.
+
+        Evolution used to switch a persistently-losing strategy off. That was a
+        dead end — a paused strategy closes no trades, and with no trades it can
+        never gather the evidence it needs to recover, so it stayed off. The
+        engine now de-risks instead of pausing, and 'paused' means only that the
+        user is holding changes.
+
+        Rows written under the old meaning have to be cleared, or every pair the
+        old fail-safe switched off would stay stuck forever. Guarded by a marker
+        so a hold the user sets *after* this runs is never overridden.
+        """
+        marker = 'evo_unpause_migration_v1'
+        try:
+            # Same cursor throughout: the schema this reads was created on this
+            # connection and, on SQLite, is not visible to another one until the
+            # transaction commits.
+            self._execute(cursor, "SELECT state_value FROM system_state WHERE state_key = %s",
+                          (marker,))
+            if cursor.fetchone():
+                return
+
+            self._execute(cursor,
+                          "UPDATE v2_evolution_state SET status='active' WHERE status='paused'")
+            freed = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+            self._execute(cursor,
+                          "INSERT INTO system_state (state_key, state_value) VALUES (%s, %s) "
+                          "ON DUPLICATE KEY UPDATE state_value = VALUES(state_value)",
+                          (marker, datetime.now(timezone.utc).isoformat()))
+            conn.commit()
+            if freed:
+                logger.info(f"🧬 [V2-EVO] resumed {freed} strategy pair(s) the old "
+                            f"auto-pause had switched off")
+        except Exception as e:
+            logger.warning(f"[V2-EVO] un-pause migration skipped: {e}")
+
     def v2_stop_session(self, session_id: str):
         """Stop a V2 session and finalize totals from the ledger."""
         conn = self._get_connection()
@@ -1630,28 +1705,55 @@ class DatabaseManager:
                                 params_json: str, best_params_json: str,
                                 best_expectancy, trades_at_last_eval: int, status: str = 'active',
                                 pending_json: str = None, regime: str = None,
-                                profiles_json: str = None, symbol: str = 'ALL'):
+                                profiles_json: str = None, symbol: str = 'ALL',
+                                auto_apply=None, baseline_win_rate=None,
+                                baseline_trades=None, baseline_at=None):
+        """Write one (user, strategy, symbol) evolution row.
+
+        `auto_apply` and the win-rate baseline are sticky: pass None and
+        whatever is already stored is carried forward. They have to be read back
+        and rewritten because SQLite's INSERT OR REPLACE rewrites the entire
+        row — omitting a column there silently resets it, which would flip
+        autopilot off (and lose the journey's origin) on every save.
+        """
+        prior = self.v2_get_evolution_state(user_id, strategy, symbol or 'ALL') or {}
+        if auto_apply is None:
+            auto_apply = prior.get('auto_apply')
+        auto_apply = 1 if auto_apply is None else int(bool(auto_apply))
+        if baseline_win_rate is None:
+            baseline_win_rate = prior.get('baseline_win_rate')
+        if baseline_trades is None:
+            baseline_trades = prior.get('baseline_trades') or 0
+        if baseline_at is None:
+            baseline_at = prior.get('baseline_at')
+
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
             now = datetime.now(timezone.utc)
             cols = """(user_id,strategy,symbol,generation,params_json,best_params_json,best_expectancy,
-                       trades_at_last_eval,status,pending_json,regime,profiles_json,updated_at)"""
+                       trades_at_last_eval,status,pending_json,regime,profiles_json,auto_apply,
+                       baseline_win_rate,baseline_trades,baseline_at,updated_at)"""
             vals = (user_id, strategy, symbol or 'ALL', generation, params_json, best_params_json,
                     best_expectancy, trades_at_last_eval, status,
-                    pending_json, regime, profiles_json, now)
+                    pending_json, regime, profiles_json, auto_apply,
+                    baseline_win_rate, baseline_trades, baseline_at, now)
             if self.use_sqlite:
                 q = f"""INSERT OR REPLACE INTO v2_evolution_state {cols}
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
             else:
                 q = f"""INSERT INTO v2_evolution_state {cols}
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON DUPLICATE KEY UPDATE generation=VALUES(generation),
                           params_json=VALUES(params_json), best_params_json=VALUES(best_params_json),
                           best_expectancy=VALUES(best_expectancy),
                           trades_at_last_eval=VALUES(trades_at_last_eval),
                           status=VALUES(status), pending_json=VALUES(pending_json),
                           regime=VALUES(regime), profiles_json=VALUES(profiles_json),
+                          auto_apply=VALUES(auto_apply),
+                          baseline_win_rate=VALUES(baseline_win_rate),
+                          baseline_trades=VALUES(baseline_trades),
+                          baseline_at=VALUES(baseline_at),
                           updated_at=VALUES(updated_at)"""
             self._execute(cursor, q, vals)
             conn.commit()
@@ -1704,6 +1806,237 @@ class DatabaseManager:
             return out
         except Exception as e:
             logger.warning(f"[V2-EVO] history read failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def v2_get_closed_pnl_series(self, user_id: int, strategy: str = None,
+                                 symbol: str = None, limit: int = 2000) -> List[Dict]:
+        """Every closing event in chronological order — the win-rate journey.
+
+        `v2_get_closed_trades_for_eval` returns the most recent slice, which can
+        never show where a strategy *started*. This returns oldest-first so the
+        first trades and the latest ones are both in hand.
+        """
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            q = ("SELECT action, pnl, timestamp, symbol, strategy FROM v2_trade_ledger "
+                 "WHERE user_id = %s "
+                 "AND action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')")
+            params = [user_id]
+            if strategy:
+                q += " AND strategy = %s"
+                params.append(strategy)
+            if symbol and symbol != 'ALL':
+                q += " AND symbol = %s"
+                params.append(symbol)
+            q += " ORDER BY timestamp ASC, trade_id ASC LIMIT %s"
+            params.append(limit)
+            self._execute(cursor, q, tuple(params))
+            rows = [dict(r) for r in cursor.fetchall()]
+            for r in rows:
+                ts = r.get('timestamp')
+                if ts is not None and hasattr(ts, 'isoformat'):
+                    r['timestamp'] = ts.isoformat()
+            return rows
+        except Exception as e:
+            logger.warning(f"[V2-EVO] pnl series query failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    # --- Admin Console ---------------------------------------------------
+    # Everything below reads across ALL users and must only ever be reached
+    # through an admin-gated route.
+
+    def get_all_users(self) -> List[Dict]:
+        """Every registered account, newest first. Never returns password hashes."""
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor,
+                          "SELECT id, username, mobile, is_verified, is_admin, "
+                          "initial_capital, cash, created_at FROM users ORDER BY id ASC")
+            rows = [dict(r) for r in cursor.fetchall()]
+            for r in rows:
+                ts = r.get('created_at')
+                if ts is not None and hasattr(ts, 'isoformat'):
+                    r['created_at'] = ts.isoformat()
+                r['is_admin'] = int(r.get('is_admin') or 0)
+            return rows
+        except Exception as e:
+            logger.warning(f"[ADMIN] user list failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def set_user_admin(self, user_id: int, is_admin: bool) -> bool:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            self._execute(cursor, "UPDATE users SET is_admin = %s WHERE id = %s",
+                          (1 if is_admin else 0, user_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"[ADMIN] could not set admin flag for {user_id}: {e}")
+            return False
+        finally:
+            self._safe_close(conn, cursor)
+
+    def count_admins(self) -> int:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            self._execute(cursor, "SELECT COUNT(*) FROM users WHERE is_admin = 1")
+            row = cursor.fetchone()
+            return int(row[0]) if row else 0
+        except Exception as e:
+            logger.warning(f"[ADMIN] admin count failed: {e}")
+            return 0
+        finally:
+            self._safe_close(conn, cursor)
+
+    def admin_user_trade_stats(self) -> Dict[int, Dict]:
+        """Per-user ledger aggregates, keyed by user_id.
+
+        One grouped query rather than a per-user loop: the admin console shows
+        every account at once, and N round-trips per page load does not scale.
+        """
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor, """
+                SELECT user_id,
+                       COUNT(*) AS total_events,
+                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                                THEN 1 ELSE 0 END) AS closed_trades,
+                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                                 AND pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                                 AND pnl < 0 THEN 1 ELSE 0 END) AS losses,
+                       SUM(COALESCE(pnl, 0)) AS total_pnl,
+                       SUM(COALESCE(commission, 0)) AS total_commission,
+                       MIN(timestamp) AS first_trade,
+                       MAX(timestamp) AS last_trade
+                FROM v2_trade_ledger
+                GROUP BY user_id
+            """)
+            out = {}
+            for r in cursor.fetchall():
+                d = dict(r)
+                uid = int(d.get('user_id') or 0)
+                closed = int(d.get('closed_trades') or 0)
+                wins = int(d.get('wins') or 0)
+                for k in ('first_trade', 'last_trade'):
+                    if d.get(k) is not None and hasattr(d[k], 'isoformat'):
+                        d[k] = d[k].isoformat()
+                d['total_events'] = int(d.get('total_events') or 0)
+                d['closed_trades'] = closed
+                d['wins'] = wins
+                d['losses'] = int(d.get('losses') or 0)
+                d['total_pnl'] = float(d.get('total_pnl') or 0)
+                d['total_commission'] = float(d.get('total_commission') or 0)
+                d['win_rate'] = (wins / closed * 100) if closed else 0.0
+                out[uid] = d
+            return out
+        except Exception as e:
+            logger.warning(f"[ADMIN] trade stats failed: {e}")
+            return {}
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def admin_strategy_usage(self) -> List[Dict]:
+        """Who is running what: one row per (user, strategy, symbol) with results."""
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor, """
+                SELECT user_id, strategy, symbol,
+                       COUNT(*) AS total_events,
+                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                                THEN 1 ELSE 0 END) AS closed_trades,
+                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                                 AND pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                       SUM(COALESCE(pnl, 0)) AS total_pnl,
+                       MAX(timestamp) AS last_trade
+                FROM v2_trade_ledger
+                WHERE strategy IS NOT NULL
+                GROUP BY user_id, strategy, symbol
+                ORDER BY user_id, strategy, symbol
+            """)
+            rows = []
+            for r in cursor.fetchall():
+                d = dict(r)
+                closed = int(d.get('closed_trades') or 0)
+                wins = int(d.get('wins') or 0)
+                if d.get('last_trade') is not None and hasattr(d['last_trade'], 'isoformat'):
+                    d['last_trade'] = d['last_trade'].isoformat()
+                d['user_id'] = int(d.get('user_id') or 0)
+                d['total_events'] = int(d.get('total_events') or 0)
+                d['closed_trades'] = closed
+                d['wins'] = wins
+                d['total_pnl'] = float(d.get('total_pnl') or 0)
+                d['win_rate'] = (wins / closed * 100) if closed else 0.0
+                rows.append(d)
+            return rows
+        except Exception as e:
+            logger.warning(f"[ADMIN] strategy usage failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def v2_get_all_evolution_states(self) -> List[Dict]:
+        """Evolution state for every user — the admin's learning overview."""
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor, "SELECT * FROM v2_evolution_state "
+                                  "ORDER BY user_id, strategy, symbol")
+            rows = []
+            for r in cursor.fetchall():
+                d = dict(r)
+                for k in ('updated_at', 'baseline_at'):
+                    if d.get(k) is not None and hasattr(d[k], 'isoformat'):
+                        d[k] = d[k].isoformat()
+                rows.append(d)
+            return rows
+        except Exception as e:
+            logger.warning(f"[ADMIN] evolution state sweep failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def get_all_custom_strategies(self) -> List[Dict]:
+        """Every user-authored strategy definition, for the admin console."""
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
+            self._execute(cursor, "SELECT * FROM v2_user_strategies "
+                                  "ORDER BY user_id, name")
+            rows = []
+            for r in cursor.fetchall():
+                d = dict(r)
+                for k in ('created_at', 'updated_at'):
+                    if d.get(k) is not None and hasattr(d[k], 'isoformat'):
+                        d[k] = d[k].isoformat()
+                rows.append(d)
+            return rows
+        except Exception as e:
+            logger.warning(f"[ADMIN] custom strategy sweep failed: {e}")
             return []
         finally:
             if cursor is not None:

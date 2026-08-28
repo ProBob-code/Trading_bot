@@ -1548,6 +1548,8 @@ def v2_evolution_status():
             except Exception:
                 profiles = {}
 
+        auto_apply = state.get('auto_apply')
+
         out.append({
             'strategy': strat_to_public(s),
             'strategy_name': public_meta(s)['name'],
@@ -1555,11 +1557,17 @@ def v2_evolution_status():
             'running': (s, sym) in running_pairs,
             'generation': state.get('generation', 0),
             'status': state.get('status', 'active'),
+            # Autopilot defaults ON — a pair with no state row yet is still
+            # going to learn continuously once it starts closing trades.
+            'auto_apply': True if auto_apply is None else bool(auto_apply),
             'params': params,
             'defaults': DEFAULT_PARAMS,
             'sensitivity': SENSITIVITY_BY_RANK[int(params.get('sensitivity_rank', 0))],
             'metrics': m,
             'meter': meter,
+            # Where the win rate started vs where it is now — the evidence that
+            # the bot actually learned from its mistakes.
+            'journey': evolution_engine.win_rate_journey(current_user.id, s, sym, state),
             'regime': state.get('regime') or 'unknown',
             'profiles': profiles,          # what it learned per market regime
             'pending': pending,            # the lesson awaiting Proceed
@@ -1619,8 +1627,9 @@ def v2_evolution_approve():
         if 'sensitivity_rank' in params:
             rank = int(max(0, min(2, params['sensitivity_rank'])))
             bot.config.sensitivity = SENSITIVITY_BY_RANK[rank]
-        if result.get('status') == 'paused':
-            bot.stop_flag.set()
+        # Applying a lesson never stops the bot. De-risking keeps it trading at
+        # the smallest exposure its bounds allow, because a stopped bot closes
+        # no trades and so can never learn its way back to profit.
         applied_to.append(bot.bot_id)
 
     logger.info(f"🧬 [V2-EVO] Approved {strategy}/{symbol} gen {result.get('generation')} — "
@@ -1689,6 +1698,8 @@ def v2_evolution_candidates():
             'strategy_name': public_meta(strategy)['name'],
             'generation': state.get('generation', 0),
             'status': state.get('status', 'active'),
+            'auto_apply': True if state.get('auto_apply') is None
+                          else bool(state.get('auto_apply')),
             'has_pending': bool(state.get('pending_json')),
             'meter': meter,
         })
@@ -1714,6 +1725,61 @@ def v2_evolution_set_status():
     except Exception as e:
         logger.error(f"[V2-EVO] set status failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@v2_bp.route('/api/v2/evolution/autopilot', methods=['POST'])
+@login_required
+def v2_evolution_set_autopilot():
+    """Turn continuous self-application of lessons on or off for one pair.
+
+    Learning runs either way — this only decides whether the engine applies a
+    lesson the moment the evidence supports it, or waits for Proceed.
+    """
+    from v2.engine.evolution.evolution_engine import evolution_engine
+    data = request.json or {}
+    strategy = strat_to_internal(data.get('strategy'), default=None) \
+        if data.get('strategy') else None
+    symbol = data.get('symbol', 'ALL')
+    enabled = bool(data.get('enabled', True))
+    if not strategy:
+        return jsonify({'success': False, 'error': 'strategy required'}), 400
+    try:
+        return jsonify(evolution_engine.set_auto_apply(
+            current_user.id, strategy, symbol, enabled))
+    except Exception as e:
+        logger.error(f"[V2-EVO] autopilot toggle failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@v2_bp.route('/api/v2/evolution/journey', methods=['GET'])
+@login_required
+def v2_evolution_journey():
+    """Win-rate journey for one pair, or for every pair the user trades."""
+    from v2.engine.evolution.evolution_engine import evolution_engine
+
+    strategy = _internal_strategy_filter(request.args.get('strategy'))
+    symbol = request.args.get('symbol') or 'ALL'
+
+    if strategy:
+        state = db_manager.v2_get_evolution_state(current_user.id, strategy, symbol) or {}
+        return jsonify({'success': True, 'strategy': strat_to_public(strategy),
+                        'symbol': symbol,
+                        'journey': evolution_engine.win_rate_journey(
+                            current_user.id, strategy, symbol, state)})
+
+    pairs = {(t.get('strategy'), t.get('symbol')) for t in
+             db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000)
+             if t.get('strategy') and t.get('symbol')}
+    out = []
+    for st, sy in sorted(pairs):
+        state = db_manager.v2_get_evolution_state(current_user.id, st, sy) or {}
+        out.append({'strategy': strat_to_public(st),
+                    'strategy_name': public_meta(st)['name'],
+                    'symbol': sy,
+                    'generation': state.get('generation', 0),
+                    'journey': evolution_engine.win_rate_journey(
+                        current_user.id, st, sy, state)})
+    return jsonify({'success': True, 'journeys': out})
 
 
 @v2_bp.route('/api/v2/evolution/run', methods=['POST'])
