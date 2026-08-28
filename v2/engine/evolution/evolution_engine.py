@@ -145,7 +145,9 @@ class EvolutionEngine:
     # ── Win-rate journey ─────────────────────────────────────
 
     def win_rate_journey(self, user_id: int, strategy: str, symbol: str = 'ALL',
-                         state: Optional[Dict] = None) -> Dict:
+                         state: Optional[Dict] = None,
+                         series: Optional[List[Dict]] = None,
+                         history: Optional[List[Dict]] = None) -> Dict:
         """Where the win rate started, where it is now, and the path between.
 
         This is the trust story: a bot that has learned from its mistakes should
@@ -158,7 +160,8 @@ class EvolutionEngine:
         `points`    — a rolling win-rate curve for the sparkline
         `generations` — win rate recorded at each applied generation
         """
-        series = self.db.v2_get_closed_pnl_series(user_id, strategy, symbol)
+        if series is None:
+            series = self.db.v2_get_closed_pnl_series(user_id, strategy, symbol)
         pnls = [float(t.get('pnl') or 0) for t in series]
         n = len(pnls)
 
@@ -194,7 +197,9 @@ class EvolutionEngine:
 
         gens = []
         try:
-            for h in self.db.v2_get_evolution_history(user_id, strategy, limit=100):
+            if history is None:
+                history = self.db.v2_get_evolution_history(user_id, strategy, limit=100)
+            for h in history:
                 if h.get('symbol') and symbol and symbol != 'ALL' and h['symbol'] != symbol:
                     continue
                 gens.append({
@@ -399,11 +404,20 @@ class EvolutionEngine:
 
     # ── Readiness meter ──────────────────────────────────────
 
-    def readiness(self, user_id: int, strategy: str, symbol: str = 'ALL') -> Dict:
-        """How full the 'evolve meter' is — drives the UI progress bar."""
-        trades = self.db.v2_get_closed_trades_for_eval(user_id, strategy, symbol)
+    def readiness(self, user_id: int, strategy: str, symbol: str = 'ALL',
+                  trades: Optional[List[Dict]] = None,
+                  state: Optional[Dict] = None) -> Dict:
+        """How full the 'evolve meter' is — drives the UI progress bar.
+
+        `trades` and `state` may be supplied by a caller that has already loaded
+        them. The status endpoint renders every pair at once, and letting each
+        helper re-query opened a fresh database connection per pair per helper.
+        """
+        if trades is None:
+            trades = self.db.v2_get_closed_trades_for_eval(user_id, strategy, symbol)
         m = self.compute_metrics(trades)
-        state = self.db.v2_get_evolution_state(user_id, strategy, symbol) or {}
+        if state is None:
+            state = self.db.v2_get_evolution_state(user_id, strategy, symbol) or {}
         seen = int(state.get('trades_at_last_eval') or 0)
         gen = int(state.get('generation') or 0)
 
@@ -734,7 +748,8 @@ class EvolutionEngine:
                 pass
         return [self.evolve(user_id, s) for s in strategies]
 
-    def live_params(self, user_id: int, strategy: str, symbol: str = 'ALL') -> Dict:
+    def live_params(self, user_id: int, strategy: str, symbol: str = 'ALL',
+                    state: Optional[Dict] = None) -> Dict:
         """
         Parameters a bot should trade with right now (evolved or default).
 
@@ -744,7 +759,8 @@ class EvolutionEngine:
         the two the same is how an explicit sensitivity choice used to get
         silently reset to conservative on every start.
         """
-        state = self.db.v2_get_evolution_state(user_id, strategy, symbol)
+        if state is None:
+            state = self.db.v2_get_evolution_state(user_id, strategy, symbol)
         if not state:
             return {**DEFAULT_PARAMS, '_evolved_keys': []}
         try:

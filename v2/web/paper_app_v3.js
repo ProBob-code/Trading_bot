@@ -688,12 +688,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     _safeInit('customStrategies', loadCustomStrategies);
     _safeInit('conditions', initConditions);
     _safeInit('reports', initReports);
+    // The Lab never loaded itself. Every call to loadEvolutionCards() was a
+    // reaction to a button inside the panel, so on a fresh page it sat on its
+    // "Loading evolution state…" placeholder forever — and the only way to get
+    // past it was to act on cards that had never rendered.
+    _safeInit('evolution', loadEvolutionCards);
 
     // Auto-refresh loops
     setInterval(() => {
         _safeInit('loadPositions', loadPositions);
         _safeInit('loadBots', loadBots);
     }, 5000);
+
+    // Evolution moves on closed trades, not ticks. The socket already pushes an
+    // update the moment a lesson lands, so this is just a slow safety net for a
+    // tab left open through a missed event.
+    setInterval(() => {
+        _safeInit('evolutionRefresh', loadEvolutionCards);
+    }, 60000);
 
     // Institutional Engine (V2)
     _safeInit('institutionalEngine', () => InstitutionalEngine.init());
