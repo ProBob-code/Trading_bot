@@ -517,9 +517,18 @@ def v2_profile_page():
 
 @app.route('/admin')
 @app.route('/v2/admin')
-@admin_required
+@login_required
 def v2_admin_page():
-    """Serve the admin console. Gated so a non-admin never sees the shell."""
+    """Serve the admin console. Gated so a non-admin never sees the shell.
+
+    A signed-in non-admin is sent to the login form rather than handed the API's
+    JSON 403. This is a page request: dumping {"error": "Administrator access
+    required."} into the address bar states the problem and hides the remedy,
+    which is to sign in with the administrator account. `switch=1` stops the
+    login page bouncing them home for already being authenticated.
+    """
+    if not is_admin_user(current_user):
+        return redirect(url_for('login_page', switch=1, next=request.path))
     return send_from_directory('v2/web', 'admin.html')
 
 
