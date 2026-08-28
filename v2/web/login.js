@@ -11,14 +11,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentMobile = '';
 
-    // Check if already logged in
-    fetch('/api/auth/status')
-        .then(res => res.json())
-        .then(data => {
-            if (data.authenticated) {
-                window.location.href = '/godbot_home';
-            }
-        });
+    // Arriving here from a page that needs a different account (?switch=1).
+    // Without this the check below bounces an already-signed-in visitor home,
+    // so someone logged in as an ordinary user could never reach this form to
+    // sign in as the administrator — a dead end with no way out.
+    const params = new URLSearchParams(window.location.search);
+    const switching = params.has('switch');
+
+    // `next` comes off the URL, so it is attacker-controllable. Only same-origin
+    // absolute paths are honoured: anything scheme-relative ("//evil.com") or
+    // absolute would turn this page into an open redirect that borrows the
+    // site's credibility to land users somewhere else.
+    const requestedNext = params.get('next') || '';
+    const nextUrl = (/^\/[^\/\\]/.test(requestedNext)) ? requestedNext : '/godbot_home';
+
+    if (switching) {
+        showNotice('Sign in with an account that has access to that page.');
+    } else {
+        // Check if already logged in
+        fetch('/api/auth/status')
+            .then(res => res.json())
+            .then(data => {
+                if (data.authenticated) {
+                    window.location.href = '/godbot_home';
+                }
+            });
+    }
+
+    /** A neutral hint, distinct from the red error styling. */
+    function showNotice(msg) {
+        if (!successMsg) return;
+        successMsg.textContent = msg;
+        successMsg.classList.remove('hidden');
+        errorMsg.classList.add('hidden');
+    }
 
     // Handle Form Switching
     window.toggleAuth = (type) => {
@@ -135,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (data.success) {
                 // Use replace to prevent back button from returning to login
-                window.location.replace('/godbot_home');
+                window.location.replace(nextUrl);
             } else {
                 showError(data.error || 'Login failed');
             }
