@@ -121,6 +121,38 @@ PUBLIC_META: Dict[str, Dict[str, str]] = {
     },
 }
 
+# ── Timeframe each strategy is designed to run on ──
+# The interval is a property of the strategy, not a user preference: a trend
+# strategy asked to decide every minute is reading noise, and a mean-reversion
+# strategy on a daily candle never sees the stretch it exists to fade. The
+# Command Deck therefore shows this rather than offering a dropdown.
+#
+# Keyed by PUBLIC code so this file stays the single edge-facing description of
+# a strategy, alongside its name and behaviour.
+DEFAULT_INTERVALS: Dict[str, str] = {
+    'GBX-01': '15m',   # Adaptive Core — general purpose, mid timeframe
+    'GBX-02': '1h',    # Trend Rider — needs a committed move to follow
+    'GBX-03': '15m',   # Range Fader — fades intraday stretches
+    'GBX-04': '15m',   # Flow Momentum — momentum/direction agreement
+    'GBX-05': '1h',    # Predictive Model — forecasts over a longer horizon
+    'GBX-06': '1h',    # Multi-Signal Ensemble — fewer, higher-conviction entries
+    'GBX-07': '15m',   # Statistical Reversion — intraday z-score fades
+    'GBX-08': '1h',    # Persistence Engine — rides sustained pressure
+}
+
+FALLBACK_INTERVAL = '15m'
+
+
+def interval_for(internal_id: Optional[str]) -> str:
+    """The timeframe a strategy is meant to trade on.
+
+    Server-side callers use this instead of trusting a client-supplied
+    interval, so removing the dropdown actually changes what runs rather than
+    just hiding a field that still gets posted.
+    """
+    return DEFAULT_INTERVALS.get(to_public(internal_id), FALLBACK_INTERVAL)
+
+
 # What the client is told when a strategy has no catalog entry. Unknown
 # strategies are masked, never passed through under their real name.
 _FALLBACK_META = {
@@ -167,7 +199,8 @@ def public_meta(internal_id: Optional[str]) -> Dict[str, str]:
     """The full public description for an internal strategy id."""
     code = to_public(internal_id)
     meta = PUBLIC_META.get(code, _FALLBACK_META)
-    return {'id': code, **meta}
+    return {'id': code, **meta,
+            'interval': DEFAULT_INTERVALS.get(code, FALLBACK_INTERVAL)}
 
 
 def public_catalog(internal_ids: List[str] = None) -> List[Dict[str, str]]:

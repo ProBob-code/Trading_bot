@@ -2084,10 +2084,15 @@ class DatabaseManager:
                 self._safe_close(conn, cursor)
 
     def v2_get_bot_ledger_stats(self, user_id: int) -> Dict[str, Dict]:
-        """Per-bot trade counts and realized P&L from the ledger, keyed by bot_id.
+        """Per-bot performance from the ledger, keyed by bot_id.
 
         Survives engine restarts (in-memory bot stats reset; the ledger doesn't),
         so bot cards can reconcile with the persisted trade history.
+
+        Wins and losses are counted only over CLOSING actions — an OPEN has no
+        outcome yet, and counting it as neither a win nor a loss would quietly
+        deflate every win rate on the dashboard.
+
         Returns {} gracefully if the bot_id column hasn't been migrated in yet.
         """
         conn = self._get_connection()
@@ -2095,16 +2100,43 @@ class DatabaseManager:
         try:
             cursor = conn.cursor()
             self._execute(cursor, """
-                SELECT bot_id, COUNT(*), COALESCE(SUM(pnl), 0)
+                SELECT bot_id,
+                       COUNT(*),
+                       COALESCE(SUM(pnl), 0),
+                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                                THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                                 AND pnl > 0 THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                                 AND pnl < 0 THEN 1 ELSE 0 END),
+                       COALESCE(SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN pnl < 0 THEN -pnl ELSE 0 END), 0)
                 FROM v2_trade_ledger
                 WHERE user_id = %s AND bot_id IS NOT NULL
                 GROUP BY bot_id
             """, (user_id,))
             stats = {}
             for row in cursor.fetchall():
+                closed = int(row[3] or 0)
+                wins = int(row[4] or 0)
+                losses = int(row[5] or 0)
+                gross_profit = float(row[6] or 0)
+                gross_loss = float(row[7] or 0)
                 stats[row[0]] = {
                     'trades': int(row[1] or 0),
                     'realized_pnl': float(row[2] or 0),
+                    'closed_trades': closed,
+                    'wins': wins,
+                    'losses': losses,
+                    'win_rate': (wins / closed * 100) if closed else 0.0,
+                    'loss_rate': (losses / closed * 100) if closed else 0.0,
+                    'gross_profit': gross_profit,
+                    'gross_loss': gross_loss,
+                    'avg_win': (gross_profit / wins) if wins else 0.0,
+                    'avg_loss': (gross_loss / losses) if losses else 0.0,
+                    # Undefined with no losing trade; 0 keeps it sortable and
+                    # JSON-safe rather than serialising infinity.
+                    'profit_factor': (gross_profit / gross_loss) if gross_loss else 0.0,
                 }
             return stats
         except Exception as e:

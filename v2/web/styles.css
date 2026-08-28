@@ -2618,6 +2618,87 @@ select.field-input option { background: var(--bg-secondary); color: var(--text-p
 }
 .evo-badge.held { background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.4); }
 
+.evo-badge.dormant {
+    background: rgba(148, 163, 184, 0.12); color: var(--text-muted);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+}
+.evo-card.dormant { opacity: 0.7; }
+
+.evo-idle-note {
+    grid-column: 1 / -1; margin-top: 4px; padding: 11px 14px; border-radius: 10px;
+    font-size: 11px; line-height: 1.6; color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.025); border: 1px dashed var(--glass-border);
+}
+.evo-idle-toggle {
+    margin-left: 6px; padding: 4px 10px; border-radius: 7px; cursor: pointer;
+    font-family: inherit; font-size: 10.5px; font-weight: 700;
+    background: rgba(124, 58, 237, 0.14); color: #c4b5fd;
+    border: 1px solid rgba(124, 58, 237, 0.4);
+    transition: background .18s, border-color .18s;
+}
+.evo-idle-toggle:hover { background: rgba(124, 58, 237, 0.25); border-color: var(--accent); }
+
+/* ── Per-bot scorecard ──────────────────────────────────────
+   How often this bot wins, how often it loses, and what each is
+   worth. Sits under the P&L line on every bot card. */
+.bot-score {
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.07);
+}
+.bot-score.empty { font-size: 10.5px; color: var(--text-muted); line-height: 1.5; }
+
+.bot-score-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+}
+@media (min-width: 520px) {
+    .bot-score-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+.bs-cell {
+    display: flex; flex-direction: column; gap: 1px; min-width: 0;
+    padding: 7px 9px; border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+}
+.bs-k {
+    font-size: 8.5px; letter-spacing: 0.7px; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 700; white-space: nowrap;
+}
+.bs-v {
+    font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 800;
+    color: var(--text-primary); line-height: 1.25;
+}
+.bs-v.good { color: var(--bullish); }
+.bs-v.bad { color: var(--bearish); }
+.bs-sub {
+    font-size: 9.5px; color: var(--text-muted); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+}
+
+/* A rate off a handful of trades is noise; say so rather than dressing it up. */
+.bot-score.provisional .bs-v { opacity: 0.72; }
+.bs-note {
+    display: flex; align-items: flex-start; gap: 6px; margin-top: 8px;
+    padding: 6px 9px; border-radius: 7px; font-size: 10px; line-height: 1.45;
+    background: rgba(245, 158, 11, 0.10);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #f59e0b;
+}
+.bs-note i { margin-top: 1px; flex-shrink: 0; }
+
+/* A read-only Command Deck field — looks like the selects beside it, but
+   states a value the strategy decides rather than inviting a choice. */
+.field-static {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px dashed var(--glass-border);
+    color: var(--text-secondary);
+    font-family: var(--font-mono, monospace); font-size: 13px; font-weight: 600;
+    min-height: 42px; cursor: default;
+}
+.field-static .why { font-family: var(--font-sans, inherit); font-size: 10.5px; color: var(--text-muted); font-weight: 500; }
+
 /* ============================================================
    CHART SETTINGS POPOVER
    ============================================================ */
