@@ -37,7 +37,7 @@ from v2.engine.core.pipeline import TradingPipelineV2
 from shared.logic.strategies.v3_quant_strategies import REGISTRY, atr as compute_atr, compute_smart_entry, compute_atr_position_size
 from shared.logic.strategies.public_catalog import (
     public_catalog, public_meta, to_internal as strat_to_internal,
-    to_public as strat_to_public, mask_bot_id, unmask_bot_id)
+    to_public as strat_to_public, mask_bot_id, unmask_bot_id, interval_for)
 
 # TTL Cache for sessions
 _SESSIONS_CACHE = {'data': None, 'timestamp': 0}
@@ -948,14 +948,21 @@ def v2_start_bot():
     """Start a V2 bot with strategy + config hash."""
     try:
         data = request.json
+        strategy = strat_to_internal(data.get('strategy'))
+        # The timeframe belongs to the strategy, not the caller. A trend
+        # strategy polled every minute is reading noise; a mean-reversion one on
+        # a daily candle never sees the stretch it exists to fade. Deriving it
+        # here (rather than only hiding the dropdown) means a hand-rolled
+        # request cannot put a strategy on a timeframe it was not built for.
+        interval = interval_for(strategy)
         result = bot_manager_v2.start_bot(
             user_id=current_user.id,
             symbol=data.get('symbol', ''),
             market=data.get('market', 'crypto'),
             # Clients speak in public codes; the engine speaks internal ids.
-            strategy=strat_to_internal(data.get('strategy')),
+            strategy=strategy,
             mode=data.get('mode', 'paper'),
-            interval=data.get('interval', '1m'),
+            interval=interval,
             position_size=float(data.get('position_size', 10.0)),
             stop_loss=float(data.get('stop_loss', 5.0)),
             take_profit=float(data.get('take_profit', 10.0)),
@@ -1010,6 +1017,12 @@ def v2_stop_bot():
 # V2 DATA ENDPOINTS
 # ============================================================
 
+# Below this many closed trades a win rate says more about luck than about the
+# bot. Matches the evolution engine's own evidence gate, so the two halves of
+# the product agree on what counts as enough.
+MIN_TRADES_FOR_RATE = 8
+
+
 @v2_bp.route('/api/v2/bots', methods=['GET'])
 @login_required
 def v2_list_bots():
@@ -1021,13 +1034,25 @@ def v2_list_bots():
     ledger_stats = db_manager.v2_get_bot_ledger_stats(current_user.id)
     for b in bots:
         ls = ledger_stats.get(b.get('bot_id'))
+        stats = b.setdefault('stats', {})
         if ls:
-            stats = b.setdefault('stats', {})
             # Ledger is authoritative for realized figures; keep the higher of the two
             # so a fresh in-memory count during the current run is never undercounted.
             stats['total_trades'] = max(int(stats.get('total_trades') or 0), ls['trades'])
             stats['realized_pnl'] = ls['realized_pnl']
             stats['total_pnl'] = ls['realized_pnl'] + float(stats.get('unrealized_pnl') or 0)
+            for k in ('closed_trades', 'wins', 'losses', 'win_rate', 'loss_rate',
+                      'avg_win', 'avg_loss', 'profit_factor'):
+                stats[k] = ls[k]
+        else:
+            stats.setdefault('closed_trades', 0)
+
+        # A rate over three trades is noise dressed as a measurement. The counts
+        # are always shown; the percentages are flagged until there is enough
+        # evidence for them to mean anything, so a bot that happened to win its
+        # first two trades cannot advertise a 100% success rate.
+        stats['stats_reliable'] = int(stats.get('closed_trades') or 0) >= MIN_TRADES_FOR_RATE
+        stats['min_trades_for_rate'] = MIN_TRADES_FOR_RATE
 
     return jsonify({'success': True, 'bots': [_publicise_bot(b) for b in bots]})
 
@@ -1602,7 +1627,18 @@ def v2_evolution_status():
             'trades_needed': max(0, MIN_TRADES - m['closed_trades']),
         })
 
-    return jsonify({'success': True, 'strategies': out, 'min_trades': MIN_TRADES})
+    # A pair whose bot is not running is DORMANT, not active: evolution only
+    # ever evaluates on a closed trade, and a stopped bot closes nothing. Its
+    # learned generations are deliberately kept — throwing them away would mean
+    # restarting the bot began again from generation zero — but it must not be
+    # counted or displayed alongside the strategies actually running, which is
+    # how four bots came to show seven live evolutions.
+    running = [r for r in out if r['running']]
+    idle = [r for r in out if not r['running']]
+
+    return jsonify({'success': True, 'strategies': out,
+                    'counts': {'running': len(running), 'idle': len(idle)},
+                    'min_trades': MIN_TRADES})
 
 
 @v2_bp.route('/api/v2/evolution/history', methods=['GET'])

@@ -2162,6 +2162,7 @@ function initEventListeners() {
     document.getElementById('strategySelect')?.addEventListener('change', (e) => {
         state.currentStrategy = e.target.value;
         updateStrategyHelp(state.currentStrategy);
+        showStrategyInterval(state.currentStrategy);
         const strategyName = getStrategyName(state.currentStrategy);
         const activeStrategyEl = document.getElementById('activeStrategy');
         if (activeStrategyEl) {
@@ -4156,6 +4157,31 @@ const InstitutionalEngine = {
 // STRATEGY SELECTOR & AUTO-TRADE CONTROLS
 // ============================================================
 
+// Public code -> the timeframe that strategy runs on, filled from the catalog.
+const STRATEGY_INTERVALS = {};
+
+const INTERVAL_LABELS = {
+    '1m': '1 Minute', '5m': '5 Minutes', '15m': '15 Minutes', '30m': '30 Minutes',
+    '1h': '1 Hour', '4h': '4 Hours', '1d': '1 Day'
+};
+
+/** The timeframe the selected strategy trades on. Read-only by design. */
+function intervalForStrategy(strategyId) {
+    // A custom strategy runs on the generalist engine, so it inherits its pace.
+    if (!strategyId || String(strategyId).startsWith('custom:')) {
+        return STRATEGY_INTERVALS['GBX-01'] || '15m';
+    }
+    return STRATEGY_INTERVALS[strategyId] || '15m';
+}
+
+function showStrategyInterval(strategyId) {
+    const el = document.getElementById('strategyInterval');
+    if (!el) return;
+    const iv = intervalForStrategy(strategyId);
+    el.innerHTML = `${INTERVAL_LABELS[iv] || iv}` +
+        `<span class="why">set by the strategy</span>`;
+}
+
 async function loadStrategies() {
     const sel = document.getElementById('strategySelect');
     if (!sel) return;
@@ -4171,6 +4197,9 @@ async function loadStrategies() {
             opt.value = s.id;
             opt.textContent = `${s.icon || '📌'} ${s.name}`;
             sel.appendChild(opt);
+            // The timeframe is the strategy's, not the user's — the Command
+            // Deck displays it instead of offering a dropdown.
+            if (s.interval) STRATEGY_INTERVALS[s.id] = s.interval;
         });
 
         // Merge custom strategies from localStorage
@@ -4187,6 +4216,7 @@ async function loadStrategies() {
             sel.appendChild(group);
         }
 
+        showStrategyInterval(sel.value);
         console.log(`[V2] Loaded ${data.strategies.length} strategies + ${custom.length} custom`);
     } catch (e) {
         console.error('[V2] Failed to load strategies:', e);
@@ -4201,7 +4231,9 @@ async function startBotFromUI() {
     // different asset than the one on screen.
     const symbol = state.currentSymbol || document.getElementById('symbolSelect')?.value;
     const market = state.currentMarket || 'crypto';
-    const interval = document.getElementById('intervalSelect')?.value || '1m';
+    // Derived from the strategy, not picked. The server derives it again from
+    // the strategy it is given, so this is only what the UI reports back.
+    const interval = intervalForStrategy(strategy);
     const posSize = parseFloat(document.getElementById('settingPositionSize')?.value || 10);
     const stopLoss = parseFloat(document.getElementById('settingStopLoss')?.value || 2);
     const takeProfit = parseFloat(document.getElementById('settingTakeProfit')?.value || 6);
@@ -4489,6 +4521,9 @@ function evoSparkline(points) {
 // Remember which cards are expanded so a refresh doesn't collapse them
 const evoOpenCards = new Set();
 
+// Dormant pairs (bot stopped) are hidden by default — see loadEvolutionCards.
+let evoShowIdle = false;
+
 function toggleEvoCard(key) {
     const card = document.querySelector(`.evo-card[data-key="${key}"]`);
     if (!card) return;
@@ -4507,15 +4542,31 @@ async function loadEvolutionCards() {
         ]);
         const sData = await sRes.json();
         const hData = await hRes.json();
-        const items = sData.strategies || [];
+        const all = sData.strategies || [];
         const history = hData.history || [];
 
-        const readyCount = items.filter(s => s.pending).length;
+        // Evolution only evaluates when a trade closes, and a stopped bot closes
+        // nothing — so a pair with no running bot is dormant, not live. Showing
+        // both together is why four running bots listed seven evolutions. The
+        // dormant ones keep everything they learned and are one click away.
+        const running = all.filter(s => s.running);
+        const idle = all.filter(s => !s.running);
+        const items = evoShowIdle ? all : running;
+
+        const readyCount = running.filter(s => s.pending).length;
         const badgeEl = document.getElementById('evoReadyCount');
         if (badgeEl) badgeEl.textContent = readyCount;
 
-        if (!items.length) {
+        if (!all.length) {
             grid.innerHTML = '<div class="no-bots-message">No trades yet. Each strategy starts learning once it closes trades.</div>';
+            return;
+        }
+        if (!items.length) {
+            grid.innerHTML = `<div class="no-bots-message">
+                No bots running, so nothing is learning right now.
+                ${idle.length ? `<br><button class="evo-idle-toggle" onclick="toggleEvoIdle()">
+                    Show ${idle.length} dormant pair${idle.length === 1 ? '' : 's'}</button>` : ''}
+            </div>`;
             return;
         }
 
@@ -4530,7 +4581,9 @@ async function loadEvolutionCards() {
             // A held pair is still watching every closed trade — only the
             // acting on lessons is paused. The badge has to say that, because
             // "Paused" read as "the engine switched itself off".
-            const badge = s.status === 'paused'
+            const badge = !s.running
+                ? '<span class="evo-badge dormant">Dormant — bot stopped</span>'
+                : s.status === 'paused'
                 ? '<span class="evo-badge held">Changes Held</span>'
                 : s.pending ? '<span class="evo-badge ready">Lesson Ready</span>'
                     : s.auto_apply
@@ -4619,7 +4672,7 @@ async function loadEvolutionCards() {
                             onclick="setEvolutionAutopilot('${esc(s.strategy)}','${esc(s.symbol)}',${s.auto_apply ? 'false' : 'true'})"></button>
                 </div>`;
 
-            return `<div class="evo-card ${isOpen ? 'open' : ''} ${s.pending ? 'ready' : ''} ${isPaused ? 'paused' : ''}" data-key="${key}">
+            return `<div class="evo-card ${isOpen ? 'open' : ''} ${s.pending ? 'ready' : ''} ${isPaused ? 'paused' : ''} ${s.running ? '' : 'dormant'}" data-key="${key}">
                 <div class="evo-card-head" onclick="toggleEvoCard('${key}')">
                     <span class="evo-card-title">${getStrategyName(s.strategy)}</span>
                     <span class="evo-symbol">${s.symbol}</span>
@@ -4651,10 +4704,29 @@ async function loadEvolutionCards() {
                 </div>
             </div>`;
         }).join('');
+
+        if (idle.length) {
+            const note = document.createElement('div');
+            note.className = 'evo-idle-note';
+            note.innerHTML = evoShowIdle
+                ? `Showing ${idle.length} dormant pair${idle.length === 1 ? '' : 's'} — their bots are stopped,
+                   so they are not learning. Everything they learned is kept.
+                   <button class="evo-idle-toggle" onclick="toggleEvoIdle()">Hide dormant</button>`
+                : `${idle.length} dormant pair${idle.length === 1 ? '' : 's'} not shown — no bot is running them,
+                   so they are not learning. Their generations are kept for when you restart them.
+                   <button class="evo-idle-toggle" onclick="toggleEvoIdle()">Show dormant</button>`;
+            grid.appendChild(note);
+        }
     } catch (e) {
         console.error('[EVO] load failed:', e);
         grid.innerHTML = '<div class="no-bots-message">Could not load evolution data.</div>';
     }
+}
+
+/** Reveal or hide pairs whose bot is stopped. */
+function toggleEvoIdle() {
+    evoShowIdle = !evoShowIdle;
+    loadEvolutionCards();
 }
 
 async function approveEvolution(strategy, symbol) {
@@ -5617,6 +5689,61 @@ function updateSensitivityHelp(value) {
     if (el) el.innerHTML = info.help;
 }
 
+/**
+ * Per-bot scorecard: how often it wins, how often it loses, and what each is
+ * worth. Rates are only asserted once there are enough closed trades to mean
+ * anything — under that the counts are shown but the percentages are marked as
+ * provisional, because "100% success" off two trades is a lie the numbers tell.
+ */
+function botScorecard(stats) {
+    const closed = Number(stats.closed_trades || 0);
+    if (!closed) {
+        return `<div class="bot-score empty">No closed trades yet — win rate appears once it completes one.</div>`;
+    }
+
+    const wins = Number(stats.wins || 0);
+    const losses = Number(stats.losses || 0);
+    const winRate = Number(stats.win_rate || 0);
+    const lossRate = Number(stats.loss_rate || 0);
+    const pf = Number(stats.profit_factor || 0);
+    const avgWin = Number(stats.avg_win || 0);
+    const avgLoss = Number(stats.avg_loss || 0);
+    const reliable = stats.stats_reliable !== false;
+    const need = Number(stats.min_trades_for_rate || 8);
+
+    const cls = winRate >= 50 ? 'good' : 'bad';
+
+    return `
+        <div class="bot-score ${reliable ? '' : 'provisional'}">
+            <div class="bot-score-grid">
+                <div class="bs-cell">
+                    <span class="bs-k">Win rate</span>
+                    <span class="bs-v ${cls}">${winRate.toFixed(1)}%</span>
+                    <span class="bs-sub">${wins}W / ${losses}L</span>
+                </div>
+                <div class="bs-cell">
+                    <span class="bs-k">Loss rate</span>
+                    <span class="bs-v ${lossRate > 50 ? 'bad' : ''}">${lossRate.toFixed(1)}%</span>
+                    <span class="bs-sub">of ${closed} closed</span>
+                </div>
+                <div class="bs-cell">
+                    <span class="bs-k">Win : Loss</span>
+                    <span class="bs-v">${avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '—'}</span>
+                    <span class="bs-sub">$${avgWin.toFixed(2)} vs $${avgLoss.toFixed(2)}</span>
+                </div>
+                <div class="bs-cell">
+                    <span class="bs-k">Profit factor</span>
+                    <span class="bs-v ${pf >= 1 ? 'good' : pf > 0 ? 'bad' : ''}">${pf > 0 ? pf.toFixed(2) : '—'}</span>
+                    <span class="bs-sub">${pf >= 1 ? 'earning' : pf > 0 ? 'losing' : 'no losses yet'}</span>
+                </div>
+            </div>
+            ${reliable ? '' : `<div class="bs-note">
+                <i class="fas fa-triangle-exclamation"></i>
+                Provisional — ${closed} of ${need} closed trades. Too few to read as a real rate yet.
+            </div>`}
+        </div>`;
+}
+
 async function loadAndRenderBots() {
     try {
         const res = await fetch('/api/v2/bots');
@@ -5676,6 +5803,7 @@ async function loadAndRenderBots() {
                         <span class="${pnlClass}" title="${pnlTitle}">${pnlSign}$${pnl.toFixed(2)}</span>
                         <span style="color:var(--text-muted);">Trades: ${tradeCount}</span>
                     </div>
+                    ${botScorecard(stats)}
                     ${isRunning ? `<button class="bot-stop-btn" onclick="stopBotById('${bot.bot_id}')"><i class="fas fa-stop"></i> STOP</button>` : ''}
                 </div>
             `;
