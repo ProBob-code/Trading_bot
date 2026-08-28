@@ -740,22 +740,27 @@ function syncTradingViewTheme(theme) {
 }
 
 function initLogout() {
+    // #logoutBtn belonged to the old hover-rail and went away with the nav
+    // revamp. The guard below used to require it, so on every page without it
+    // this function returned before wiring the modal — the dialog still opened
+    // from the profile menu, but TERMINATE SESSION and STAY CONNECTED were both
+    // dead, leaving no way out of it. Each control is now guarded on its own.
     const btn = document.getElementById('logoutBtn');
     const modal = document.getElementById('logoutModal');
     const confirmBtn = document.getElementById('confirmLogout');
     const cancelBtn = document.getElementById('cancelLogout');
-    
-    if (!btn || !modal) return;
 
-    btn.onclick = () => {
+    if (!modal) return;
+
+    if (btn) btn.onclick = () => {
         modal.style.display = 'flex';
     };
 
-    cancelBtn.onclick = () => {
+    if (cancelBtn) cancelBtn.onclick = () => {
         modal.style.display = 'none';
     };
 
-    confirmBtn.onclick = async () => {
+    if (confirmBtn) confirmBtn.onclick = async () => {
         try {
             await fetch('/api/auth/logout', { method: 'POST' });
             localStorage.removeItem('loginTime');
