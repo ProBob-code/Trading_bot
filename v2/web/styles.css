@@ -2551,6 +2551,73 @@ select.field-input option { background: var(--bg-secondary); color: var(--text-p
     font-size: 10px; font-weight: 800; color: #c4b5fd;
 }
 
+/* ── Win-rate journey ──────────────────────────────────────────
+   Where the bot's win rate started vs where it is now. The claim
+   "it learned from its mistakes" is only worth anything next to
+   the numbers that show it, so this sits above the parameters. */
+.evo-journey {
+    margin: 12px 0 4px; padding: 12px 13px; border-radius: 11px;
+    background: rgba(124,58,237,0.07); border: 1px solid rgba(124,58,237,0.22);
+}
+.evo-journey-head {
+    display: flex; align-items: center; gap: 7px; margin-bottom: 9px;
+    font-size: 10px; font-weight: 800; letter-spacing: 0.8px;
+    text-transform: uppercase; color: #c4b5fd;
+}
+.evo-journey-rail {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-family: var(--font-mono, monospace);
+}
+.evo-jr-point { display: flex; flex-direction: column; gap: 2px; }
+.evo-jr-point .lbl {
+    font-size: 8.5px; letter-spacing: 0.7px; text-transform: uppercase;
+    color: var(--text-muted); font-family: var(--font-sans, inherit); font-weight: 700;
+}
+.evo-jr-point .val { font-size: 17px; font-weight: 800; line-height: 1; }
+.evo-jr-point.from .val { color: var(--text-muted); }
+.evo-jr-point.to .val { color: var(--bullish); }
+.evo-jr-point.to.down .val { color: var(--bearish); }
+.evo-jr-arrow { color: var(--accent); font-size: 13px; padding: 0 2px; }
+.evo-jr-delta {
+    margin-left: auto; font-size: 11px; font-weight: 800; padding: 3px 9px;
+    border-radius: 999px; white-space: nowrap;
+}
+.evo-jr-delta.up { background: rgba(0,255,178,0.13); color: var(--bullish); }
+.evo-jr-delta.down { background: rgba(255,51,102,0.13); color: var(--bearish); }
+.evo-jr-delta.flat { background: rgba(255,255,255,0.06); color: var(--text-muted); }
+.evo-jr-spark { display: block; width: 100%; height: 30px; margin-top: 9px; }
+.evo-jr-foot {
+    font-size: 10px; color: var(--text-muted); margin-top: 7px; line-height: 1.5;
+}
+
+/* ── Autopilot switch ─────────────────────────────────────── */
+.evo-autopilot {
+    display: flex; align-items: center; gap: 9px; margin-top: 10px;
+    padding: 9px 12px; border-radius: 10px;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border);
+}
+.evo-autopilot .txt { flex: 1 1 auto; min-width: 0; }
+.evo-autopilot .txt b { font-size: 11.5px; color: var(--text-primary); display: block; }
+.evo-autopilot .txt span { font-size: 10px; color: var(--text-muted); line-height: 1.45; }
+.evo-switch {
+    flex-shrink: 0; width: 40px; height: 22px; border-radius: 999px; padding: 0;
+    border: 1px solid var(--glass-border); background: rgba(255,255,255,0.07);
+    cursor: pointer; position: relative; transition: background .2s, border-color .2s;
+}
+.evo-switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--text-muted); transition: transform .2s, background .2s;
+}
+.evo-switch.on { background: rgba(0,255,178,0.2); border-color: rgba(0,255,178,0.55); }
+.evo-switch.on::after { transform: translateX(18px); background: var(--bullish); }
+.evo-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.evo-badge.autopilot {
+    background: rgba(0,255,178,0.10); color: var(--bullish);
+    border: 1px solid rgba(0,255,178,0.35);
+}
+.evo-badge.held { background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.4); }
+
 /* ============================================================
    CHART SETTINGS POPOVER
    ============================================================ */

@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoatBot Trade — Admin Console</title>
+    <meta name="description" content="Operator console: every account's report, the strategies they run, and downloads.">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #05070a;
+            --panel-glass: rgba(10, 15, 24, 0.65);
+            --accent: #a855f7;
+            --accent-glow: rgba(168, 85, 247, 0.25);
+            --text-primary: #FFFFFF;
+            --text-secondary: #94A3B8;
+            --text-muted: #475569;
+            --glass-border: rgba(255, 255, 255, 0.06);
+            --font-sans: 'Inter', sans-serif;
+            --font-quant: 'Orbitron', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --bullish: #00FFB2;
+            --bearish: #FF3B57;
+            --gold: #FFD700;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-deep);
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(168, 85, 247, 0.06) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(0, 255, 178, 0.04) 0%, transparent 40%);
+            background-attachment: fixed;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Header ── */
+        .admin-header {
+            background: rgba(10, 15, 24, 0.8);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-bottom: 1px solid var(--glass-border);
+            position: sticky; top: 0; z-index: 100;
+        }
+        .header-inner {
+            max-width: 1600px; margin: 0 auto; padding: 18px 32px;
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 16px; flex-wrap: wrap;
+        }
+        .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; min-width: 0; }
+        .brand-logo {
+            width: 34px; height: 34px; border-radius: 50%;
+            border: 2px solid var(--accent); box-shadow: 0 0 15px var(--accent-glow);
+        }
+        .logo-text {
+            font-family: var(--font-quant); font-size: 17px; font-weight: 900;
+            letter-spacing: 1px; color: #fff; white-space: nowrap;
+        }
+        .logo-text span { color: var(--accent); }
+        .admin-badge {
+            background: linear-gradient(135deg, var(--accent), #7c3aed); color: #fff;
+            font-family: var(--font-quant); font-size: 9px; font-weight: 800;
+            padding: 4px 10px; border-radius: 4px; letter-spacing: 1.4px;
+        }
+        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 9px 15px; border-radius: 10px; cursor: pointer;
+            font-family: var(--font-sans); font-size: 12px; font-weight: 700;
+            border: 1px solid var(--glass-border); background: rgba(255,255,255,.04);
+            color: var(--text-primary); transition: border-color .18s, background .18s, transform .18s;
+            text-decoration: none; white-space: nowrap;
+        }
+        .btn:hover { border-color: var(--accent); background: rgba(168,85,247,.12); transform: translateY(-1px); }
+        .btn.primary { background: linear-gradient(135deg, var(--accent), #7c3aed); border-color: transparent; }
+        .btn.ghost { background: transparent; }
+        .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+        /* ── Layout ── */
+        .wrap { max-width: 1600px; margin: 0 auto; padding: 26px 32px 80px; }
+
+        .stat-grid {
+            display: grid; gap: 14px; margin-bottom: 26px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+        .stat {
+            background: var(--panel-glass); border: 1px solid var(--glass-border);
+            border-radius: 14px; padding: 16px 18px; backdrop-filter: blur(12px);
+        }
+        .stat .k {
+            font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+            color: var(--text-muted); font-weight: 700; margin-bottom: 8px;
+        }
+        .stat .v { font-family: var(--font-quant); font-size: 25px; font-weight: 800; }
+        .stat .sub { font-size: 11px; color: var(--text-secondary); margin-top: 5px; }
+
+        .panel {
+            background: var(--panel-glass); border: 1px solid var(--glass-border);
+            border-radius: 16px; backdrop-filter: blur(12px); margin-bottom: 22px;
+            overflow: hidden;
+        }
+        .panel-head {
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 14px; padding: 18px 22px; border-bottom: 1px solid var(--glass-border);
+            flex-wrap: wrap;
+        }
+        .panel-head h2 {
+            font-family: var(--font-quant); font-size: 14px; font-weight: 800;
+            letter-spacing: 1.4px; text-transform: uppercase;
+        }
+        .panel-head .hint { font-size: 11.5px; color: var(--text-secondary); }
+        .panel-body { padding: 6px 0 4px; }
+
+        /* Wide tables scroll inside their own box rather than the page. */
+        .table-scroll { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 760px; }
+        th {
+            text-align: left; font-size: 10px; letter-spacing: 1.1px; font-weight: 700;
+            text-transform: uppercase; color: var(--text-muted);
+            padding: 12px 18px; border-bottom: 1px solid var(--glass-border);
+            white-space: nowrap; position: sticky; top: 0; background: #0a0f18;
+        }
+        td {
+            padding: 13px 18px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,.035);
+            vertical-align: middle;
+        }
+        tbody tr:hover { background: rgba(168,85,247,.06); }
+        td.num, th.num { text-align: right; font-family: var(--font-mono); }
+        .pos { color: var(--bullish); }
+        .neg { color: var(--bearish); }
+        .dim { color: var(--text-muted); }
+
+        .uname { font-weight: 700; }
+        .umeta { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+        .chip {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 700;
+            background: rgba(168,85,247,.14); color: #d8b4fe; margin: 2px 3px 2px 0;
+            font-family: var(--font-mono); white-space: nowrap;
+        }
+        .chip.plain { background: rgba(255,255,255,.06); color: var(--text-secondary); }
+        .chip.gold { background: rgba(255,215,0,.14); color: var(--gold); }
+        .chip.mint { background: rgba(0,255,178,.12); color: var(--bullish); }
+
+        .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .icon-btn {
+            width: 30px; height: 30px; display: inline-grid; place-items: center;
+            border-radius: 8px; border: 1px solid var(--glass-border);
+            background: rgba(255,255,255,.03); color: var(--text-secondary);
+            cursor: pointer; font-size: 12px; transition: all .18s;
+        }
+        .icon-btn:hover { border-color: var(--accent); color: #fff; background: rgba(168,85,247,.14); }
+
+        .empty { padding: 42px 22px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+        .search {
+            display: flex; align-items: center; gap: 9px; padding: 8px 13px;
+            border: 1px solid var(--glass-border); border-radius: 10px;
+            background: rgba(255,255,255,.03); min-width: 220px;
+        }
+        .search input {
+            background: none; border: none; outline: none; color: var(--text-primary);
+            font-family: var(--font-sans); font-size: 12.5px; width: 100%;
+        }
+        .search i { color: var(--text-muted); font-size: 12px; }
+
+        /* ── Journey bar (win rate: from → to) ── */
+        .journey { min-width: 150px; }
+        .journey-line {
+            display: flex; align-items: baseline; gap: 7px;
+            font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap;
+        }
+        .journey-line .from { color: var(--text-muted); }
+        .journey-line .arrow { color: var(--accent); font-size: 11px; }
+        .journey-line .to { font-weight: 700; }
+        .journey-delta { font-size: 10.5px; margin-top: 3px; font-family: var(--font-mono); }
+
+        /* ── Drawer: one user's full report ── */
+        .drawer-overlay {
+            position: fixed; inset: 0; z-index: 5000; background: rgba(3,7,14,.7);
+            backdrop-filter: blur(4px); opacity: 0; pointer-events: none;
+            transition: opacity .25s ease;
+        }
+        .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+        .drawer {
+            position: fixed; top: 0; right: 0; bottom: 0; z-index: 5001;
+            width: min(920px, 100vw); background: #080d16;
+            border-left: 1px solid var(--glass-border);
+            transform: translateX(100%); transition: transform .3s cubic-bezier(.16,1,.3,1);
+            display: flex; flex-direction: column;
+        }
+        .drawer.open { transform: none; }
+        .drawer-head {
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 14px; padding: 18px 24px; border-bottom: 1px solid var(--glass-border);
+            flex-wrap: wrap;
+        }
+        .drawer-head h3 { font-family: var(--font-quant); font-size: 15px; letter-spacing: 1px; }
+        .drawer-body { overflow-y: auto; padding: 20px 24px 60px; flex: 1; }
+        .drawer-section-label {
+            font-size: 10px; letter-spacing: 1.3px; text-transform: uppercase;
+            color: var(--text-muted); font-weight: 700; margin: 24px 0 10px;
+        }
+        .drawer-section-label:first-child { margin-top: 0; }
+
+        .mini-grid {
+            display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        }
+        .mini {
+            background: rgba(255,255,255,.03); border: 1px solid var(--glass-border);
+            border-radius: 11px; padding: 12px 14px;
+        }
+        .mini .k { font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; }
+        .mini .v { font-family: var(--font-mono); font-size: 17px; font-weight: 700; margin-top: 5px; }
+
+        .strat-card {
+            border: 1px solid var(--glass-border); border-radius: 12px;
+            padding: 14px 16px; margin-bottom: 10px; background: rgba(255,255,255,.02);
+        }
+        .strat-card-head {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+        }
+        .strat-card-head .nm { font-weight: 700; font-size: 13.5px; }
+
+        .spark { display: block; width: 100%; height: 34px; margin-top: 8px; }
+
+        .toast {
+            position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px);
+            background: #0f172a; border: 1px solid var(--accent); color: #fff;
+            padding: 12px 20px; border-radius: 12px; font-size: 13px; z-index: 7000;
+            opacity: 0; pointer-events: none; transition: opacity .22s, transform .22s;
+            box-shadow: 0 12px 40px -12px rgba(0,0,0,.8); max-width: min(92vw, 460px);
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        @media (max-width: 860px) {
+            .header-inner, .wrap { padding-left: 16px; padding-right: 16px; }
+            .drawer-body, .drawer-head { padding-left: 16px; padding-right: 16px; }
+            .stat .v { font-size: 21px; }
+        }
+    </style>
+</head>
+<body>
+
+<header class="admin-header">
+    <div class="header-inner">
+        <a href="/godbot_home" class="brand">
+            <img src="/logo.svg" alt="GoatBot" class="brand-logo">
+            <span class="logo-text">GOAT<span>BOT</span></span>
+            <span class="admin-badge">ADMIN</span>
+        </a>
+        <div class="header-actions">
+            <button class="btn ghost" onclick="loadAll()"><i class="fas fa-rotate"></i> Refresh</button>
+            <a class="btn" href="/api/v2/admin/export/all?format=csv"><i class="fas fa-file-csv"></i> All trades (CSV)</a>
+            <a class="btn primary" href="/api/v2/admin/export/all?format=zip"><i class="fas fa-file-zipper"></i> Download everything</a>
+        </div>
+    </div>
+</header>
+
+<div class="wrap">
+
+    <div class="stat-grid" id="statGrid"></div>
+
+    <!-- Accounts -->
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>Accounts</h2>
+                <div class="hint">Every registered trader, what they run, and how it is going.</div>
+            </div>
+            <div class="search">
+                <i class="fas fa-magnifying-glass"></i>
+                <input id="userSearch" type="search" placeholder="Filter by name, mobile or strategy…"
+                       autocomplete="off">
+            </div>
+        </div>
+        <div class="panel-body table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Trader</th>
+                        <th>Strategies in use</th>
+                        <th class="num">Closed</th>
+                        <th class="num">Win rate journey</th>
+                        <th class="num">Net P&amp;L</th>
+                        <th>Last trade</th>
+                        <th>Report</th>
+                    </tr>
+                </thead>
+                <tbody id="userRows">
+                    <tr><td colspan="7" class="empty">Loading accounts…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Strategy adoption -->
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>Strategy Usage</h2>
+                <div class="hint">Which strategies the user base is actually running, and how each is performing.</div>
+            </div>
+        </div>
+        <div class="panel-body table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Strategy</th>
+                        <th class="num">Traders</th>
+                        <th>Who</th>
+                        <th>Instruments</th>
+                        <th class="num">Closed</th>
+                        <th class="num">Win rate</th>
+                        <th class="num">Net P&amp;L</th>
+                    </tr>
+                </thead>
+                <tbody id="strategyRows">
+                    <tr><td colspan="7" class="empty">Loading strategies…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Custom strategies -->
+    <div class="panel" id="customPanel" style="display:none">
+        <div class="panel-head">
+            <div>
+                <h2>User-Built Strategies</h2>
+                <div class="hint">Strategies traders composed themselves, outside the catalog.</div>
+            </div>
+        </div>
+        <div class="panel-body table-scroll">
+            <table>
+                <thead>
+                    <tr><th>Name</th><th>Owner</th><th>Market</th><th class="num">Times used</th><th>Updated</th></tr>
+                </thead>
+                <tbody id="customRows"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- One user's full report -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer" aria-label="User report">
+    <div class="drawer-head">
+        <div>
+            <h3 id="drawerTitle">Report</h3>
+            <div class="umeta" id="drawerSub"></div>
+        </div>
+        <div class="header-actions">
+            <a class="btn ghost" id="dlUserCsv" href="#"><i class="fas fa-file-csv"></i> CSV</a>
+            <a class="btn ghost" id="dlUserJson" href="#"><i class="fas fa-file-code"></i> JSON</a>
+            <button class="icon-btn" onclick="closeDrawer()" aria-label="Close"><i class="fas fa-xmark"></i></button>
+        </div>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script src="/common/nav.js?v=3"></script>
+<script>
+/* ── Admin console ────────────────────────────────────────────────
+   Reads the admin API and renders it. Every number on this page comes
+   from the trade ledger, so it reconciles with what each user sees on
+   their own report rather than being a separate estimate.            */
+
+let STATE = { users: [], totals: {}, catalog: [], custom: [] };
+
+const fmtMoney = v => {
+    const n = Number(v || 0);
+    return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString(undefined,
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+const fmtPct = v => Number(v || 0).toFixed(1) + '%';
+const cls = v => Number(v || 0) > 0 ? 'pos' : Number(v || 0) < 0 ? 'neg' : 'dim';
+const esc = s => String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+function when(ts) {
+    if (!ts) return '<span class="dim">—</span>';
+    const d = new Date(ts);
+    if (isNaN(d)) return '<span class="dim">—</span>';
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric',
+                                         hour: '2-digit', minute: '2-digit' });
+}
+
+function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+/* The headline win-rate story: where an account started vs where it is now. */
+function journeyCell(j) {
+    if (!j || !j.closed_trades) return '<span class="dim">—</span>';
+    if (!j.available) {
+        return `<div class="journey"><div class="journey-line">
+            <span class="to">${fmtPct(j.overall)}</span></div>
+            <div class="journey-delta dim">${j.closed_trades} closed · learning</div></div>`;
+    }
+    const d = Number(j.delta || 0);
+    const dc = d > 0 ? 'pos' : d < 0 ? 'neg' : 'dim';
+    const sign = d > 0 ? '+' : '';
+    return `<div class="journey">
+        <div class="journey-line">
+            <span class="from">${fmtPct(j.from_pct)}</span>
+            <span class="arrow"><i class="fas fa-arrow-right"></i></span>
+            <span class="to ${cls(d)}">${fmtPct(j.to_pct)}</span>
+        </div>
+        <div class="journey-delta ${dc}">${sign}${d.toFixed(1)} pts over ${j.closed_trades} trades</div>
+    </div>`;
+}
+
+/* Inline sparkline — no chart library, and it scales with the card. */
+function sparkline(points) {
+    if (!points || points.length < 2) return '';
+    const w = 300, h = 34, pad = 2;
+    const min = Math.min(...points), max = Math.max(...points);
+    const span = (max - min) || 1;
+    const d = points.map((p, i) => {
+        const x = pad + (i / (points.length - 1)) * (w - pad * 2);
+        const y = h - pad - ((p - min) / span) * (h - pad * 2);
+        return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const up = points[points.length - 1] >= points[0];
+    const stroke = up ? '#00FFB2' : '#FF3B57';
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"
+                 role="img" aria-label="Win rate over time">
+        <path d="${d}" fill="none" stroke="${stroke}" stroke-width="1.8"
+              stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+function renderTotals(t) {
+    document.getElementById('statGrid').innerHTML = `
+        <div class="stat"><div class="k">Traders</div><div class="v">${t.users || 0}</div>
+            <div class="sub">${t.active_users || 0} have closed a trade</div></div>
+        <div class="stat"><div class="k">Closed trades</div>
+            <div class="v">${(t.closed_trades || 0).toLocaleString()}</div>
+            <div class="sub">across every account</div></div>
+        <div class="stat"><div class="k">Platform win rate</div>
+            <div class="v">${fmtPct(t.win_rate)}</div>
+            <div class="sub">all closed trades</div></div>
+        <div class="stat"><div class="k">Net P&amp;L</div>
+            <div class="v ${cls(t.total_pnl)}">${fmtMoney(t.total_pnl)}</div>
+            <div class="sub">${t.profitable_users || 0} accounts in profit</div></div>`;
+}
+
+function renderUsers(filter) {
+    const q = (filter || '').trim().toLowerCase();
+    const rows = STATE.users.filter(u => {
+        if (!q) return true;
+        const hay = [u.username, u.mobile, ...(u.strategies || []).map(s =>
+            s.strategy + ' ' + s.strategy_name + ' ' + s.symbol)].join(' ').toLowerCase();
+        return hay.indexOf(q) > -1;
+    });
+
+    const tbody = document.getElementById('userRows');
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No accounts match that filter.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map(u => {
+        const chips = (u.strategies || []).length
+            ? u.strategies.slice(0, 4).map(s =>
+                `<span class="chip" title="${esc(s.strategy_name)} on ${esc(s.symbol)}">${esc(s.strategy)} · ${esc(s.symbol)}</span>`).join('') +
+              (u.strategies.length > 4 ? `<span class="chip plain">+${u.strategies.length - 4}</span>` : '')
+            : '<span class="dim">none yet</span>';
+
+        // Account-level journey is the aggregate of its strategies; the per-strategy
+        // detail lives in the drawer.
+        const j = u._journey;
+        return `<tr>
+            <td>
+                <div class="uname">${esc(u.username)}${u.is_admin ? ' <span class="chip gold">ADMIN</span>' : ''}</div>
+                <div class="umeta">#${u.user_id}${u.mobile ? ' · ' + esc(u.mobile) : ''}</div>
+            </td>
+            <td>${chips}${(u.custom_strategies || []).length ?
+                `<span class="chip mint">${u.custom_strategies.length} custom</span>` : ''}</td>
+            <td class="num">${(u.closed_trades || 0).toLocaleString()}</td>
+            <td class="num">${journeyCell(j)}</td>
+            <td class="num ${cls(u.total_pnl)}">${fmtMoney(u.total_pnl)}</td>
+            <td>${when(u.last_trade)}</td>
+            <td>
+                <div class="row-actions">
+                    <button class="icon-btn" title="Open report"
+                            onclick="openUser(${u.user_id})"><i class="fas fa-eye"></i></button>
+                    <a class="icon-btn" title="Download CSV"
+                       href="/api/v2/admin/export/user/${u.user_id}?format=csv"><i class="fas fa-download"></i></a>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function renderStrategies() {
+    const tbody = document.getElementById('strategyRows');
+    if (!STATE.catalog.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No strategy activity recorded yet.</td></tr>';
+    } else {
+        tbody.innerHTML = STATE.catalog.map(s => `<tr>
+            <td><div class="uname">${esc(s.strategy_name)}</div>
+                <div class="umeta">${esc(s.strategy)}</div></td>
+            <td class="num">${s.user_count}</td>
+            <td>${s.users.slice(0, 6).map(u =>
+                `<span class="chip plain">${esc(u.username)}</span>`).join('')}${
+                s.users.length > 6 ? `<span class="chip plain">+${s.users.length - 6}</span>` : ''}</td>
+            <td>${s.symbols.slice(0, 5).map(x => `<span class="chip">${esc(x)}</span>`).join('')}${
+                s.symbols.length > 5 ? `<span class="chip plain">+${s.symbols.length - 5}</span>` : ''}</td>
+            <td class="num">${(s.closed_trades || 0).toLocaleString()}</td>
+            <td class="num">${fmtPct(s.win_rate)}</td>
+            <td class="num ${cls(s.total_pnl)}">${fmtMoney(s.total_pnl)}</td>
+        </tr>`).join('');
+    }
+
+    const panel = document.getElementById('customPanel');
+    if (STATE.custom.length) {
+        panel.style.display = '';
+        document.getElementById('customRows').innerHTML = STATE.custom.map(c => `<tr>
+            <td class="uname">${esc(c.name)}</td>
+            <td>${esc(c.username)}</td>
+            <td>${esc(c.market || '—')}</td>
+            <td class="num">${c.times_used || 0}</td>
+            <td>${when(c.updated_at)}</td>
+        </tr>`).join('');
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+async function openUser(userId) {
+    const drawer = document.getElementById('drawer');
+    const body = document.getElementById('drawerBody');
+    document.getElementById('drawerOverlay').classList.add('open');
+    drawer.classList.add('open');
+    body.innerHTML = '<div class="empty">Loading report…</div>';
+    document.getElementById('dlUserCsv').href = `/api/v2/admin/export/user/${userId}?format=csv`;
+    document.getElementById('dlUserJson').href = `/api/v2/admin/export/user/${userId}?format=json`;
+
+    try {
+        const res = await fetch(`/api/v2/admin/users/${userId}/report`);
+        const d = await res.json();
+        if (!d.success) throw new Error(d.error || 'Report unavailable');
+
+        document.getElementById('drawerTitle').textContent = d.user.username;
+        document.getElementById('drawerSub').textContent =
+            `#${d.user.user_id}${d.user.mobile ? ' · ' + d.user.mobile : ''}`;
+
+        const s = d.summary;
+        const strategies = d.strategies.map(st => {
+            const j = st.journey || {};
+            return `<div class="strat-card">
+                <div class="strat-card-head">
+                    <span class="nm">${esc(st.strategy_name)}</span>
+                    <span class="chip">${esc(st.strategy)}</span>
+                    <span class="chip plain">${esc(st.symbol)}</span>
+                    <span class="chip ${st.autopilot ? 'mint' : 'plain'}">
+                        ${st.autopilot ? 'autopilot on' : 'manual'}</span>
+                    <span class="chip plain">gen ${st.generation}</span>
+                </div>
+                <div class="mini-grid">
+                    <div class="mini"><div class="k">Closed</div>
+                        <div class="v">${st.summary.closed_trades}</div></div>
+                    <div class="mini"><div class="k">Win rate</div>
+                        <div class="v">${fmtPct(st.summary.win_rate)}</div></div>
+                    <div class="mini"><div class="k">Net P&amp;L</div>
+                        <div class="v ${cls(st.summary.total_pnl)}">${fmtMoney(st.summary.total_pnl)}</div></div>
+                    <div class="mini"><div class="k">Journey</div>
+                        <div class="v">${j.available ? fmtPct(j.from_pct) + ' → ' + fmtPct(j.to_pct)
+                                                     : '—'}</div></div>
+                </div>
+                ${sparkline(j.points)}
+            </div>`;
+        }).join('') || '<div class="empty">No strategy activity yet.</div>';
+
+        const trades = d.trades.slice(0, 200).map(t => `<tr>
+            <td>${when(t.timestamp)}</td>
+            <td>${esc(t.symbol)}</td>
+            <td><span class="chip plain">${esc(t.strategy)}</span></td>
+            <td>${esc(t.side)}</td>
+            <td>${esc(t.action)}</td>
+            <td class="num">${Number(t.price).toLocaleString(undefined,
+                { maximumFractionDigits: 6 })}</td>
+            <td class="num ${cls(t.pnl)}">${fmtMoney(t.pnl)}</td>
+        </tr>`).join('');
+
+        body.innerHTML = `
+            <div class="drawer-section-label">Overall</div>
+            <div class="mini-grid">
+                <div class="mini"><div class="k">Closed trades</div><div class="v">${s.closed_trades}</div></div>
+                <div class="mini"><div class="k">Win rate</div><div class="v">${fmtPct(s.win_rate)}</div></div>
+                <div class="mini"><div class="k">Net P&amp;L</div>
+                    <div class="v ${cls(s.total_pnl)}">${fmtMoney(s.total_pnl)}</div></div>
+                <div class="mini"><div class="k">Profit factor</div>
+                    <div class="v">${Number(s.profit_factor || 0).toFixed(2)}</div></div>
+                <div class="mini"><div class="k">Avg win</div>
+                    <div class="v pos">${fmtMoney(s.avg_win)}</div></div>
+                <div class="mini"><div class="k">Avg loss</div>
+                    <div class="v neg">${fmtMoney(s.avg_loss)}</div></div>
+            </div>
+
+            <div class="drawer-section-label">Strategies &amp; what they learned</div>
+            ${strategies}
+
+            <div class="drawer-section-label">Recent trades
+                ${d.trades.length > 200 ? `<span class="dim">(latest 200 of ${d.trades.length})</span>` : ''}</div>
+            <div class="table-scroll"><table>
+                <thead><tr><th>When</th><th>Symbol</th><th>Strategy</th><th>Side</th>
+                    <th>Action</th><th class="num">Price</th><th class="num">P&amp;L</th></tr></thead>
+                <tbody>${trades || '<tr><td colspan="7" class="empty">No trades yet.</td></tr>'}</tbody>
+            </table></div>`;
+    } catch (e) {
+        body.innerHTML = `<div class="empty">Could not load this report — ${esc(e.message)}</div>`;
+    }
+}
+
+function closeDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawerOverlay').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+/* An account's journey is derived from its strategies so the table can show it
+   without a second round-trip per user. */
+function foldJourney(u) {
+    const js = (u.strategies || []).filter(s => s.baseline_win_rate !== null &&
+                                                s.baseline_win_rate !== undefined);
+    if (!js.length) {
+        u._journey = { closed_trades: u.closed_trades, available: false, overall: u.win_rate };
+        return;
+    }
+    const weight = js.reduce((a, s) => a + (s.closed_trades || 0), 0) || 1;
+    const from = js.reduce((a, s) => a + Number(s.baseline_win_rate) * (s.closed_trades || 0), 0) / weight;
+    u._journey = {
+        closed_trades: u.closed_trades,
+        available: u.closed_trades >= 8,
+        from_pct: from,
+        to_pct: u.win_rate,
+        overall: u.win_rate,
+        delta: u.win_rate - from
+    };
+}
+
+async function loadAll() {
+    try {
+        const [oRes, sRes] = await Promise.all([
+            fetch('/api/v2/admin/overview'),
+            fetch('/api/v2/admin/strategies')
+        ]);
+        if (oRes.status === 403 || sRes.status === 403) {
+            document.querySelector('.wrap').innerHTML =
+                '<div class="empty">This console is for administrators only.</div>';
+            return;
+        }
+        const o = await oRes.json();
+        const st = await sRes.json();
+
+        STATE.users = o.users || [];
+        STATE.users.forEach(foldJourney);
+        STATE.totals = o.totals || {};
+        STATE.catalog = st.catalog || [];
+        STATE.custom = st.custom || [];
+
+        renderTotals(STATE.totals);
+        renderUsers(document.getElementById('userSearch').value);
+        renderStrategies();
+    } catch (e) {
+        toast('Could not load the console — ' + e.message);
+    }
+}
+
+document.getElementById('userSearch').addEventListener('input', e => renderUsers(e.target.value));
+loadAll();
+</script>
+</body>
+</html>

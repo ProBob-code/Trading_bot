@@ -1089,6 +1089,21 @@ function initSocket() {
         updateTradeCount();
     });
 
+    // Evolution: a lesson was applied by autopilot, or one is waiting for
+    // review. Refresh the cards so the win-rate journey and the new parameters
+    // are visible the moment they change, without a page reload.
+    state.socket.on('v2_evolution_ready', (data) => {
+        console.log('[V2-EVO]', data);
+        if (data && data.auto_applied) {
+            const n = (data.changes || []).length;
+            showNotification(`🧬 ${getStrategyName(data.strategy)} learned from that trade — `
+                + `gen ${data.generation}, ${n} adjustment${n === 1 ? '' : 's'} applied`);
+        } else if (data) {
+            showNotification(`🧬 ${getStrategyName(data.strategy)} has a lesson ready to review`);
+        }
+        if (typeof loadEvolutionCards === 'function') loadEvolutionCards();
+    });
+
     state.socket.on('market_intel', (data) => {
         console.log('[V2] Received market_intel:', data);
         renderPulseGauge(data);
@@ -4390,6 +4405,70 @@ function evoMoney(v) {
     return (n >= 0 ? '+$' : '-$') + Math.abs(n).toFixed(2);
 }
 
+/**
+ * Win-rate journey — from where, to where.
+ *
+ * The bot's claim is that it learns from its mistakes. That is only credible
+ * next to the number it actually moved, so every card carries the starting win
+ * rate, the current one, and the curve between them.
+ */
+function evoJourney(j) {
+    if (!j || !j.closed_trades) return '';
+
+    if (!j.available) {
+        return `<div class="evo-journey">
+            <div class="evo-journey-head"><i class="fas fa-chart-line"></i> Win Rate Journey</div>
+            <div class="evo-journey-rail">
+                <div class="evo-jr-point to"><span class="lbl">So far</span>
+                    <span class="val">${Number(j.overall || 0).toFixed(1)}%</span></div>
+            </div>
+            <div class="evo-jr-foot">${j.closed_trades} closed trade${j.closed_trades === 1 ? '' : 's'} —
+                still building the track record it will be measured against.</div>
+        </div>`;
+    }
+
+    const d = Number(j.delta || 0);
+    const dir = d > 0.05 ? 'up' : d < -0.05 ? 'down' : 'flat';
+    const sign = d > 0 ? '+' : '';
+    const gens = (j.generations || []).length;
+
+    return `<div class="evo-journey">
+        <div class="evo-journey-head"><i class="fas fa-chart-line"></i> Win Rate Journey</div>
+        <div class="evo-journey-rail">
+            <div class="evo-jr-point from"><span class="lbl">Started at</span>
+                <span class="val">${Number(j.from_pct).toFixed(1)}%</span></div>
+            <i class="fas fa-arrow-right evo-jr-arrow"></i>
+            <div class="evo-jr-point to ${dir === 'down' ? 'down' : ''}"><span class="lbl">Now</span>
+                <span class="val">${Number(j.to_pct).toFixed(1)}%</span></div>
+            <span class="evo-jr-delta ${dir}">${sign}${d.toFixed(1)} pts</span>
+        </div>
+        ${evoSparkline(j.points)}
+        <div class="evo-jr-foot">
+            First ${j.from_trades} trades vs last ${j.to_trades} ·
+            ${j.closed_trades} closed in total ·
+            best stretch ${Number(j.best).toFixed(1)}%${gens ? ` · ${gens} generation${gens === 1 ? '' : 's'} applied` : ''}
+        </div>
+    </div>`;
+}
+
+/** Inline sparkline of the rolling win rate — no chart library needed. */
+function evoSparkline(points) {
+    if (!points || points.length < 2) return '';
+    const w = 300, h = 30, pad = 2;
+    const min = Math.min(...points), max = Math.max(...points);
+    const span = (max - min) || 1;
+    const path = points.map((p, i) => {
+        const x = pad + (i / (points.length - 1)) * (w - pad * 2);
+        const y = h - pad - ((p - min) / span) * (h - pad * 2);
+        return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const up = points[points.length - 1] >= points[0];
+    return `<svg class="evo-jr-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"
+                 role="img" aria-label="Rolling win rate">
+        <path d="${path}" fill="none" stroke="${up ? '#00FFB2' : '#FF3B57'}"
+              stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
 // Remember which cards are expanded so a refresh doesn't collapse them
 const evoOpenCards = new Set();
 
@@ -4431,11 +4510,16 @@ async function loadEvolutionCards() {
             const mt = s.meter || { progress: 0, have: 0, need: 8, ready: false };
             const isOpen = evoOpenCards.has(key);
 
+            // A held pair is still watching every closed trade — only the
+            // acting on lessons is paused. The badge has to say that, because
+            // "Paused" read as "the engine switched itself off".
             const badge = s.status === 'paused'
-                ? '<span class="evo-badge paused">Paused</span>'
+                ? '<span class="evo-badge held">Changes Held</span>'
                 : s.pending ? '<span class="evo-badge ready">Lesson Ready</span>'
-                    : mt.ready ? '<span class="evo-badge active">Evolving</span>'
-                        : '<span class="evo-badge learning">Learning</span>';
+                    : s.auto_apply
+                        ? '<span class="evo-badge autopilot"><i class="fas fa-infinity"></i> Learning Live</span>'
+                        : mt.ready ? '<span class="evo-badge active">Evolving</span>'
+                            : '<span class="evo-badge learning">Learning</span>';
 
             const params = ['take_profit', 'stop_loss', 'sensitivity_rank', 'cooldown_bars'].map(k => {
                 const changed = String(p[k]) !== String(d[k]);
@@ -4489,20 +4573,33 @@ async function loadEvolutionCards() {
             const isPaused = s.status === 'paused';
             const esc = v => String(v).replace(/'/g, "\\'");
 
-            // Per-card controls: evaluate or stop THIS pair without touching
-            // any other bot's learning.
+            // Per-card controls: evaluate or hold THIS pair without touching
+            // any other bot's learning. Holding never stops the observation —
+            // the meter, the metrics and the journey keep updating either way.
             const cardActions = `
                 <div class="evo-card-actions">
                     ${isPaused
                         ? `<button class="evo-pick-btn resume"
                                 onclick="setEvolutionStatus('${esc(s.strategy)}','${esc(s.symbol)}','active')">
-                                <i class="fas fa-play"></i> Resume Learning</button>`
+                                <i class="fas fa-play"></i> Resume Changes</button>`
                         : `<button class="evo-pick-btn"
                                 onclick="runEvolution({ strategy: '${esc(s.strategy)}', symbol: '${esc(s.symbol)}' })">
                                 <i class="fas fa-bolt"></i> Evaluate Now</button>
                            <button class="evo-pick-btn stop"
                                 onclick="setEvolutionStatus('${esc(s.strategy)}','${esc(s.symbol)}','paused')">
-                                <i class="fas fa-stop"></i> Stop Learning</button>`}
+                                <i class="fas fa-pause"></i> Hold Changes</button>`}
+                </div>
+                <div class="evo-autopilot">
+                    <div class="txt">
+                        <b>Autopilot</b>
+                        <span>${s.auto_apply
+                            ? 'Applies each lesson the moment the evidence supports it — learning never waits on you.'
+                            : 'Lessons wait for your Proceed. It keeps learning either way.'}</span>
+                    </div>
+                    <button class="evo-switch ${s.auto_apply ? 'on' : ''}" role="switch"
+                            aria-checked="${s.auto_apply ? 'true' : 'false'}"
+                            aria-label="Autopilot"
+                            onclick="setEvolutionAutopilot('${esc(s.strategy)}','${esc(s.symbol)}',${s.auto_apply ? 'false' : 'true'})"></button>
                 </div>`;
 
             return `<div class="evo-card ${isOpen ? 'open' : ''} ${s.pending ? 'ready' : ''} ${isPaused ? 'paused' : ''}" data-key="${key}">
@@ -4526,6 +4623,7 @@ async function loadEvolutionCards() {
                         ${m.closed_trades || 0} closed · win ${Number(m.win_rate || 0).toFixed(1)}% ·
                         expectancy ${evoMoney(m.expectancy)} · <span class="evo-regime">${s.regime || 'unknown'}</span>
                     </div>
+                    ${evoJourney(s.journey)}
                     ${lesson}
                     ${cardActions}
                     <div class="evo-section-label">Live Parameters</div>
@@ -4627,13 +4725,14 @@ async function loadEvoCandidates() {
             const paused = c.status === 'paused';
             const esc = s => String(s).replace(/'/g, "\\'");
 
-            const state = paused ? '<span class="evo-badge paused">Stopped</span>'
+            const state = paused ? '<span class="evo-badge held">Changes Held</span>'
                 : c.has_pending ? '<span class="evo-badge ready">Lesson Ready</span>'
-                    : mt.ready ? '<span class="evo-badge active">Ready</span>'
-                        : '<span class="evo-badge learning">Learning</span>';
+                    : c.auto_apply ? '<span class="evo-badge autopilot">Learning Live</span>'
+                        : mt.ready ? '<span class="evo-badge active">Ready</span>'
+                            : '<span class="evo-badge learning">Learning</span>';
 
-            // A stopped pair offers Resume instead of Evaluate — evaluating a
-            // pair the user deliberately stopped would just be ignored.
+            // A held pair offers Resume instead of Evaluate — evaluating a pair
+            // whose changes the user deliberately held would just be ignored.
             const action = paused
                 ? `<button class="evo-pick-btn resume"
                         onclick="setEvolutionStatus('${esc(c.strategy)}','${esc(c.symbol)}','active')">
@@ -4643,8 +4742,8 @@ async function loadEvoCandidates() {
                         <i class="fas fa-bolt"></i> Evaluate</button>
                    <button class="evo-pick-btn stop"
                         onclick="setEvolutionStatus('${esc(c.strategy)}','${esc(c.symbol)}','paused')"
-                        title="Stop learning for this bot">
-                        <i class="fas fa-stop"></i> Stop</button>`;
+                        title="Hold changes for this bot — it keeps watching either way">
+                        <i class="fas fa-pause"></i> Hold</button>`;
 
             return `
             <div class="evo-pick-row ${paused ? 'paused' : ''}">
@@ -4674,7 +4773,13 @@ async function loadEvoCandidates() {
     }
 }
 
-/** Stop ('paused') or resume ('active') learning for one bot. */
+/**
+ * Hold ('paused') or resume ('active') the *acting* on lessons for one bot.
+ *
+ * Learning itself has no off switch: a held pair still watches every closed
+ * trade, keeps its meter, and keeps its win-rate journey. Only the applying of
+ * changes waits.
+ */
 async function setEvolutionStatus(strategy, symbol, status) {
     try {
         const res = await fetch('/api/v2/evolution/status-set', {
@@ -4687,12 +4792,39 @@ async function setEvolutionStatus(strategy, symbol, status) {
             return;
         }
         showNotification(status === 'paused'
-            ? `⏹ Evaluation stopped for ${getStrategyName(strategy)} · ${symbol}`
-            : `▶ Evaluation resumed for ${getStrategyName(strategy)} · ${symbol}`);
+            ? `⏸ Changes held for ${getStrategyName(strategy)} · ${symbol} — still watching every trade`
+            : `▶ Changes resumed for ${getStrategyName(strategy)} · ${symbol}`);
     } catch (e) {
         console.error('[EVO] status change failed:', e);
     }
     loadEvoCandidates();
+    loadEvolutionCards();
+}
+
+/**
+ * Turn autopilot on or off for one pair.
+ *
+ * On (the default) the engine applies a lesson as soon as the evidence supports
+ * it, so a bot keeps improving with nobody watching. Off, each lesson waits for
+ * Proceed. Either way the learning itself keeps running.
+ */
+async function setEvolutionAutopilot(strategy, symbol, enabled) {
+    try {
+        const res = await fetch('/api/v2/evolution/autopilot', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ strategy, symbol, enabled })
+        });
+        const d = await res.json();
+        if (!d.success) {
+            alert('Could not update autopilot: ' + (d.error || 'unknown error'));
+            return;
+        }
+        showNotification(enabled
+            ? `🧬 Autopilot ON for ${getStrategyName(strategy)} · ${symbol} — lessons apply themselves`
+            : `🧬 Autopilot OFF for ${getStrategyName(strategy)} · ${symbol} — lessons wait for you`);
+    } catch (e) {
+        console.error('[EVO] autopilot toggle failed:', e);
+    }
     loadEvolutionCards();
 }
 
@@ -4720,8 +4852,11 @@ async function runEvolution(opts = {}) {
         // found nothing to change looks identical to one that never ran.
         const results = d.results || [];
         const lessons = results.filter(r => r && r.awaiting_approval).length;
+        const applied = results.filter(r => r && r.auto_applied).length;
         const skipped = results.filter(r => r && r.skipped);
-        if (lessons) {
+        if (applied) {
+            showNotification(`🧬 Autopilot applied ${applied} lesson${applied > 1 ? 's' : ''}`);
+        } else if (lessons) {
             showNotification(`🧬 ${lessons} lesson${lessons > 1 ? 's' : ''} ready to review`);
         } else if (skipped.length === results.length && results.length) {
             showNotification(`No change for ${label} — ${skipped[0].reason || 'still gathering evidence'}`);

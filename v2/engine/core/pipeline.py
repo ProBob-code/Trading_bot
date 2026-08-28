@@ -154,12 +154,16 @@ class TradingPipelineV2:
         """Push evolved parameters onto the running bot so they take effect now.
 
         Only touches knobs the pipeline actually reads (take_profit / stop_loss /
-        sensitivity). A 'paused' status stops the bot trading without deleting it.
+        sensitivity). Evolution never stops a bot: a strategy that keeps losing
+        is de-risked to the tightest settings its bounds allow and left running,
+        because a bot that stops trading stops producing the evidence it needs
+        to recover.
         """
         from v2.engine.evolution.evolution_engine import SENSITIVITY_BY_RANK
 
         params = result.get('params') or {}
         cfg = bot.config
+        before = (cfg.take_profit, cfg.stop_loss, getattr(cfg, 'sensitivity', None))
 
         if 'take_profit' in params:
             cfg.take_profit = float(params['take_profit'])
@@ -169,13 +173,9 @@ class TradingPipelineV2:
             rank = int(max(0, min(2, params['sensitivity_rank'])))
             cfg.sensitivity = SENSITIVITY_BY_RANK[rank]
 
-        if result.get('status') == 'paused':
-            bot.stop_flag.set()
-            logger.warning(f"🧬 [V2-EVO] {cfg.strategy} paused by evolution "
-                           f"(persistently negative expectancy)")
-
-        logger.info(f"🧬 [V2-EVO] Applied gen {result.get('generation')} to {bot.bot_id}: "
-                    f"TP={cfg.take_profit}% SL={cfg.stop_loss}% sens={cfg.sensitivity}")
+        if before != (cfg.take_profit, cfg.stop_loss, getattr(cfg, 'sensitivity', None)):
+            logger.info(f"🧬 [V2-EVO] Applied gen {result.get('generation')} to {bot.bot_id}: "
+                        f"TP={cfg.take_profit}% SL={cfg.stop_loss}% sens={cfg.sensitivity}")
 
     def _handle_trade_results(self, bot, results, side, quantity, price):
         """Standardized processing for trades (stats, logs, sockets)."""
@@ -215,22 +215,35 @@ class TradingPipelineV2:
                 self.db.v2_update_session_counters(current_session, pnl)
 
                 # ── Evolution: learn from this closed trade ──
-                # Runs only on closes (that's where outcome is known). The engine
+                # Runs on every close (that's where outcome is known). The engine
                 # gates itself on sample size, so this is cheap on most calls.
-                # The engine only PROPOSES — nothing is applied to live trading
-                # until the user reviews the lesson and hits Proceed.
+                # With autopilot on it applies the lesson itself and we push the
+                # new parameters onto this running bot immediately; with autopilot
+                # off it stores the lesson for the user to review and Proceed.
                 try:
                     from v2.engine.evolution.evolution_engine import evolution_engine
                     result = evolution_engine.evolve(bot.config.user_id, bot.config.strategy,
                                                      bot.config.symbol)
-                    if result and result.get('awaiting_approval') and self.socketio:
+
+                    if result and result.get('auto_applied'):
+                        self._apply_evolved_params(bot, result)
+
+                    if result and self.socketio and (result.get('awaiting_approval')
+                                                     or result.get('auto_applied')):
+                        # The browser only ever sees the public catalog code —
+                        # the internal strategy id is the firm's IP and must not
+                        # ride out on a socket event.
+                        from shared.logic.strategies.public_catalog import to_public
                         self.socketio.emit('v2_evolution_ready', {
-                            'strategy': bot.config.strategy,
+                            'strategy': to_public(bot.config.strategy),
                             'symbol': bot.config.symbol,
                             'regime': result.get('regime'),
                             'verdict': result.get('verdict'),
                             'changes': result.get('changes'),
                             'meter': result.get('meter'),
+                            'journey': result.get('journey'),
+                            'auto_applied': bool(result.get('auto_applied')),
+                            'generation': result.get('generation'),
                         }, room=f"user_{bot.config.user_id}")
                 except Exception as e:
                     logger.warning(f"⚠️ [V2-EVO] evolution step failed: {e}")

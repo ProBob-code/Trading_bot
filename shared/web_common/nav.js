@@ -20,7 +20,12 @@
           scrollTo: 'sectionAutoTrade' },
         { route: 'live',      href: '/v2/live',      icon: 'fa-rocket',       label: 'Live Trade' },
         { route: 'portfolio', href: '/v2/portfolio', icon: 'fa-wallet',       label: 'Portfolio' },
-        { route: 'profile',   href: '/v2/profile',   icon: 'fa-user-cog',     label: 'Profile Settings' }
+        { route: 'profile',   href: '/v2/profile',   icon: 'fa-user-cog',     label: 'Profile Settings' },
+        // Hidden until the server confirms this account is an administrator.
+        // The gate that matters is server-side; this only avoids showing a link
+        // that would 403.
+        { route: 'admin',     href: '/v2/admin',     icon: 'fa-shield-halved', label: 'Admin Console',
+          adminOnly: true }
     ];
 
     var CSS = [
@@ -47,7 +52,7 @@
         '.gb-nav-toggle.open .gb-nav-bar:nth-child(3){transform:translateY(-7px) rotate(-45deg)}',
 
         /* Nudge each page's own header clear of the floating button. */
-        '.navbar,.report-header .header-inner{padding-left:70px}',
+        '.navbar,.report-header .header-inner,.admin-header .header-inner{padding-left:70px}',
 
         /* ── Drawer ─────────────────────────────────────────── */
         '.gb-nav-drawer{position:fixed;top:0;left:0;bottom:0;width:248px;z-index:6002;',
@@ -105,7 +110,7 @@
         '.gb-nav-toggle{top:10px;left:10px;width:42px;height:42px}',
         '.gb-nav-drawer{width:min(80vw,272px);padding-bottom:calc(14px + env(safe-area-inset-bottom))}',
         '.gb-nav-item{padding:14px;font-size:14px;min-height:48px}',
-        '.navbar,.report-header .header-inner{padding-left:62px}',
+        '.navbar,.report-header .header-inner,.admin-header .header-inner{padding-left:62px}',
         '}',
 
         '@media (prefers-reduced-motion:reduce){',
@@ -127,6 +132,7 @@
         if (path.indexOf('portfolio') > -1) return 'portfolio';
         if (path.indexOf('profile') > -1) return 'profile';
         if (path.indexOf('live') > -1) return 'live';
+        if (path.indexOf('admin') > -1) return 'admin';
         return 'home';
     }
 
@@ -157,6 +163,7 @@
         ROUTES.forEach(function (r) {
             html += '<a class="gb-nav-item' + (r.route === active && !r.scrollTo ? ' active' : '') +
                 '" href="' + r.href + '" data-route="' + r.route + '"' +
+                (r.adminOnly ? ' data-admin-only="1" style="display:none"' : '') +
                 (r.scrollTo ? ' data-scroll="' + r.scrollTo + '"' : '') +
                 '><i class="fas ' + r.icon + '"></i>' + r.label + '</a>';
         });
@@ -216,10 +223,24 @@
         }
     }
 
+    /** Reveal admin-only entries once the server says this account is one. */
+    function revealAdminEntries() {
+        var hidden = document.querySelectorAll('.gb-nav-item[data-admin-only]');
+        if (!hidden.length) return;
+        fetch('/api/v2/admin/whoami', { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                if (!d || !d.is_admin) return;
+                hidden.forEach(function (el) { el.style.display = ''; });
+            })
+            .catch(function () { /* not an admin, or not signed in — stay hidden */ });
+    }
+
     function init() {
         if (document.getElementById('gbNavToggle')) return;   // already built
         injectStyles();
         build();
+        revealAdminEntries();
     }
 
     if (document.readyState === 'loading') {

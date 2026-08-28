@@ -96,6 +96,7 @@ class User(UserMixin):
         self.username = user_info.get('username', 'Anonymous')
         self.mobile = user_info.get('mobile')
         self.is_verified = user_info.get('is_verified', 0)
+        self.is_admin = bool(user_info.get('is_admin', 0))
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -283,6 +284,38 @@ logger.info(f"🚀 V2 Institutional Engine Live (Engine: {system_state.get_engin
 app.register_blueprint(v1_bp)
 app.register_blueprint(v2_bp)
 
+# ── Admin console ──
+from v2.api.admin_routes import admin_bp, admin_required, is_admin_user
+
+app.register_blueprint(admin_bp)
+
+
+def _bootstrap_admins():
+    """Promote the accounts named in the environment to administrator.
+
+    ADMIN_USERNAMES / ADMIN_MOBILES are comma-separated. This is the only way
+    the FIRST admin can appear — after that, admins grant it to each other from
+    the console. Nothing here ever revokes the flag, so removing a name from the
+    environment does not silently lock someone out mid-deploy.
+    """
+    names = {n.strip().lower() for n in os.getenv('ADMIN_USERNAMES', '').split(',') if n.strip()}
+    mobiles = {m.strip() for m in os.getenv('ADMIN_MOBILES', '').split(',') if m.strip()}
+    if not names and not mobiles:
+        return
+    try:
+        for u in db_manager.get_all_users():
+            if u.get('is_admin'):
+                continue
+            uname = (u.get('username') or '').lower()
+            if uname in names or (u.get('mobile') or '') in mobiles:
+                db_manager.set_user_admin(u['id'], True)
+                logger.info(f"👑 [ADMIN] granted admin to {u.get('username') or u['id']}")
+    except Exception as e:
+        logger.warning(f"[ADMIN] bootstrap skipped: {e}")
+
+
+_bootstrap_admins()
+
 
 # ============================================================
 # STATIC FILES
@@ -460,6 +493,13 @@ def v2_portfolio_page():
 def v2_profile_page():
     """Serve the V3 profile & risk page (profile.html kept as rollback)."""
     return send_from_directory('v2/web', 'profile_v3.html')
+
+@app.route('/admin')
+@app.route('/v2/admin')
+@admin_required
+def v2_admin_page():
+    """Serve the admin console. Gated so a non-admin never sees the shell."""
+    return send_from_directory('v2/web', 'admin.html')
 
 
 
@@ -1002,7 +1042,8 @@ def auth_status():
             'user': {
                 'id': current_user.id,
                 'username': current_user.username,
-                'is_verified': current_user.is_verified
+                'is_verified': current_user.is_verified,
+                'is_admin': bool(getattr(current_user, 'is_admin', False))
             }
         })
     return jsonify({'authenticated': False})
