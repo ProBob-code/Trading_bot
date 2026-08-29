@@ -2212,7 +2212,11 @@ class DatabaseManager:
                        SUM(CASE WHEN action IN ({CLOSING_SQL}) AND pnl > 0 THEN 1 ELSE 0 END),
                        SUM(CASE WHEN action IN ({CLOSING_SQL}) AND pnl < 0 THEN 1 ELSE 0 END),
                        COALESCE(SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END), 0),
-                       COALESCE(SUM(CASE WHEN pnl < 0 THEN -pnl ELSE 0 END), 0)
+                       COALESCE(SUM(CASE WHEN pnl < 0 THEN -pnl ELSE 0 END), 0),
+                       COALESCE(MAX(CASE WHEN action IN ({CLOSING_SQL}) THEN pnl END), 0),
+                       COALESCE(MIN(CASE WHEN action IN ({CLOSING_SQL}) THEN pnl END), 0),
+                       COALESCE(SUM(CASE WHEN action IN ({CLOSING_SQL})
+                                         THEN 0 ELSE commission END), 0)
                 FROM v2_trade_ledger
                 WHERE user_id = %s AND strategy IS NOT NULL AND symbol IS NOT NULL
                 GROUP BY strategy, symbol
@@ -2235,6 +2239,15 @@ class DatabaseManager:
                     'avg_win': (gross_profit / wins) if wins else 0.0,
                     'avg_loss': (gross_loss / losses) if losses else 0.0,
                     'profit_factor': (gross_profit / gross_loss) if gross_loss else None,
+                    'best_trade': float(r[9] or 0),
+                    'worst_trade': float(r[10] or 0),
+                    'entry_commission': float(r[11] or 0),
+                    # What an average trade is worth. Win rate alone says
+                    # nothing about whether the wins are big enough to pay for
+                    # the losses; this is the number that does.
+                    'expectancy': ((float(r[3] or 0) - float(r[11] or 0)) / closed)
+                                  if closed else 0.0,
+                    'net_pnl': float(r[3] or 0) - float(r[11] or 0),
                 }
             return out
         except Exception as e:

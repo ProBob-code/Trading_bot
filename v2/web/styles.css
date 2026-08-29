@@ -2667,41 +2667,110 @@ select.field-input option { background: var(--bg-secondary); color: var(--text-p
     .bot-card-body, .bot-caret { transition: none; }
 }
 
-/* ── Per-bot scorecard ──────────────────────────────────────
-   How often this bot wins, how often it loses, and what each is
-   worth. Sits under the P&L line on every bot card. */
-.bot-score {
-    margin-top: 10px; padding-top: 10px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.07);
-}
-.bot-score.empty { font-size: 10.5px; color: var(--text-muted); line-height: 1.5; }
-
-.bot-score-grid {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
-}
-@media (min-width: 520px) {
-    .bot-score-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* ── Bot detail panel ───────────────────────────────────────
+   Label/value rows rather than a grid of tiles. Four tiles across
+   a card this narrow truncated every value they held. */
+.bot-detail {
+    margin-top: 12px; padding-top: 12px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
 }
 
-.bs-cell {
-    display: flex; flex-direction: column; gap: 1px; min-width: 0;
-    padding: 7px 9px; border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--glass-border);
+.bd-section {
+    font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 800;
+    margin: 14px 0 6px; padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
-.bs-k {
-    font-size: 8.5px; letter-spacing: 0.7px; text-transform: uppercase;
-    color: var(--text-muted); font-weight: 700; white-space: nowrap;
+.bd-section:first-child { margin-top: 0; }
+
+.bd-row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; padding: 5px 0; min-width: 0;
 }
-.bs-v {
-    font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 800;
-    color: var(--text-primary); line-height: 1.25;
+.bd-label {
+    font-size: 11.5px; color: var(--text-secondary); flex: 0 0 auto; white-space: nowrap;
 }
-.bs-v.good { color: var(--bullish); }
-.bs-v.bad { color: var(--bearish); }
-.bs-sub {
-    font-size: 9.5px; color: var(--text-muted); white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
+.bd-value {
+    font-family: var(--font-mono, monospace); font-size: 12.5px; font-weight: 700;
+    color: var(--text-primary); text-align: right; min-width: 0;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+}
+.bd-value.bd-pos { color: var(--bullish); }
+.bd-value.bd-neg { color: var(--bearish); }
+.bd-note {
+    font-family: var(--font-sans, inherit); font-size: 9.5px; font-weight: 500;
+    color: var(--text-muted); line-height: 1.35; text-align: right;
+}
+
+.bd-empty {
+    font-size: 11px; color: var(--text-muted); line-height: 1.55;
+    padding: 10px 0 4px;
+}
+
+/* ── Open position banner ── */
+.bd-position {
+    padding: 10px 12px; border-radius: 10px; margin-bottom: 4px;
+    border: 1px solid var(--glass-border); background: rgba(255, 255, 255, 0.03);
+}
+.bd-position.long { border-color: rgba(0, 255, 178, 0.3); background: rgba(0, 255, 178, 0.05); }
+.bd-position.short { border-color: rgba(255, 51, 102, 0.3); background: rgba(255, 51, 102, 0.05); }
+.bd-position.flat { font-size: 11px; color: var(--text-muted); }
+
+.bd-pos-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 5px; }
+.bd-pos-side { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; }
+.bd-position.long .bd-pos-side { color: var(--bullish); }
+.bd-position.short .bd-pos-side { color: var(--bearish); }
+.bd-pos-qty { font-family: var(--font-mono, monospace); font-size: 11.5px; font-weight: 700; }
+.bd-pos-lev {
+    font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 999px;
+    background: rgba(255, 215, 0, 0.15); color: var(--gold);
+}
+.bd-pos-body {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--text-muted);
+}
+.bd-pos-body .bd-pos { color: var(--bullish); font-weight: 700; }
+.bd-pos-body .bd-neg { color: var(--bearish); font-weight: 700; }
+
+/* ── Card header ── */
+.bot-card-head { cursor: pointer; }
+.bot-card-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+
+.bot-caret {
+    margin-left: auto; font-size: 11px; color: var(--text-muted); flex-shrink: 0;
+    transition: transform .25s cubic-bezier(.16, 1, .3, 1);
+}
+.bot-card-item.open .bot-caret { transform: rotate(180deg); }
+
+.bot-meta-sep { color: var(--text-muted); margin: 0 5px; }
+
+.bot-stats {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 8px;
+}
+.bot-pnl-big {
+    font-family: var(--font-mono, monospace); font-size: 17px; font-weight: 800;
+    letter-spacing: -0.3px;
+}
+.bot-trades { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+
+.bot-peek {
+    font-family: var(--font-mono, monospace); font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 999px; white-space: nowrap; margin-left: auto;
+}
+.bot-peek.good { background: rgba(0, 255, 178, 0.12); color: var(--bullish); }
+.bot-peek.bad { background: rgba(255, 51, 102, 0.12); color: var(--bearish); }
+
+/* Bounded so the height can animate; the panel never approaches this. */
+.bot-card-body {
+    max-height: 0; overflow: hidden; opacity: 0;
+    transition: max-height .32s cubic-bezier(.16, 1, .3, 1), opacity .22s ease;
+}
+.bot-card-item.open .bot-card-body { max-height: 900px; opacity: 1; }
+
+.bot-stop-btn { width: 100%; margin-top: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .bot-card-body, .bot-caret { transition: none; }
 }
 
 /* A read-only Command Deck field — looks like the selects beside it, but
