@@ -153,6 +153,10 @@ class PaperTraderV2:
         
         # Multi-account state
         self.accounts: Dict[int, V2Account] = {}
+        # Accounts already rebuilt from the ledger this process. Without this an
+        # account created lazily by _get_account() would keep a pristine
+        # $100,000 balance and quietly disagree with its own trade history.
+        self._hydrated: set = set()
         
         # Live prices
         self.current_prices: Dict[str, float] = {}
@@ -160,11 +164,34 @@ class PaperTraderV2:
         logger.info(f"[V2-TRADER] PaperTraderV2 initialized (capital=${initial_capital:,.0f})")
     
     def _get_account(self, user_id: Optional[int]) -> V2Account:
-        """Get or create user account."""
+        """Get or create user account.
+
+        A freshly created account starts at `initial_capital` with no history.
+        That is only correct for an account that has never traded — anyone else
+        must be rehydrated from the ledger first, which is what
+        `ensure_loaded()` is for.
+        """
         uid = user_id if user_id is not None else 0
         if uid not in self.accounts:
             self.accounts[uid] = V2Account(self.initial_capital)
         return self.accounts[uid]
+
+    def ensure_loaded(self, user_id: int, db_manager) -> bool:
+        """Rebuild this account from the ledger if it has not been yet.
+
+        Boot only rehydrates accounts with OPEN positions. A user who closed
+        everything before the restart would otherwise be handed a pristine
+        $100,000 the next time they opened the dashboard.
+        """
+        if user_id is None or user_id in self._hydrated:
+            return False
+        try:
+            self.load_positions(user_id, db_manager)
+            return True
+        except Exception as e:
+            logger.warning(f"[V2-TRADER] could not hydrate user {user_id}: {e}")
+            self._hydrated.add(user_id)   # don't retry on every request
+            return False
     
     def set_prices(self, prices: Dict[str, float]):
         """Update live prices and check liquidations."""
@@ -531,8 +558,14 @@ class PaperTraderV2:
         with self.lock:
             acc = self._get_account(user_id)
             
-            # Hard Guard: No positions and no trades -> Zero P&L, Reset Cash
-            if not acc.positions and not acc.trade_history:
+            # Hard guard for a genuinely untouched account. `trade_history` is
+            # in-memory only and is empty after every restart, so testing it
+            # alone declared any restored account "fresh" and reported
+            # initial_capital — throwing away the cash just rebuilt from the
+            # ledger. An account whose cash has moved has history, full stop.
+            pristine = (not acc.positions and not acc.trade_history
+                        and abs(acc.cash - acc.initial_capital) < 0.005)
+            if pristine:
                 return {
                     'account_id': f'V2_PAPER_{user_id or 0}',
                     'initial_capital': acc.initial_capital,
@@ -643,18 +676,33 @@ class PaperTraderV2:
             logger.info(f"[V2-TRADER] Saved {len(acc.positions)} positions for user {user_id}")
 
     def load_positions(self, user_id: int, db_manager):
-        """Load open positions and reconstruct account state (for restart recovery)."""
+        """Load open positions and reconstruct account state (for restart recovery).
+
+        Cash is rebuilt as `initial_capital + realized_pnl - margin_in_use`.
+        It used to be rebuilt as `initial_capital - margin`, which silently
+        discarded every realised gain and loss the account had ever taken: after
+        each restart the dashboard showed a fresh $100,000 no matter what the
+        ledger said. On the account that surfaced this, the balance read
+        $100,045 against a true $89,439 — a $10,606 overstatement, and the sign
+        was wrong too, showing a profit on an account down five figures.
+        """
         with self.lock:
             rows = db_manager.v2_get_positions(user_id)
             acc = self._get_account(user_id)
-            
+            self._hydrated.add(user_id)
+
+            summary = db_manager.v2_get_realized_summary(user_id)
+            realized = summary.get('realized', 0.0)
+
             # 1. Clear memory before reconstruction
             acc.positions = {}
             total_margin = 0.0
-            
+
             if not rows:
-                acc.cash = acc.initial_capital
-                logger.info(f"[V2-TRADER] No positions found in DB for user {user_id}. Account reset to ${acc.cash:,.2f}")
+                acc.cash = acc.initial_capital + realized
+                logger.info(f"[V2-TRADER] No open positions for user {user_id}. "
+                            f"Cash rebuilt from ledger: ${acc.cash:,.2f} "
+                            f"(realized ${realized:,.2f} over {summary.get('rows', 0)} rows)")
                 return
 
             # 2. Re-populate positions from DB
@@ -683,12 +731,20 @@ class PaperTraderV2:
                 acc.positions[symbol] = pos
                 total_margin += pos.margin_used
             
-            # 3. Reconstruct cash balance: Initial - Original Margin
-            acc.cash = acc.initial_capital - total_margin
-            
-            # 4. Sanity Check Log
+            # 3. Reconstruct cash: what was deposited, plus everything realised,
+            #    less the margin currently tied up in open positions.
+            acc.cash = acc.initial_capital + realized - total_margin
+
+            # 4. Sanity check. Equity should equal capital + realised; a drift
+            #    means the ledger and the restored positions disagree, which is
+            #    worth shouting about rather than quietly trading on.
             reconstructed_equity = acc.cash + total_margin
-            logger.info(f"[V2-TRADER] Reconstructed state for user {user_id}: Positions={len(rows)}, Cash=${acc.cash:,.2f}, TargetEquity=${reconstructed_equity:,.2f}")
-            
-            if abs(reconstructed_equity - acc.initial_capital) > 0.01:
-                logger.warning(f"⚠️ [V2-TRADER] Portfolio recovery mismatch: Equity=${reconstructed_equity:,.2f} != Initial=${acc.initial_capital:,.2f}")
+            expected = acc.initial_capital + realized
+            logger.info(f"[V2-TRADER] Reconstructed user {user_id}: positions={len(rows)}, "
+                        f"realized=${realized:,.2f}, cash=${acc.cash:,.2f}, "
+                        f"equity=${reconstructed_equity:,.2f}")
+
+            if abs(reconstructed_equity - expected) > 0.01:
+                logger.warning(f"⚠️ [V2-TRADER] Recovery mismatch for user {user_id}: "
+                               f"equity=${reconstructed_equity:,.2f} != "
+                               f"capital+realized=${expected:,.2f}")
