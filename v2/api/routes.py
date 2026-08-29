@@ -367,6 +367,11 @@ def v2_trade():
 # training side could never see them. They are persisted now.
 # ============================================================
 
+# Timeframes the data providers can serve. A custom strategy may only pick
+# from these.
+ALLOWED_INTERVALS = ('1m', '5m', '15m', '30m', '1h', '4h', '1d')
+
+
 @v2_bp.route('/api/v2/strategies/custom', methods=['GET'])
 @login_required
 def v2_list_custom_strategies():
@@ -400,10 +405,18 @@ def v2_save_custom_strategy():
     if not strategy_id or not name:
         return jsonify({'success': False, 'error': 'id and name are required'}), 400
 
+    # A custom strategy carries its own timeframe, exactly as a catalog one
+    # does — validated against the intervals the engine can actually fetch, so
+    # a hand-edited request cannot save a strategy that will never get candles.
+    interval = str(data.get('interval') or '').strip()
+    if interval not in ALLOWED_INTERVALS:
+        interval = '15m'
+
     definition = {
         'indicators': data.get('indicators') or [],
         'buyConditions': data.get('buyConditions') or [],
         'sellConditions': data.get('sellConditions') or [],
+        'interval': interval,
     }
     if not definition['indicators']:
         return jsonify({'success': False, 'error': 'Select at least one indicator'}), 400
@@ -954,7 +967,23 @@ def v2_start_bot():
         # a daily candle never sees the stretch it exists to fade. Deriving it
         # here (rather than only hiding the dropdown) means a hand-rolled
         # request cannot put a strategy on a timeframe it was not built for.
+        #
+        # A custom strategy runs on the generalist engine but keeps the
+        # timeframe its author chose in the Forge, so it is looked up rather
+        # than inherited from whatever engine executes it.
         interval = interval_for(strategy)
+        custom_id = (data.get('custom_strategy_id') or '').strip()
+        if custom_id:
+            for row in (db_manager.get_user_strategies(current_user.id) or []):
+                if row.get('strategy_id') != custom_id:
+                    continue
+                try:
+                    saved = json.loads(row.get('definition_json') or '{}')
+                except Exception:
+                    saved = {}
+                if saved.get('interval') in ALLOWED_INTERVALS:
+                    interval = saved['interval']
+                break
         result = bot_manager_v2.start_bot(
             user_id=current_user.id,
             symbol=data.get('symbol', ''),
@@ -1035,8 +1064,8 @@ def v2_list_bots():
             stats['total_trades'] = max(int(stats.get('total_trades') or 0), ls['trades'])
             stats['realized_pnl'] = ls['realized_pnl']
             stats['total_pnl'] = ls['realized_pnl'] + float(stats.get('unrealized_pnl') or 0)
-            for k in ('closed_trades', 'wins', 'losses', 'win_rate', 'loss_rate',
-                      'avg_win', 'avg_loss', 'profit_factor'):
+            for k in ('closed_trades', 'wins', 'losses', 'breakeven', 'win_rate',
+                      'loss_rate', 'avg_win', 'avg_loss', 'profit_factor'):
                 stats[k] = ls[k]
         else:
             stats.setdefault('closed_trades', 0)
