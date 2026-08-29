@@ -5691,9 +5691,9 @@ function updateSensitivityHelp(value) {
 
 /**
  * Per-bot scorecard: how often it wins, how often it loses, and what each is
- * worth. Rates are only asserted once there are enough closed trades to mean
- * anything — under that the counts are shown but the percentages are marked as
- * provisional, because "100% success" off two trades is a lie the numbers tell.
+ * worth. Rates are shown from the first closed trade; the sample they are drawn
+ * from sits under each one, so a figure can always be read against the number
+ * of trades behind it.
  */
 function botScorecard(stats) {
     const closed = Number(stats.closed_trades || 0);
@@ -5708,13 +5708,10 @@ function botScorecard(stats) {
     const pf = Number(stats.profit_factor || 0);
     const avgWin = Number(stats.avg_win || 0);
     const avgLoss = Number(stats.avg_loss || 0);
-    const reliable = stats.stats_reliable !== false;
-    const need = Number(stats.min_trades_for_rate || 8);
-
     const cls = winRate >= 50 ? 'good' : 'bad';
 
     return `
-        <div class="bot-score ${reliable ? '' : 'provisional'}">
+        <div class="bot-score">
             <div class="bot-score-grid">
                 <div class="bs-cell">
                     <span class="bs-k">Win rate</span>
@@ -5737,10 +5734,6 @@ function botScorecard(stats) {
                     <span class="bs-sub">${pf >= 1 ? 'earning' : pf > 0 ? 'losing' : 'no losses yet'}</span>
                 </div>
             </div>
-            ${reliable ? '' : `<div class="bs-note">
-                <i class="fas fa-triangle-exclamation"></i>
-                Provisional — ${closed} of ${need} closed trades. Too few to read as a real rate yet.
-            </div>`}
         </div>`;
 }
 
