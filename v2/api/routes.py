@@ -1073,11 +1073,47 @@ def v2_list_bots():
             stats['realized_pnl'] = ls['realized_pnl']
             stats['total_pnl'] = ls['realized_pnl'] + float(stats.get('unrealized_pnl') or 0)
             for k in ('closed_trades', 'wins', 'losses', 'breakeven', 'win_rate',
-                      'loss_rate', 'avg_win', 'avg_loss', 'profit_factor'):
+                      'loss_rate', 'avg_win', 'avg_loss', 'profit_factor',
+                      'best_trade', 'worst_trade', 'expectancy', 'net_pnl',
+                      'entry_commission'):
                 stats[k] = ls[k]
             stats['ledger_events'] = ls['trades']
         else:
             stats.setdefault('closed_trades', 0)
+
+    # What each bot is actually holding right now, and what it has learned.
+    # Both answer questions the card could not previously address: "is there
+    # money at risk in this thing?" and "have its settings moved since I set
+    # them?".
+    try:
+        positions = {p['symbol']: p for p in
+                     (v2_paper_trader.get_positions(current_user.id) or [])}
+    except Exception as e:
+        logger.warning(f"[V2] could not read positions for bot cards: {e}")
+        positions = {}
+
+    evo_states = {(e.get('strategy'), e.get('symbol')): e for e in
+                  (db_manager.v2_get_evolution_state(current_user.id) or [])}
+
+    for b in bots:
+        pos = positions.get(b.get('symbol'))
+        b['position'] = {
+            'side': pos.get('side'),
+            'quantity': float(pos.get('quantity') or 0),
+            'entry_price': float(pos.get('avg_price') or pos.get('entry_price') or 0),
+            'current_price': float(pos.get('current_price') or 0),
+            'market_value': float(pos.get('market_value') or 0),
+            'leverage': float(pos.get('leverage') or 1),
+            'unrealized_pnl': float(pos.get('unrealized_pnl') or 0),
+            'unrealized_pnl_pct': float(pos.get('unrealized_pnl_pct') or 0),
+        } if pos else None
+
+        st = evo_states.get((b.get('strategy'), b.get('symbol'))) or {}
+        b['evolution'] = {
+            'generation': int(st.get('generation') or 0),
+            'auto_apply': True if st.get('auto_apply') is None else bool(st.get('auto_apply')),
+            'status': st.get('status') or 'active',
+        }
 
     return jsonify({'success': True, 'bots': [_publicise_bot(b) for b in bots]})
 

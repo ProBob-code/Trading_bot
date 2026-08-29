@@ -5725,76 +5725,127 @@ function toggleBotCard(botId) {
     if (open) openBotCards.add(botId); else openBotCards.delete(botId);
 }
 
+/** Money, with the sign in front of the symbol rather than after it. */
+function botMoney(v, dp = 2) {
+    const n = Number(v || 0);
+    return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString(undefined,
+        { minimumFractionDigits: dp, maximumFractionDigits: dp });
+}
+
+function botRow(label, value, cls, note) {
+    return `<div class="bd-row">
+        <span class="bd-label">${label}</span>
+        <span class="bd-value ${cls || ''}">${value}${
+            note ? `<span class="bd-note">${note}</span>` : ''}</span>
+    </div>`;
+}
+
 /**
- * Per-bot scorecard: how often it wins, how often it loses, and what each is
- * worth. Rates are shown from the first closed trade; the sample they are drawn
- * from sits under each one, so a figure can always be read against the number
- * of trades behind it.
+ * The detail behind a bot: what it is holding, how it has actually performed,
+ * the exit levels currently protecting it, and what it has learned.
+ *
+ * Laid out as label/value rows rather than a grid of tiles. Four tiles across a
+ * card this narrow truncated every value it held — "PROFIT FA", "$355…" — which
+ * is worse than not showing the number at all.
  */
-function botScorecard(stats) {
+function botDetails(bot, stats) {
     const closed = Number(stats.closed_trades || 0);
+    const pos = bot.position;
+    const evo = bot.evolution || {};
+
+    // ── What is at risk right now ──
+    const position = pos ? `
+        <div class="bd-position ${pos.side === 'LONG' ? 'long' : 'short'}">
+            <div class="bd-pos-head">
+                <span class="bd-pos-side">${pos.side}</span>
+                <span class="bd-pos-qty">${pos.quantity} ${bot.symbol}</span>
+                ${Number(pos.leverage) > 1 ? `<span class="bd-pos-lev">${pos.leverage}x</span>` : ''}
+            </div>
+            <div class="bd-pos-body">
+                <span>entry ${Number(pos.entry_price).toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
+                <span>now ${Number(pos.current_price).toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
+                <span class="${Number(pos.unrealized_pnl) >= 0 ? 'bd-pos' : 'bd-neg'}">
+                    ${botMoney(pos.unrealized_pnl)} (${Number(pos.unrealized_pnl_pct).toFixed(2)}%)
+                </span>
+            </div>
+        </div>`
+        : `<div class="bd-position flat">Flat — nothing at risk right now.</div>`;
+
     if (!closed) {
-        return `<div class="bot-score empty">No closed trades yet — win rate appears once it completes one.</div>`;
+        return `<div class="bot-detail">
+            ${position}
+            <div class="bd-empty">No completed trades yet. Win rate, profit factor and
+                expectancy appear as soon as this bot closes one.</div>
+            ${botSettingsBlock(bot, evo)}
+        </div>`;
     }
 
     const wins = Number(stats.wins || 0);
     const losses = Number(stats.losses || 0);
+    const be = Number(stats.breakeven || 0);
     const winRate = Number(stats.win_rate || 0);
-    const lossRate = Number(stats.loss_rate || 0);
-    const breakeven = Number(stats.breakeven || 0);
     const avgWin = Number(stats.avg_win || 0);
     const avgLoss = Number(stats.avg_loss || 0);
+    const expectancy = Number(stats.expectancy || 0);
 
-    // null means UNDEFINED — nothing has been lost, so there is no ratio to
-    // give. 0 is a real answer: it has lost and never won. Those read as
-    // opposites to a user, so they must not render the same way. Collapsing
-    // both to 0 is why a bot with four losses and no wins said "no losses yet".
     const pfRaw = stats.profit_factor;
     const pfUndefined = pfRaw === null || pfRaw === undefined;
     const pf = Number(pfRaw || 0);
     let pfText, pfNote, pfClass;
     if (pfUndefined) {
         pfText = wins > 0 ? '\u221e' : '\u2014';
-        pfNote = wins > 0 ? 'no losses yet' : 'nothing won or lost';
-        pfClass = wins > 0 ? 'good' : '';
+        pfNote = wins > 0 ? 'nothing lost yet' : 'nothing won or lost';
+        pfClass = wins > 0 ? 'bd-pos' : '';
     } else if (pf === 0) {
-        pfText = '0.00';
-        pfNote = 'no winning trades';
-        pfClass = 'bad';
+        pfText = '0.00'; pfNote = 'no winning trades'; pfClass = 'bd-neg';
     } else {
         pfText = pf.toFixed(2);
-        pfNote = pf >= 1 ? 'earning' : 'losing';
-        pfClass = pf >= 1 ? 'good' : 'bad';
+        pfNote = pf >= 1 ? 'wins outweigh losses' : 'losses outweigh wins';
+        pfClass = pf >= 1 ? 'bd-pos' : 'bd-neg';
     }
 
-    const cls = winRate >= 50 ? 'good' : 'bad';
-    const tally = `${wins}W / ${losses}L${breakeven ? ` / ${breakeven}BE` : ''}`;
+    return `<div class="bot-detail">
+        ${position}
 
+        <div class="bd-section">Performance</div>
+        ${botRow('Win rate', winRate.toFixed(1) + '%',
+                 winRate >= 50 ? 'bd-pos' : 'bd-neg',
+                 `${wins}W · ${losses}L${be ? ` · ${be} flat` : ''} of ${closed}`)}
+        ${botRow('Profit factor', pfText, pfClass, pfNote)}
+        ${botRow('Per trade', botMoney(expectancy),
+                 expectancy >= 0 ? 'bd-pos' : 'bd-neg',
+                 'average outcome, after costs')}
+        ${botRow('Average win', botMoney(avgWin), 'bd-pos',
+                 avgLoss > 0 ? `${(avgWin / avgLoss).toFixed(2)}x the average loss` : '')}
+        ${botRow('Average loss', botMoney(-avgLoss), 'bd-neg')}
+        ${botRow('Best trade', botMoney(stats.best_trade), 'bd-pos')}
+        ${botRow('Worst trade', botMoney(stats.worst_trade), 'bd-neg')}
+        ${botRow('Realised', botMoney(stats.net_pnl != null ? stats.net_pnl : stats.realized_pnl),
+                 Number(stats.net_pnl != null ? stats.net_pnl : stats.realized_pnl) >= 0 ? 'bd-pos' : 'bd-neg',
+                 `after ${botMoney(stats.entry_commission)} entry commission`)}
+
+        ${botSettingsBlock(bot, evo)}
+    </div>`;
+}
+
+/** The exit levels actually in force, which evolution may have moved. */
+function botSettingsBlock(bot, evo) {
+    const gen = Number(evo.generation || 0);
     return `
-        <div class="bot-score">
-            <div class="bot-score-grid">
-                <div class="bs-cell">
-                    <span class="bs-k">Win rate</span>
-                    <span class="bs-v ${cls}">${winRate.toFixed(1)}%</span>
-                    <span class="bs-sub"${breakeven ? ' title="BE = closed exactly flat"' : ''}>${tally}</span>
-                </div>
-                <div class="bs-cell">
-                    <span class="bs-k">Loss rate</span>
-                    <span class="bs-v ${lossRate > 50 ? 'bad' : ''}">${lossRate.toFixed(1)}%</span>
-                    <span class="bs-sub">of ${closed} closed</span>
-                </div>
-                <div class="bs-cell">
-                    <span class="bs-k">Win : Loss</span>
-                    <span class="bs-v">${avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '—'}</span>
-                    <span class="bs-sub" title="Average win vs average loss">$${avgWin.toFixed(2)} vs $${avgLoss.toFixed(2)}</span>
-                </div>
-                <div class="bs-cell">
-                    <span class="bs-k">Profit factor</span>
-                    <span class="bs-v ${pfClass}">${pfText}</span>
-                    <span class="bs-sub">${pfNote}</span>
-                </div>
-            </div>
-        </div>`;
+        <div class="bd-section">Settings in force</div>
+        ${botRow('Take profit', (bot.take_profit ?? '—') + '%')}
+        ${botRow('Stop loss', (bot.stop_loss ?? '—') + '%')}
+        ${botRow('Position size', (bot.position_size ?? '—') + '%',
+                 '', `max ${bot.max_quantity ?? '—'} · ${bot.leverage || 1}x`)}
+        ${botRow('Timeframe', bot.interval || '—', '', 'set by the strategy')}
+
+        <div class="bd-section">Learning</div>
+        ${botRow('Generation', gen,
+                 gen > 0 ? 'bd-pos' : '',
+                 gen > 0 ? 'lessons applied so far' : 'no lesson applied yet')}
+        ${botRow('Autopilot', evo.auto_apply ? 'On' : 'Off',
+                 evo.auto_apply ? 'bd-pos' : '',
+                 evo.status === 'paused' ? 'changes held' : '')}`;
 }
 
 async function loadAndRenderBots() {
@@ -5863,22 +5914,24 @@ async function loadAndRenderBots() {
                         <div class="bot-header">
                             <span class="bot-symbol">${bot.symbol || 'N/A'}</span>
                             <span class="bot-status ${isRunning ? 'running' : 'stopped'}">${bot.status || 'unknown'}</span>
+                            <i class="fas fa-chevron-down bot-caret"></i>
                         </div>
                         <div class="bot-meta">
-                            Strategy: <strong>${bot.strategy_name || getStrategyName(bot.strategy)}</strong> · ${bot.interval || '1m'} · ${bot.mode || 'paper'}
-                            <span style="color:${sens.color}; font-weight:600;"> · ${sens.label}</span>
+                            <strong>${bot.strategy_name || getStrategyName(bot.strategy)}</strong>
+                            <span class="bot-meta-sep">·</span>${bot.interval || '1m'}
+                            <span class="bot-meta-sep">·</span>${bot.mode || 'paper'}
+                            <span class="bot-meta-sep">·</span><span style="color:${sens.color}; font-weight:600;">${sens.label}</span>
                         </div>
                         <div class="bot-stats">
-                            <span class="${pnlClass}" title="${pnlTitle}">${pnlSign}$${pnl.toFixed(2)}</span>
-                            <span style="color:var(--text-muted);"
-                                  title="${closed} completed round-trips out of ${tradeCount} ledger events (entries, adds and exits)">Trades: ${closed}</span>
+                            <span class="bot-pnl-big ${pnlClass}" title="${pnlTitle}">${pnlSign}$${Math.abs(pnl).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                            <span class="bot-trades"
+                                  title="${closed} completed round-trips out of ${tradeCount} ledger events (entries, adds and exits)">${closed} trade${closed === 1 ? '' : 's'}</span>
                             ${peek}
-                            <i class="fas fa-chevron-down bot-caret"></i>
                         </div>
                     </div>
                     <div class="bot-card-body">
-                        ${botScorecard(stats)}
-                        ${isRunning ? `<button class="bot-stop-btn" onclick="stopBotById('${bot.bot_id}')"><i class="fas fa-stop"></i> STOP</button>` : ''}
+                        ${botDetails(bot, stats)}
+                        ${isRunning ? `<button class="bot-stop-btn" onclick="stopBotById('${bot.bot_id}')"><i class="fas fa-stop"></i> STOP BOT</button>` : ''}
                     </div>
                 </div>
             `;

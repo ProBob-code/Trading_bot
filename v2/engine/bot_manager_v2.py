@@ -109,6 +109,13 @@ class V2TradingBot:
             'leverage': self.config.leverage,
             'risk_pct': self.config.risk_pct,
             'sensitivity': self.config.sensitivity,
+            # The exit levels this bot is ACTUALLY running with. Evolution can
+            # move them after the bot starts, so the Command Deck's inputs are
+            # not a reliable answer to "what is protecting this position?".
+            'take_profit': self.config.take_profit,
+            'stop_loss': self.config.stop_loss,
+            'position_size': self.config.position_size,
+            'max_quantity': self.config.max_quantity,
             'status': self.status.value,
             'disable_reason': self.disable_reason,
             'stats': {
