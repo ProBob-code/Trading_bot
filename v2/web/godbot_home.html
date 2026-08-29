@@ -659,6 +659,21 @@
                         <input type="text" id="customStratName" placeholder="e.g. My RSI Momentum">
                     </div>
                     <div class="field-group">
+                        <label>Timeframe</label>
+                        <!-- A custom strategy owns its timeframe the same way a
+                             built-in one does; it is chosen here, once, and the
+                             Command Deck then shows it read-only. -->
+                        <select id="customStratInterval">
+                            <option value="1m">1 Minute</option>
+                            <option value="5m">5 Minutes</option>
+                            <option value="15m" selected>15 Minutes</option>
+                            <option value="30m">30 Minutes</option>
+                            <option value="1h">1 Hour</option>
+                            <option value="4h">4 Hours</option>
+                            <option value="1d">1 Day</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
                         <label>Indicators</label>
                         <div class="indicator-chips" id="indicatorChips">
                             <span class="indicator-chip" data-indicator="rsi">RSI</span>

@@ -4167,10 +4167,9 @@ const INTERVAL_LABELS = {
 
 /** The timeframe the selected strategy trades on. Read-only by design. */
 function intervalForStrategy(strategyId) {
-    // A custom strategy runs on the generalist engine, so it inherits its pace.
-    if (!strategyId || String(strategyId).startsWith('custom:')) {
-        return STRATEGY_INTERVALS['GBX-01'] || '15m';
-    }
+    if (!strategyId) return STRATEGY_INTERVALS['GBX-01'] || '15m';
+    // A custom strategy executes on the generalist engine but keeps the
+    // timeframe its author chose in the Forge.
     return STRATEGY_INTERVALS[strategyId] || '15m';
 }
 
@@ -4191,30 +4190,44 @@ async function loadStrategies() {
         const data = await res.json();
         if (!data.success) return;
 
+        const prev = sel.value;
         sel.innerHTML = '';
+
+        // Both groups are labelled. Only the custom one used to be, so the
+        // built-ins read as the whole list and the split was invisible until
+        // you already knew it was there.
+        const builtIn = document.createElement('optgroup');
+        builtIn.label = '📦 Built-in strategies';
         data.strategies.forEach(s => {
             const opt = document.createElement('option');
             opt.value = s.id;
             opt.textContent = `${s.icon || '📌'} ${s.name}`;
-            sel.appendChild(opt);
+            builtIn.appendChild(opt);
             // The timeframe is the strategy's, not the user's — the Command
             // Deck displays it instead of offering a dropdown.
             if (s.interval) STRATEGY_INTERVALS[s.id] = s.interval;
         });
+        sel.appendChild(builtIn);
 
-        // Merge custom strategies from localStorage
         const custom = getCustomStrategies();
         if (custom.length > 0) {
             const group = document.createElement('optgroup');
-            group.label = '🔧 Custom Strategies';
+            group.label = `🔧 Your custom strategies (${custom.length})`;
             custom.forEach(cs => {
                 const opt = document.createElement('option');
                 opt.value = `custom:${cs.id}`;
                 opt.textContent = `🔧 ${cs.name}`;
                 group.appendChild(opt);
+                // A custom strategy keeps the timeframe chosen in the Forge.
+                STRATEGY_INTERVALS[`custom:${cs.id}`] = cs.interval || '15m';
             });
             sel.appendChild(group);
         }
+
+        // loadCustomStrategies() re-runs this once the server copy arrives;
+        // without restoring the selection it would silently jump back to the
+        // first built-in while the user was choosing.
+        if (prev && sel.querySelector(`option[value="${CSS.escape(prev)}"]`)) sel.value = prev;
 
         showStrategyInterval(sel.value);
         console.log(`[V2] Loaded ${data.strategies.length} strategies + ${custom.length} custom`);
@@ -4251,8 +4264,12 @@ async function startBotFromUI() {
     try {
         // For custom strategies, use 'combined' as the backend strategy
         let backendStrategy = strategy;
+        let customStrategyId = null;
         if (strategy.startsWith('custom:')) {
             backendStrategy = 'combined';
+            // Passed alongside so the server can honour the timeframe chosen in
+            // the Forge instead of the generalist engine's own.
+            customStrategyId = strategy.slice('custom:'.length);
         }
 
         const res = await fetch('/api/v2/start-bot', {
@@ -4261,6 +4278,7 @@ async function startBotFromUI() {
             body: JSON.stringify({
                 symbol,
                 strategy: backendStrategy,
+                custom_strategy_id: customStrategyId,
                 interval,
                 market,
                 mode: state.tradingMode || 'paper',
@@ -5689,6 +5707,20 @@ function updateSensitivityHelp(value) {
     if (el) el.innerHTML = info.help;
 }
 
+// Which bot cards are expanded. Kept outside the render so the 5s refresh
+// cannot fold a card shut while the user is reading it.
+const openBotCards = new Set();
+
+function toggleBotCard(botId) {
+    const card = document.querySelector(`.bot-card-item[data-bot="${botId}"]`);
+    if (!card) return;
+    const open = !card.classList.contains('open');
+    card.classList.toggle('open', open);
+    const head = card.querySelector('.bot-card-head');
+    if (head) head.setAttribute('aria-expanded', String(open));
+    if (open) openBotCards.add(botId); else openBotCards.delete(botId);
+}
+
 /**
  * Per-bot scorecard: how often it wins, how often it loses, and what each is
  * worth. Rates are shown from the first closed trade; the sample they are drawn
@@ -5705,10 +5737,34 @@ function botScorecard(stats) {
     const losses = Number(stats.losses || 0);
     const winRate = Number(stats.win_rate || 0);
     const lossRate = Number(stats.loss_rate || 0);
-    const pf = Number(stats.profit_factor || 0);
+    const breakeven = Number(stats.breakeven || 0);
     const avgWin = Number(stats.avg_win || 0);
     const avgLoss = Number(stats.avg_loss || 0);
+
+    // null means UNDEFINED — nothing has been lost, so there is no ratio to
+    // give. 0 is a real answer: it has lost and never won. Those read as
+    // opposites to a user, so they must not render the same way. Collapsing
+    // both to 0 is why a bot with four losses and no wins said "no losses yet".
+    const pfRaw = stats.profit_factor;
+    const pfUndefined = pfRaw === null || pfRaw === undefined;
+    const pf = Number(pfRaw || 0);
+    let pfText, pfNote, pfClass;
+    if (pfUndefined) {
+        pfText = wins > 0 ? '\u221e' : '\u2014';
+        pfNote = wins > 0 ? 'no losses yet' : 'nothing won or lost';
+        pfClass = wins > 0 ? 'good' : '';
+    } else if (pf === 0) {
+        pfText = '0.00';
+        pfNote = 'no winning trades';
+        pfClass = 'bad';
+    } else {
+        pfText = pf.toFixed(2);
+        pfNote = pf >= 1 ? 'earning' : 'losing';
+        pfClass = pf >= 1 ? 'good' : 'bad';
+    }
+
     const cls = winRate >= 50 ? 'good' : 'bad';
+    const tally = `${wins}W / ${losses}L${breakeven ? ` / ${breakeven}BE` : ''}`;
 
     return `
         <div class="bot-score">
@@ -5716,7 +5772,7 @@ function botScorecard(stats) {
                 <div class="bs-cell">
                     <span class="bs-k">Win rate</span>
                     <span class="bs-v ${cls}">${winRate.toFixed(1)}%</span>
-                    <span class="bs-sub">${wins}W / ${losses}L</span>
+                    <span class="bs-sub"${breakeven ? ' title="BE = closed exactly flat"' : ''}>${tally}</span>
                 </div>
                 <div class="bs-cell">
                     <span class="bs-k">Loss rate</span>
@@ -5726,12 +5782,12 @@ function botScorecard(stats) {
                 <div class="bs-cell">
                     <span class="bs-k">Win : Loss</span>
                     <span class="bs-v">${avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '—'}</span>
-                    <span class="bs-sub">$${avgWin.toFixed(2)} vs $${avgLoss.toFixed(2)}</span>
+                    <span class="bs-sub" title="Average win vs average loss">$${avgWin.toFixed(2)} vs $${avgLoss.toFixed(2)}</span>
                 </div>
                 <div class="bs-cell">
                     <span class="bs-k">Profit factor</span>
-                    <span class="bs-v ${pf >= 1 ? 'good' : pf > 0 ? 'bad' : ''}">${pf > 0 ? pf.toFixed(2) : '—'}</span>
-                    <span class="bs-sub">${pf >= 1 ? 'earning' : pf > 0 ? 'losing' : 'no losses yet'}</span>
+                    <span class="bs-v ${pfClass}">${pfText}</span>
+                    <span class="bs-sub">${pfNote}</span>
                 </div>
             </div>
         </div>`;
@@ -5782,22 +5838,40 @@ async function loadAndRenderBots() {
             const pnlTitle = `Realized: ${pnlSign}$${realizedPnl.toFixed(2)} · Unrealized: $${unrealizedPnl.toFixed(2)}`;
             const sens = SENSITIVITY_INFO[bot.sensitivity] || SENSITIVITY_INFO.conservative;
 
+            // The scorecard is detail, not glanceable state — it stays folded
+            // until asked for, so four bots still fit on one screen.
+            const key = bot.bot_id;
+            const isOpen = openBotCards.has(key);
+            const closed = Number(stats.closed_trades || 0);
+            const winRate = Number(stats.win_rate || 0);
+            const peek = closed
+                ? `<span class="bot-peek ${winRate >= 50 ? 'good' : 'bad'}">${winRate.toFixed(0)}% win</span>`
+                : '';
+
             return `
-                <div class="bot-card-item ${isRunning ? '' : 'stopped'}">
-                    <div class="bot-header">
-                        <span class="bot-symbol">${bot.symbol || 'N/A'}</span>
-                        <span class="bot-status ${isRunning ? 'running' : 'stopped'}">${bot.status || 'unknown'}</span>
+                <div class="bot-card-item ${isRunning ? '' : 'stopped'} ${isOpen ? 'open' : ''}" data-bot="${key}">
+                    <div class="bot-card-head" onclick="toggleBotCard('${key}')"
+                         role="button" tabindex="0" aria-expanded="${isOpen}"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleBotCard('${key}');}">
+                        <div class="bot-header">
+                            <span class="bot-symbol">${bot.symbol || 'N/A'}</span>
+                            <span class="bot-status ${isRunning ? 'running' : 'stopped'}">${bot.status || 'unknown'}</span>
+                        </div>
+                        <div class="bot-meta">
+                            Strategy: <strong>${bot.strategy_name || getStrategyName(bot.strategy)}</strong> · ${bot.interval || '1m'} · ${bot.mode || 'paper'}
+                            <span style="color:${sens.color}; font-weight:600;"> · ${sens.label}</span>
+                        </div>
+                        <div class="bot-stats">
+                            <span class="${pnlClass}" title="${pnlTitle}">${pnlSign}$${pnl.toFixed(2)}</span>
+                            <span style="color:var(--text-muted);">Trades: ${tradeCount}</span>
+                            ${peek}
+                            <i class="fas fa-chevron-down bot-caret"></i>
+                        </div>
                     </div>
-                    <div class="bot-meta">
-                        Strategy: <strong>${bot.strategy_name || getStrategyName(bot.strategy)}</strong> · ${bot.interval || '1m'} · ${bot.mode || 'paper'}
-                        <span style="color:${sens.color}; font-weight:600;"> · ${sens.label}</span>
+                    <div class="bot-card-body">
+                        ${botScorecard(stats)}
+                        ${isRunning ? `<button class="bot-stop-btn" onclick="stopBotById('${bot.bot_id}')"><i class="fas fa-stop"></i> STOP</button>` : ''}
                     </div>
-                    <div class="bot-stats">
-                        <span class="${pnlClass}" title="${pnlTitle}">${pnlSign}$${pnl.toFixed(2)}</span>
-                        <span style="color:var(--text-muted);">Trades: ${tradeCount}</span>
-                    </div>
-                    ${botScorecard(stats)}
-                    ${isRunning ? `<button class="bot-stop-btn" onclick="stopBotById('${bot.bot_id}')"><i class="fas fa-stop"></i> STOP</button>` : ''}
                 </div>
             `;
         }).join('');
@@ -5890,8 +5964,11 @@ function saveCustomStrategy() {
         return;
     }
 
+    const interval = document.getElementById('customStratInterval')?.value || '15m';
+
     const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
-    const strategy = { id, name, indicators, buyConditions, sellConditions, createdAt: new Date().toISOString() };
+    const strategy = { id, name, interval, indicators, buyConditions, sellConditions,
+                       createdAt: new Date().toISOString() };
 
     const strategies = getCustomStrategies().slice();
     strategies.push(strategy);
@@ -5900,7 +5977,7 @@ function saveCustomStrategy() {
     // Server copy — this is what makes it available for training and on
     // another device.
     persistCustomStrategy(strategy).then(ok => {
-        if (ok) showNotification(`💾 Strategy "${name}" saved`);
+        if (ok) showNotification(`💾 "${name}" saved — pick it under Your custom strategies`);
     });
 
     // Refresh UI
@@ -5942,7 +6019,7 @@ function renderSavedStrategies() {
         <div class="saved-strategy-item">
             <div>
                 <span class="strategy-name">🔧 ${s.name}</span>
-                <span style="color:var(--text-muted); margin-left:8px; font-size:10px;">${s.indicators?.join(', ') || ''}</span>
+                <span style="color:var(--text-muted); margin-left:8px; font-size:10px;">${s.interval || '15m'} · ${s.indicators?.join(', ') || ''}</span>
             </div>
             <button class="delete-btn" onclick="deleteCustomStrategy('${s.id}')" title="Delete">✕</button>
         </div>

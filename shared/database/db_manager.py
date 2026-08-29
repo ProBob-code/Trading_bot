@@ -2128,15 +2128,21 @@ class DatabaseManager:
                     'closed_trades': closed,
                     'wins': wins,
                     'losses': losses,
+                    # A close can land exactly flat. Without this the card shows
+                    # "2W / 3L" against "8 closed" and the missing three look
+                    # like an accounting error rather than break-even trades.
+                    'breakeven': max(0, closed - wins - losses),
                     'win_rate': (wins / closed * 100) if closed else 0.0,
                     'loss_rate': (losses / closed * 100) if closed else 0.0,
                     'gross_profit': gross_profit,
                     'gross_loss': gross_loss,
                     'avg_win': (gross_profit / wins) if wins else 0.0,
                     'avg_loss': (gross_loss / losses) if losses else 0.0,
-                    # Undefined with no losing trade; 0 keeps it sortable and
-                    # JSON-safe rather than serialising infinity.
-                    'profit_factor': (gross_profit / gross_loss) if gross_loss else 0.0,
+                    # None means UNDEFINED (nothing was lost, so there is no
+                    # ratio), which is a different fact from 0.0 (nothing was
+                    # won). Collapsing both to 0.0 made a bot that had only ever
+                    # lost report "no losses yet".
+                    'profit_factor': (gross_profit / gross_loss) if gross_loss else None,
                 }
             return stats
         except Exception as e:
