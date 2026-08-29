@@ -151,6 +151,10 @@ const UI = {
         }
         if (tradeCount && account.total_trades !== undefined) {
             tradeCount.textContent = account.total_trades;
+            // Completed round-trips. The raw row count is entries and adds too.
+            tradeCount.title = account.ledger_events !== undefined
+                ? `${account.total_trades} completed trades · ${account.ledger_events} ledger events (entries, adds and exits)`
+                : '';
             state.tradeCount = account.total_trades;
         }
     },

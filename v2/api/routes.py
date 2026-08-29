@@ -1915,14 +1915,18 @@ def v2_account():
     v2_paper_trader.ensure_loaded(current_user.id, db_manager)
     info = v2_paper_trader.get_account_info(current_user.id)
     
-    # Fetch total trade count from DB (persisted) instead of just in-memory simulation history
-    total_trades = db_manager.v2_get_total_trade_count(user_id=current_user.id)
+    # The headline counter means COMPLETED ROUND-TRIPS, the same unit the bot
+    # cards and the admin console use. Counting every ledger row instead put 976
+    # in the top bar beside an account that had closed 202 trades.
+    total_trades = db_manager.v2_get_closed_trade_count(current_user.id)
+    ledger_events = db_manager.v2_get_total_trade_count(user_id=current_user.id)
     
     # Frontend expects 'total_value' and 'buying_power' — alias from V2 fields
     info.setdefault('total_value', info.get('equity', 100000))
     info.setdefault('buying_power', info.get('available_margin', 100000))
     info.setdefault('pnl', info.get('total_pnl', 0))
     info['total_trades'] = total_trades
+    info['ledger_events'] = ledger_events
     
     return jsonify({'success': True, **info})
 

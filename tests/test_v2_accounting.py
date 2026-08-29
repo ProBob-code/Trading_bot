@@ -227,6 +227,98 @@ class TestSurfacesReconcile(V2AccountingBase):
                          sum(v['closed_trades'] for v in pairs.values()))
 
 
+class TestEverySurfaceReconciles(V2AccountingBase):
+    """The invariant the whole dashboard rests on.
+
+    Built from a ledger with the same SHAPE as real data — opens, position
+    adds, flips written as CLOSE+REVERSAL pairs, stop-outs and take-profits,
+    spread over several strategy/symbol pairs. Verified once against a real
+    976-row production ledger; this keeps that result from regressing.
+    """
+
+    def _seed_realistic_ledger(self):
+        """Returns (closed, wins, pnl_sum, entry_commission)."""
+        plan = [
+            ('ichimoku', 'BTCUSDT', [12.0, -5.0, 30.0, -8.0]),
+            ('ichimoku', 'ETHUSDT', [-3.0, -9.0, 4.0]),
+            ('bollinger', 'SOLUSDT', [7.0, 7.0, -2.0, 0.0]),   # includes a break-even
+            ('ml_forecast', 'ETHUSDT', [-15.0]),
+        ]
+        comm = 0.25
+        closed = wins = 0
+        pnl_sum = entry_comm = 0.0
+
+        for strategy, symbol, pnls in plan:
+            kw = dict(strategy=strategy, symbol=symbol,
+                      bot_id='bot_%s_%s' % (strategy, symbol))
+            self.row('OPEN', 0.0, comm, **kw)
+            entry_comm += comm
+            self.row('INCREASE', 0.0, comm, **kw)      # adds carry no outcome
+            entry_comm += comm
+
+            for i, pnl in enumerate(pnls):
+                if i % 2 == 0:                          # a flip: two rows, one trade
+                    self.row('CLOSE', pnl, comm, **kw)
+                    self.row('REVERSAL', 0.0, comm, **kw)
+                    entry_comm += comm
+                else:
+                    self.row('STOP_LOSS' if pnl < 0 else 'TAKE_PROFIT', pnl, comm, **kw)
+                pnl_sum += pnl
+                closed += 1
+                wins += 1 if pnl > 0 else 0
+
+        return closed, wins, pnl_sum, entry_comm
+
+    def test_all_surfaces_agree(self):
+        closed, wins, pnl_sum, entry_comm = self._seed_realistic_ledger()
+        realized = pnl_sum - entry_comm
+
+        # Headline counter counts round-trips, not rows.
+        self.assertEqual(db_manager.v2_get_closed_trade_count(self.uid), closed)
+        self.assertGreater(db_manager.v2_get_total_trade_count(user_id=self.uid), closed)
+
+        # Balance.
+        trader = PaperTraderV2(initial_capital=100000)
+        trader.load_positions(self.uid, db_manager)
+        equity = trader.get_account_info(self.uid)['equity']
+        self.assertAlmostEqual(equity, 100000 + realized, places=2)
+
+        # Admin, and its agreement with the balance.
+        admin = db_manager.admin_user_trade_stats()[self.uid]
+        self.assertEqual(admin['closed_trades'], closed)
+        self.assertEqual(admin['wins'], wins)
+        self.assertAlmostEqual(admin['net_pnl'], realized, places=2)
+        self.assertAlmostEqual(admin['net_pnl'], equity - 100000, places=2)
+
+        # Bot cards sum to the account.
+        pairs = db_manager.v2_get_pair_ledger_stats(self.uid)
+        self.assertEqual(sum(v['closed_trades'] for v in pairs.values()), closed)
+        self.assertEqual(sum(v['wins'] for v in pairs.values()), wins)
+        self.assertAlmostEqual(sum(v['realized_pnl'] for v in pairs.values()),
+                               pnl_sum, places=2)
+
+        # Admin strategy usage matches the same pairs.
+        usage = [r for r in db_manager.admin_strategy_usage()
+                 if r['user_id'] == self.uid]
+        self.assertEqual(len(usage), len(pairs))
+        self.assertEqual(sum(r['closed_trades'] for r in usage), closed)
+
+        # Evolution reads the same trades the cards do — per pair, not just in
+        # total, so an offsetting pair of errors cannot hide.
+        for (strategy, symbol), card in pairs.items():
+            row = next(r for r in usage
+                       if r['strategy'] == strategy and r['symbol'] == symbol)
+            metrics = evolution_engine.compute_metrics(
+                db_manager.v2_get_closed_trades_for_eval(
+                    self.uid, strategy, symbol, limit=100000))
+            self.assertEqual(card['closed_trades'], row['closed_trades'],
+                             '%s/%s: card vs admin' % (strategy, symbol))
+            self.assertEqual(card['closed_trades'], metrics['closed_trades'],
+                             '%s/%s: card vs evolution' % (strategy, symbol))
+            self.assertAlmostEqual(card['win_rate'], row['win_rate'], places=6)
+            self.assertAlmostEqual(card['win_rate'], metrics['win_rate'], places=6)
+
+
 class TestStrategyOwnsItsTimeframe(unittest.TestCase):
     """The interval is a property of the strategy, not a user preference."""
 

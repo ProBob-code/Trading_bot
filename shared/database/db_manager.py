@@ -1465,6 +1465,31 @@ class DatabaseManager:
         finally:
             self._safe_close(conn, cursor)
 
+    def v2_get_closed_trade_count(self, user_id: int) -> int:
+        """Completed round-trips — what a trader means by "trades".
+
+        Distinct from v2_get_total_trade_count, which counts every ledger ROW
+        (entries and position adds included) and is what the trade list
+        paginates over. The headline counter must use this one, or it reports
+        976 beside an admin console showing 202.
+        """
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor()
+            self._execute(cursor,
+                          "SELECT COUNT(*) FROM v2_trade_ledger "
+                          "WHERE user_id = %s AND action IN ({CLOSING_SQL})",
+                          (user_id,))
+            row = cursor.fetchone()
+            return int(row[0]) if row else 0
+        except Exception as e:
+            logger.warning(f"[V2-LEDGER] closed count failed: {e}")
+            return 0
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
     def v2_get_total_trade_count(self, user_id: int, session_id: Optional[str] = None, 
                                  strategy: Optional[str] = None, 
                                  start_date: Optional[str] = None, 
