@@ -5842,6 +5842,9 @@ async function loadAndRenderBots() {
             // until asked for, so four bots still fit on one screen.
             const key = bot.bot_id;
             const isOpen = openBotCards.has(key);
+            // "Trades" means completed round-trips. tradeCount counts every
+            // ledger row — entries and position adds included — which is why a
+            // bot could read "Trades: 48" beside "2 closed".
             const closed = Number(stats.closed_trades || 0);
             const winRate = Number(stats.win_rate || 0);
             const peek = closed
@@ -5863,7 +5866,8 @@ async function loadAndRenderBots() {
                         </div>
                         <div class="bot-stats">
                             <span class="${pnlClass}" title="${pnlTitle}">${pnlSign}$${pnl.toFixed(2)}</span>
-                            <span style="color:var(--text-muted);">Trades: ${tradeCount}</span>
+                            <span style="color:var(--text-muted);"
+                                  title="${closed} completed round-trips out of ${tradeCount} ledger events (entries, adds and exits)">Trades: ${closed}</span>
                             ${peek}
                             <i class="fas fa-chevron-down bot-caret"></i>
                         </div>

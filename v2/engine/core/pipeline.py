@@ -8,6 +8,7 @@ through the modular decision flow.
 
 from typing import Dict, Any, List
 from loguru import logger
+from shared.logic.trade_actions import CLOSING_ACTIONS
 import datetime
 
 class TradingPipelineV2:
@@ -211,7 +212,7 @@ class TradingPipelineV2:
             self.db.v2_save_trade(record)
             
             # Atomically update session counters if it was a closing or reversal action
-            if res.get('action') in ('CLOSE', 'STOP_LOSS', 'TAKE_PROFIT', 'REVERSAL'):
+            if res.get('action') in CLOSING_ACTIONS:
                 self.db.v2_update_session_counters(current_session, pnl)
 
                 # ── Evolution: learn from this closed trade ──

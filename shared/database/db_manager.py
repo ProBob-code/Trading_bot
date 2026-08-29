@@ -2,6 +2,8 @@ import mysql.connector
 from mysql.connector import Error
 import os
 from datetime import datetime, timezone
+
+from shared.logic.trade_actions import sql_in_list
 from loguru import logger
 from typing import Dict, List, Optional, Any
 import sqlite3
@@ -210,7 +212,15 @@ class DatabaseManager:
             raise e
 
     def _clean_sql(self, sql: str) -> str:
-        """Adjust SQL syntax for SQLite if needed."""
+        """Adjust SQL syntax for SQLite, and expand the action taxonomy."""
+        # {CLOSING_SQL} expands to the closing-action IN list. Queries carry the
+        # placeholder instead of a hand-typed list so the definition of "a
+        # closed trade" lives in one module and cannot drift between the eleven
+        # queries that depend on it. Applies to both backends, so it must run
+        # before the SQLite-only early return below.
+        if '{CLOSING_SQL}' in sql:
+            sql = sql.replace('{CLOSING_SQL}', sql_in_list())
+
         if not self.use_sqlite:
             return sql
             
@@ -1504,7 +1514,7 @@ class DatabaseManager:
                 SELECT action, pnl, commission, price, timestamp, symbol
                 FROM v2_trade_ledger
                 WHERE user_id = %s AND strategy = %s
-                  AND action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                  AND action IN ({CLOSING_SQL})
             """
             params = [user_id, strategy]
             if symbol and symbol != 'ALL':
@@ -1825,7 +1835,7 @@ class DatabaseManager:
             cursor = conn.cursor() if self.use_sqlite else conn.cursor(dictionary=True)
             q = ("SELECT action, pnl, timestamp, symbol, strategy FROM v2_trade_ledger "
                  "WHERE user_id = %s "
-                 "AND action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')")
+                 "AND action IN ({CLOSING_SQL})")
             params = [user_id]
             if strategy:
                 q += " AND strategy = %s"
@@ -1957,11 +1967,11 @@ class DatabaseManager:
             self._execute(cursor, """
                 SELECT user_id,
                        COUNT(*) AS total_events,
-                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
                                 THEN 1 ELSE 0 END) AS closed_trades,
-                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
                                  AND pnl > 0 THEN 1 ELSE 0 END) AS wins,
-                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
                                  AND pnl < 0 THEN 1 ELSE 0 END) AS losses,
                        SUM(COALESCE(pnl, 0)) AS total_pnl,
                        SUM(COALESCE(commission, 0)) AS total_commission,
@@ -2004,9 +2014,9 @@ class DatabaseManager:
             self._execute(cursor, """
                 SELECT user_id, strategy, symbol,
                        COUNT(*) AS total_events,
-                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
                                 THEN 1 ELSE 0 END) AS closed_trades,
-                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
                                  AND pnl > 0 THEN 1 ELSE 0 END) AS wins,
                        SUM(COALESCE(pnl, 0)) AS total_pnl,
                        MAX(timestamp) AS last_trade
@@ -2103,11 +2113,11 @@ class DatabaseManager:
                 SELECT bot_id,
                        COUNT(*),
                        COALESCE(SUM(pnl), 0),
-                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
                                 THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
                                  AND pnl > 0 THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN action IN ('CLOSE','STOP_LOSS','TAKE_PROFIT','REVERSAL')
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
                                  AND pnl < 0 THEN 1 ELSE 0 END),
                        COALESCE(SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END), 0),
                        COALESCE(SUM(CASE WHEN pnl < 0 THEN -pnl ELSE 0 END), 0)
@@ -2306,7 +2316,7 @@ class DatabaseManager:
             
             # Institutional: Map 'CLOSE' trade_type to all closing actions
             if trade_type == 'CLOSE':
-                query += " AND action IN ('CLOSE', 'STOP_LOSS', 'TAKE_PROFIT', 'REVERSAL')"
+                query += " AND action IN ({CLOSING_SQL})"
             elif trade_type:
                 query += " AND action = %s"
                 params.append(trade_type)

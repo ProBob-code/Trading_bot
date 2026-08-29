@@ -1979,7 +1979,7 @@ def _compute_live_metrics(user_id, strategy_filter=None, session_id=None):
 
     results = []
     # Institutional Action mapping for metrics
-    CLOSING_ACTIONS = ('CLOSE', 'STOP_LOSS', 'TAKE_PROFIT', 'REVERSAL')
+    from shared.logic.trade_actions import CLOSING_ACTIONS
 
     for strat, strat_trades in grouped.items():
         close_trades = [t for t in strat_trades if t.get('action') in CLOSING_ACTIONS]
