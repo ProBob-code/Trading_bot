@@ -492,7 +492,8 @@ function renderUsers(filter) {
                 `<span class="chip mint">${u.custom_strategies.length} custom</span>` : ''}</td>
             <td class="num">${(u.closed_trades || 0).toLocaleString()}</td>
             <td class="num">${journeyCell(j)}</td>
-            <td class="num ${cls(u.total_pnl)}">${fmtMoney(u.total_pnl)}</td>
+            <td class="num ${cls(u.total_pnl)}"
+                title="Net of both commission legs. Gross ${fmtMoney(u.gross_pnl)} less ${fmtMoney(u.entry_commission)} entry commission (exit commission is already inside gross).">${fmtMoney(u.total_pnl)}</td>
             <td>${when(u.last_trade)}</td>
             <td>
                 <div class="row-actions">
@@ -603,7 +604,9 @@ async function openUser(userId) {
                 <div class="mini"><div class="k">Closed trades</div><div class="v">${s.closed_trades}</div></div>
                 <div class="mini"><div class="k">Win rate</div><div class="v">${fmtPct(s.win_rate)}</div></div>
                 <div class="mini"><div class="k">Net P&amp;L</div>
-                    <div class="v ${cls(s.total_pnl)}">${fmtMoney(s.total_pnl)}</div></div>
+                    <div class="v ${cls(s.net_pnl)}">${fmtMoney(s.net_pnl)}</div></div>
+                <div class="mini"><div class="k">Commission</div>
+                    <div class="v neg">${fmtMoney(s.commission)}</div></div>
                 <div class="mini"><div class="k">Profit factor</div>
                     <div class="v">${Number(s.profit_factor || 0).toFixed(2)}</div></div>
                 <div class="mini"><div class="k">Avg win</div>

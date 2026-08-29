@@ -94,19 +94,31 @@ def _iso(value):
 
 
 def _summarise(trades):
-    """Win/loss/P&L over a list of ledger rows."""
+    """Win/loss/P&L over a list of ledger rows.
+
+    `total_pnl` is the sum of the ledger's pnl column, which is already net of
+    each exit's own commission but knows nothing about ENTRY commission — that
+    is taken straight out of cash and recorded on rows whose pnl is zero.
+    `net_pnl` subtracts it, and is the only figure here that answers "what did
+    this account actually make".
+    """
     closed = [t for t in trades if t.get('action') in CLOSING_ACTIONS]
     pnls = [float(t.get('pnl') or 0) for t in closed]
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p < 0]
     gross_profit, gross_loss = sum(wins), abs(sum(losses))
+    entry_commission = sum(float(t.get('commission') or 0)
+                           for t in trades if t.get('action') not in CLOSING_ACTIONS)
+    total_pnl = sum(pnls)
     return {
         'events': len(trades),
         'closed_trades': len(closed),
         'wins': len(wins),
         'losses': len(losses),
         'win_rate': (len(wins) / len(closed) * 100) if closed else 0.0,
-        'total_pnl': sum(pnls),
+        'total_pnl': total_pnl,
+        'entry_commission': entry_commission,
+        'net_pnl': total_pnl - entry_commission,
         'avg_win': (gross_profit / len(wins)) if wins else 0.0,
         'avg_loss': (sum(losses) / len(losses)) if losses else 0.0,
         # No losses at all leaves profit factor undefined; report 0 rather than
@@ -142,7 +154,7 @@ def _user_strategy_rows(user_id, usage_rows, evo_by_user):
             'closed_trades': u.get('closed_trades', 0),
             'wins': u.get('wins', 0),
             'win_rate': round(u.get('win_rate', 0.0), 2),
-            'total_pnl': round(u.get('total_pnl', 0.0), 2),
+            'total_pnl': round(u.get('net_pnl', u.get('total_pnl', 0.0)), 2),
             'last_trade': u.get('last_trade'),
             'generation': state.get('generation', 0),
             'learning_status': state.get('status') or 'active',
@@ -188,7 +200,9 @@ def _build_admin_snapshot():
             'wins': st.get('wins', 0),
             'losses': st.get('losses', 0),
             'win_rate': round(st.get('win_rate', 0.0), 2),
-            'total_pnl': round(st.get('total_pnl', 0.0), 2),
+            'total_pnl': round(st.get('net_pnl', 0.0), 2),
+            'gross_pnl': round(st.get('total_pnl', 0.0), 2),
+            'entry_commission': round(st.get('entry_commission', 0.0), 2),
             'commission': round(st.get('total_commission', 0.0), 2),
             'first_trade': st.get('first_trade'),
             'last_trade': st.get('last_trade'),
@@ -260,7 +274,7 @@ def admin_strategies():
             entry['symbols'].add(u['symbol'])
         entry['closed_trades'] += u.get('closed_trades', 0)
         entry['wins'] += u.get('wins', 0)
-        entry['total_pnl'] += u.get('total_pnl', 0.0)
+        entry['total_pnl'] += u.get('net_pnl', u.get('total_pnl', 0.0))
 
     out = []
     for entry in by_strategy.values():
@@ -371,8 +385,8 @@ TRADE_COLUMNS = ['user_id', 'username', 'timestamp', 'session_id', 'symbol',
                  'price', 'pnl', 'commission']
 
 SUMMARY_COLUMNS = ['user_id', 'username', 'mobile', 'joined', 'closed_trades',
-                   'wins', 'losses', 'win_rate', 'total_pnl', 'commission',
-                   'first_trade', 'last_trade']
+                   'wins', 'losses', 'win_rate', 'total_pnl', 'gross_pnl',
+                   'entry_commission', 'commission', 'first_trade', 'last_trade']
 
 STRATEGY_COLUMNS = ['user_id', 'username', 'strategy', 'strategy_name', 'symbol',
                     'closed_trades', 'wins', 'win_rate', 'total_pnl',

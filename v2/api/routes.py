@@ -161,12 +161,16 @@ def init_v2(
         conn = db_manager._get_connection()
         try:
             cursor = conn.cursor()
+            # Every account that has ever traded, not just those holding an open
+            # position: a user who was flat at shutdown still has realised P&L
+            # that must be restored, or their balance resets to $100,000.
             db_manager._execute(cursor, "SELECT DISTINCT user_id FROM v2_positions")
-            uids = [row[0] for row in cursor.fetchall()]
-            for uid in uids:
+            uids = {row[0] for row in cursor.fetchall() if row[0] is not None}
+            uids |= set(db_manager.v2_get_users_with_ledger())
+            for uid in sorted(uids):
                 v2_paper_trader.load_positions(uid, db_manager)
             if uids:
-                logger.info(f"🔄 [V2] Restored open positions for {len(uids)} users")
+                logger.info(f"🔄 [V2] Rebuilt {len(uids)} account(s) from the ledger")
         finally:
             db_manager._safe_close(conn, cursor)
             
@@ -1054,19 +1058,24 @@ def v2_list_bots():
 
     # Enrich with persisted per-bot stats from the ledger so trade counts / realized
     # P&L survive engine restarts (in-memory bot.stats reset on restart).
-    ledger_stats = db_manager.v2_get_bot_ledger_stats(current_user.id)
+    # Keyed by (strategy, symbol), not bot_id. A bot_id embeds a hash of the
+    # bot's config, so restarting a bot — or evolution nudging its stop — mints
+    # a new one and strands all previous trades on the old id. That is why four
+    # cards totalling 10 closed trades sat beneath an account total of 202.
+    pair_stats = db_manager.v2_get_pair_ledger_stats(current_user.id)
     for b in bots:
-        ls = ledger_stats.get(b.get('bot_id'))
+        ls = pair_stats.get((b.get('strategy'), b.get('symbol')))
         stats = b.setdefault('stats', {})
         if ls:
             # Ledger is authoritative for realized figures; keep the higher of the two
             # so a fresh in-memory count during the current run is never undercounted.
-            stats['total_trades'] = max(int(stats.get('total_trades') or 0), ls['trades'])
+            stats['total_trades'] = ls['trades']
             stats['realized_pnl'] = ls['realized_pnl']
             stats['total_pnl'] = ls['realized_pnl'] + float(stats.get('unrealized_pnl') or 0)
             for k in ('closed_trades', 'wins', 'losses', 'breakeven', 'win_rate',
                       'loss_rate', 'avg_win', 'avg_loss', 'profit_factor'):
                 stats[k] = ls[k]
+            stats['ledger_events'] = ls['trades']
         else:
             stats.setdefault('closed_trades', 0)
 
@@ -1900,6 +1909,10 @@ def v2_evolution_run():
 @login_required
 def v2_account():
     """Get V2 account info with margin tracking and trade count from DB."""
+    # Boot rebuilds accounts from the ledger, but a user whose account is
+    # touched for the first time this process must be rebuilt before its balance
+    # is read — otherwise they are shown a pristine $100,000.
+    v2_paper_trader.ensure_loaded(current_user.id, db_manager)
     info = v2_paper_trader.get_account_info(current_user.id)
     
     # Fetch total trade count from DB (persisted) instead of just in-memory simulation history

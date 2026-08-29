@@ -1975,6 +1975,12 @@ class DatabaseManager:
                                  AND pnl < 0 THEN 1 ELSE 0 END) AS losses,
                        SUM(COALESCE(pnl, 0)) AS total_pnl,
                        SUM(COALESCE(commission, 0)) AS total_commission,
+                       -- Entry commission comes straight out of cash and lands
+                       -- on rows whose pnl is zero; exit commission is already
+                       -- inside pnl. Only the entry side must be subtracted
+                       -- again to reach what the account genuinely realised.
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
+                                THEN 0 ELSE COALESCE(commission, 0) END) AS entry_commission,
                        MIN(timestamp) AS first_trade,
                        MAX(timestamp) AS last_trade
                 FROM v2_trade_ledger
@@ -1995,6 +2001,10 @@ class DatabaseManager:
                 d['losses'] = int(d.get('losses') or 0)
                 d['total_pnl'] = float(d.get('total_pnl') or 0)
                 d['total_commission'] = float(d.get('total_commission') or 0)
+                d['entry_commission'] = float(d.get('entry_commission') or 0)
+                # What the account actually made. total_pnl alone reads as a net
+                # figure and is not one.
+                d['net_pnl'] = d['total_pnl'] - d['entry_commission']
                 d['win_rate'] = (wins / closed * 100) if closed else 0.0
                 out[uid] = d
             return out
@@ -2019,6 +2029,8 @@ class DatabaseManager:
                        SUM(CASE WHEN action IN ({CLOSING_SQL})
                                  AND pnl > 0 THEN 1 ELSE 0 END) AS wins,
                        SUM(COALESCE(pnl, 0)) AS total_pnl,
+                       SUM(CASE WHEN action IN ({CLOSING_SQL})
+                                THEN 0 ELSE COALESCE(commission, 0) END) AS entry_commission,
                        MAX(timestamp) AS last_trade
                 FROM v2_trade_ledger
                 WHERE strategy IS NOT NULL
@@ -2089,6 +2101,120 @@ class DatabaseManager:
         except Exception as e:
             logger.warning(f"[ADMIN] custom strategy sweep failed: {e}")
             return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def v2_get_realized_summary(self, user_id: int) -> Dict:
+        """Realized P&L for one account, from the ledger.
+
+        The ledger is the only durable record of what an account actually made.
+        In-memory cash is rebuilt from `initial_capital` on every restart, so
+        without this the dashboard forgets every loss it has ever taken.
+
+        Two commission streams, and only one of them is already accounted for:
+          * a CLOSING row's `pnl` is net of its own commission (net_pnl =
+            realized - commission), so closing commission must NOT be
+            subtracted again;
+          * an OPENING row carries pnl 0 and a commission that was taken
+            straight out of cash at entry, and appears in no pnl figure at all.
+        """
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor()
+            self._execute(cursor, """
+                SELECT COALESCE(SUM(pnl), 0),
+                       COALESCE(SUM(CASE WHEN action IN ({CLOSING_SQL})
+                                         THEN 0 ELSE commission END), 0),
+                       COUNT(*)
+                FROM v2_trade_ledger WHERE user_id = %s
+            """, (user_id,))
+            row = cursor.fetchone()
+            pnl = float(row[0] or 0) if row else 0.0
+            opening_commission = float(row[1] or 0) if row else 0.0
+            return {
+                'pnl_sum': pnl,
+                'opening_commission': opening_commission,
+                'realized': pnl - opening_commission,
+                'rows': int(row[2] or 0) if row else 0,
+            }
+        except Exception as e:
+            logger.warning(f"[V2-LEDGER] realized summary failed: {e}")
+            return {'pnl_sum': 0.0, 'opening_commission': 0.0, 'realized': 0.0, 'rows': 0}
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def v2_get_users_with_ledger(self) -> List[int]:
+        """Every user id that has ever traded — who needs rehydrating at boot."""
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor()
+            self._execute(cursor, "SELECT DISTINCT user_id FROM v2_trade_ledger "
+                                  "WHERE user_id IS NOT NULL")
+            return [int(r[0]) for r in cursor.fetchall() if r[0] is not None]
+        except Exception as e:
+            logger.warning(f"[V2-LEDGER] user sweep failed: {e}")
+            return []
+        finally:
+            if cursor is not None:
+                self._safe_close(conn, cursor)
+
+    def v2_get_pair_ledger_stats(self, user_id: int) -> Dict[tuple, Dict]:
+        """Per (strategy, symbol) performance, keyed by that pair.
+
+        Bot cards used to aggregate by `bot_id`, which embeds a hash of the
+        bot's config. Restarting a bot, or evolution adjusting its stop, mints a
+        NEW bot_id — so a card showed only the handful of trades since its
+        current incarnation started while the account held hundreds. That is why
+        four cards summing to 10 closed trades sat under an account total of
+        202.
+
+        (strategy, symbol) is the unit the user actually thinks in, the unit
+        evolution already keys on, and it survives restarts and config changes.
+        """
+        conn = self._get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor()
+            self._execute(cursor, """
+                SELECT strategy, symbol,
+                       COUNT(*),
+                       COALESCE(SUM(pnl), 0),
+                       SUM(CASE WHEN action IN ({CLOSING_SQL}) THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN action IN ({CLOSING_SQL}) AND pnl > 0 THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN action IN ({CLOSING_SQL}) AND pnl < 0 THEN 1 ELSE 0 END),
+                       COALESCE(SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN pnl < 0 THEN -pnl ELSE 0 END), 0)
+                FROM v2_trade_ledger
+                WHERE user_id = %s AND strategy IS NOT NULL AND symbol IS NOT NULL
+                GROUP BY strategy, symbol
+            """, (user_id,))
+            out = {}
+            for r in cursor.fetchall():
+                closed, wins, losses = int(r[4] or 0), int(r[5] or 0), int(r[6] or 0)
+                gross_profit, gross_loss = float(r[7] or 0), float(r[8] or 0)
+                out[(r[0], r[1])] = {
+                    'trades': int(r[2] or 0),
+                    'realized_pnl': float(r[3] or 0),
+                    'closed_trades': closed,
+                    'wins': wins,
+                    'losses': losses,
+                    'breakeven': max(0, closed - wins - losses),
+                    'win_rate': (wins / closed * 100) if closed else 0.0,
+                    'loss_rate': (losses / closed * 100) if closed else 0.0,
+                    'gross_profit': gross_profit,
+                    'gross_loss': gross_loss,
+                    'avg_win': (gross_profit / wins) if wins else 0.0,
+                    'avg_loss': (gross_loss / losses) if losses else 0.0,
+                    'profit_factor': (gross_profit / gross_loss) if gross_loss else None,
+                }
+            return out
+        except Exception as e:
+            logger.warning(f"[V2-LEDGER] pair stats failed: {e}")
+            return {}
         finally:
             if cursor is not None:
                 self._safe_close(conn, cursor)
