@@ -8,6 +8,7 @@ and authoritative state synchronization.
 
 from typing import Dict, Any, Optional
 from loguru import logger
+from shared.logic.trade_actions import OPENING_ACTIONS, CLOSING_ACTIONS
 
 class PortfolioEngineV2:
     def __init__(self, paper_trader, db_manager):
@@ -54,8 +55,8 @@ class PortfolioEngineV2:
 
     def sync_position(self, user_id: int, symbol: str, results: list, strategy: str, leverage: float):
         """Update DB persistence after trade(s)."""
-        has_open = any(r.get('success') and r.get('action') in ('OPEN', 'INCREASE', 'REVERSAL') for r in results)
-        has_close = any(r.get('success') and r.get('action') in ('CLOSE', 'STOP_LOSS', 'TAKE_PROFIT') for r in results)
+        has_open = any(r.get('success') and r.get('action') in OPENING_ACTIONS for r in results)
+        has_close = any(r.get('success') and r.get('action') in CLOSING_ACTIONS for r in results)
         
         # If any close result was successful, check if position still exists
         if has_close:

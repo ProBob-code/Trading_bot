@@ -43,6 +43,7 @@ from typing import Dict, List, Optional
 from loguru import logger
 
 from shared.database.db_manager import db_manager
+from shared.logic.trade_actions import CLOSING_ACTIONS
 
 
 # ── Tunable parameter space (hard bounds — evolution can never escape these) ──
@@ -71,7 +72,9 @@ LOSS_STREAK_TRIGGER = 3   # consecutive losers that trigger a protective step
 # Win-rate journey windows
 BASELINE_WINDOW = 10     # trades that define "where it started"
 RECENT_WINDOW = 20       # trades that define "where it is now"
-CLOSING_ACTIONS = ('CLOSE', 'STOP_LOSS', 'TAKE_PROFIT', 'REVERSAL')
+
+# Re-exported so existing importers keep working; the definition itself lives in
+# shared.logic.trade_actions, which explains why REVERSAL is NOT one of these.
 
 
 def _clamp(name: str, value: float) -> float:
@@ -130,7 +133,10 @@ class EvolutionEngine:
             'total_pnl': sum(pnls),
             'tp_hit_rate': actions.count('TAKE_PROFIT') / n * 100,
             'sl_hit_rate': actions.count('STOP_LOSS') / n * 100,
-            'reversal_rate': (actions.count('REVERSAL') + actions.count('CLOSE')) / n * 100,
+            # Signal-driven exits: a CLOSE is written both for a plain exit and
+            # for the closing leg of a flip. REVERSAL rows are the *entry* leg
+            # and are not counted here — adding them double-counted every flip.
+            'reversal_rate': actions.count('CLOSE') / n * 100,
             'avg_win': gross_profit / len(wins) if wins else 0.0,
             'avg_loss': sum(losses) / len(losses) if losses else 0.0,
             'gross_profit': gross_profit,

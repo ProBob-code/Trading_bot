@@ -37,6 +37,7 @@ import requests
 from loguru import logger
 
 from shared.logic.strategies.public_catalog import public_meta
+from shared.logic.trade_actions import CLOSING_ACTIONS
 
 DISCORD_API = 'https://discord.com/api/v10'
 
@@ -150,7 +151,7 @@ def _pct(v) -> str:
 def summarise(trades: List[Dict]) -> Dict:
     """Aggregate a set of closed trades into report figures."""
     closed = [t for t in trades
-              if t.get('action') in ('CLOSE', 'STOP_LOSS', 'TAKE_PROFIT', 'REVERSAL')]
+              if t.get('action') in CLOSING_ACTIONS]
     pnls = [float(t.get('pnl') or 0) for t in closed]
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p < 0]

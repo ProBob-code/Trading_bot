@@ -80,7 +80,7 @@ def admin_required(fn):
 # Shared shaping helpers
 # ---------------------------------------------------------------------------
 
-CLOSING_ACTIONS = ('CLOSE', 'STOP_LOSS', 'TAKE_PROFIT', 'REVERSAL')
+from shared.logic.trade_actions import CLOSING_ACTIONS
 
 
 def _label(internal_strategy: str) -> dict:
