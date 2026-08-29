@@ -2675,17 +2675,6 @@ select.field-input option { background: var(--bg-secondary); color: var(--text-p
     overflow: hidden; text-overflow: ellipsis;
 }
 
-/* A rate off a handful of trades is noise; say so rather than dressing it up. */
-.bot-score.provisional .bs-v { opacity: 0.72; }
-.bs-note {
-    display: flex; align-items: flex-start; gap: 6px; margin-top: 8px;
-    padding: 6px 9px; border-radius: 7px; font-size: 10px; line-height: 1.45;
-    background: rgba(245, 158, 11, 0.10);
-    border: 1px solid rgba(245, 158, 11, 0.3);
-    color: #f59e0b;
-}
-.bs-note i { margin-top: 1px; flex-shrink: 0; }
-
 /* A read-only Command Deck field — looks like the selects beside it, but
    states a value the strategy decides rather than inviting a choice. */
 .field-static {

@@ -1017,12 +1017,6 @@ def v2_stop_bot():
 # V2 DATA ENDPOINTS
 # ============================================================
 
-# Below this many closed trades a win rate says more about luck than about the
-# bot. Matches the evolution engine's own evidence gate, so the two halves of
-# the product agree on what counts as enough.
-MIN_TRADES_FOR_RATE = 8
-
-
 @v2_bp.route('/api/v2/bots', methods=['GET'])
 @login_required
 def v2_list_bots():
@@ -1046,13 +1040,6 @@ def v2_list_bots():
                 stats[k] = ls[k]
         else:
             stats.setdefault('closed_trades', 0)
-
-        # A rate over three trades is noise dressed as a measurement. The counts
-        # are always shown; the percentages are flagged until there is enough
-        # evidence for them to mean anything, so a bot that happened to win its
-        # first two trades cannot advertise a 100% success rate.
-        stats['stats_reliable'] = int(stats.get('closed_trades') or 0) >= MIN_TRADES_FOR_RATE
-        stats['min_trades_for_rate'] = MIN_TRADES_FOR_RATE
 
     return jsonify({'success': True, 'bots': [_publicise_bot(b) for b in bots]})
 
