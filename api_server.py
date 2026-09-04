@@ -161,6 +161,39 @@ else:
 from shared.services.binance_stream import binance_stream, is_streamable
 
 
+# Prices seen since the traders were last synced, and when that was.
+# set_prices() takes a global lock and sweeps every account and every position
+# checking for liquidations. That is fine at the polling loop's old cadence of
+# once per symbol every few seconds; at streaming cadence it would run up to a
+# hundred times a second, holding the same lock that trade execution needs.
+# Ticks are therefore batched and flushed on a timer: one lock acquisition for
+# all symbols, and liquidation is still checked far more often than it used to
+# be.
+_pending_prices = {}
+_pending_lock = threading.Lock()
+_last_trader_sync = 0.0
+TRADER_SYNC_INTERVAL = 1.0
+
+
+def _sync_traders_if_due():
+    """Flush buffered prices to both paper traders, at most once per interval."""
+    global _last_trader_sync
+    now = time.time()
+    if (now - _last_trader_sync) < TRADER_SYNC_INTERVAL:
+        return
+    with _pending_lock:
+        if not _pending_prices:
+            return
+        batch = dict(_pending_prices)
+        _pending_prices.clear()
+    _last_trader_sync = now
+    try:
+        paper_trader.set_prices(batch)
+        v2_paper_trader.set_prices(batch)
+    except Exception as e:
+        logger.warning(f"[stream] trader price sync failed: {e}")
+
+
 def _on_stream_tick(tick):
     """Fan a streamed tick out to the cache, the paper traders and the browser."""
     stored = quote_service.ingest(tick)
@@ -171,8 +204,9 @@ def _on_stream_tick(tick):
     price = stored['price']
 
     if not system_state.is_paused():
-        paper_trader.set_prices({symbol: price})
-        v2_paper_trader.set_prices({symbol: price})
+        with _pending_lock:
+            _pending_prices[symbol] = price
+        _sync_traders_if_due()
 
     socketio.emit('price_update', {
         'symbol': symbol,
