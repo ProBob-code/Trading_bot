@@ -4562,10 +4562,29 @@ async function loadEvolutionCards() {
             fetch('/api/v2/evolution/status'),
             fetch('/api/v2/evolution/history?limit=100')
         ]);
+
+        // A non-OK response body is HTML - Flask's error page, a login redirect,
+        // or a gateway timeout. Calling .json() on it throws a parse error that
+        // names nothing, which is why this panel could only ever say "could not
+        // load" in production. Read the status and report it instead.
+        if (!sRes.ok) throw new Error(`status endpoint returned HTTP ${sRes.status}`);
+
         const sData = await sRes.json();
-        const hData = await hRes.json();
+
+        // History is decoration on each card; losing it must not cost the panel.
+        let hData = {};
+        try {
+            if (hRes.ok) hData = await hRes.json();
+        } catch (err) {
+            console.warn('[EVO] history unavailable:', err);
+        }
+
         const all = sData.strategies || [];
         const history = hData.history || [];
+
+        if (sData.failed && sData.failed.length) {
+            console.warn('[EVO] server skipped these pairs:', sData.failed);
+        }
 
         // Evolution only evaluates when a trade closes, and a stopped bot closes
         // nothing — so a pair with no running bot is dormant, not live. Showing
@@ -4593,6 +4612,7 @@ async function loadEvolutionCards() {
         }
 
         grid.innerHTML = items.map(s => {
+          try {
             const key = `${s.strategy}|${s.symbol}`;
             const m = s.metrics || {};
             const p = s.params || {};
@@ -4725,6 +4745,14 @@ async function loadEvolutionCards() {
                     ${genRows}
                 </div>
             </div>`;
+          } catch (err) {
+            // One malformed pair is not a reason to lose every other card.
+            console.error(`[EVO] could not render ${s && s.strategy}/${s && s.symbol}:`, err);
+            return `<div class="evo-card"><div class="evo-card-head">
+                <span class="evo-card-title">${(s && s.symbol) || 'Unknown'}</span>
+                <span class="evo-badge paused">Display error</span>
+            </div></div>`;
+          }
         }).join('');
 
         if (idle.length) {
@@ -4741,7 +4769,13 @@ async function loadEvolutionCards() {
         }
     } catch (e) {
         console.error('[EVO] load failed:', e);
-        grid.innerHTML = '<div class="no-bots-message">Could not load evolution data.</div>';
+        // Name the cause and offer a retry. A blanket "could not load" gave the
+        // user nothing to act on and left nothing to debug from.
+        grid.innerHTML = `<div class="no-bots-message">
+            Could not load evolution data — ${String(e.message || e)}.
+            <button class="evo-idle-toggle" style="margin-left:10px"
+                onclick="loadEvolutionCards()">Retry</button>
+        </div>`;
     }
 }
 

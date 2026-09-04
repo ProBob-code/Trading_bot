@@ -1602,8 +1602,6 @@ def v2_evolution_status():
     # pairs opened roughly 7N database connections — fine on an empty account,
     # slow enough to look hung on a real one.
     all_trades = db_manager.v2_get_user_trades(user_id=current_user.id, limit=20000)
-    pairs = {(t.get('strategy'), t.get('symbol')) for t in all_trades
-             if t.get('strategy') and t.get('symbol')}
 
     # Closing events per pair, oldest first — the journey needs the order, and
     # the metrics window is a slice off the end of it.
@@ -1622,17 +1620,20 @@ def v2_evolution_status():
     for h in db_manager.v2_get_evolution_history(current_user.id, None, limit=500):
         history_by_strategy.setdefault(h.get('strategy'), []).append(h)
 
-    # Include running bots too. Without this a bot that hasn't closed a trade
-    # yet has no card at all, so there is nothing to evaluate or stop.
+    # Only bots that are RUNNING get a card. Deriving pairs from trade history as
+    # well meant every bot the user had ever stopped kept a card forever: dead
+    # strategies nobody could act on, crowding out the live ones. A running bot
+    # with no closed trades still appears, so there is always something to
+    # evaluate or stop.
     running_pairs = set()
     try:
         for b in bot_manager_v2.get_all_bots(user_id=current_user.id):
-            if b.get('strategy') and b.get('symbol'):
-                pairs.add((b['strategy'], b['symbol']))
-                if b.get('status') == 'running':
-                    running_pairs.add((b['strategy'], b['symbol']))
+            if b.get('strategy') and b.get('symbol') and b.get('status') == 'running':
+                running_pairs.add((b['strategy'], b['symbol']))
     except Exception as e:
-        logger.warning(f"[V2-EVO] could not fold bots into status: {e}")
+        logger.warning(f"[V2-EVO] could not read running bots: {e}")
+
+    pairs = set(running_pairs)
 
     out = []
     for s, sym in sorted(pairs):
@@ -1656,9 +1657,23 @@ def v2_evolution_status():
         profiles = {}
         if state.get('profiles_json'):
             try:
-                profiles = json.loads(state['profiles_json'])
+                loaded = json.loads(state['profiles_json'])
+                # A regime key with a null body reaches the renderer as
+                # `profiles[r].take_profit` and throws there, blanking the whole
+                # panel. Drop it here, where the damage is one missing profile.
+                if isinstance(loaded, dict):
+                    profiles = {k: v for k, v in loaded.items() if isinstance(v, dict)}
             except Exception:
                 profiles = {}
+
+        # An evolved rank that drifted outside the table raises IndexError on
+        # lookup and 500s the endpoint - which the browser then cannot parse as
+        # JSON, so the user sees only "could not load". Clamp instead.
+        try:
+            _rank = int(params.get('sensitivity_rank', 0))
+        except (TypeError, ValueError):
+            _rank = 0
+        _rank = max(0, min(_rank, len(SENSITIVITY_BY_RANK) - 1))
 
         auto_apply = state.get('auto_apply')
 
@@ -1674,7 +1689,7 @@ def v2_evolution_status():
             'auto_apply': True if auto_apply is None else bool(auto_apply),
             'params': params,
             'defaults': DEFAULT_PARAMS,
-            'sensitivity': SENSITIVITY_BY_RANK[int(params.get('sensitivity_rank', 0))],
+            'sensitivity': SENSITIVITY_BY_RANK[_rank],
             'metrics': m,
             'meter': meter,
             # Where the win rate started vs where it is now — the evidence that
@@ -1803,15 +1818,12 @@ def v2_evolution_candidates():
 
     try:
         for b in bot_manager_v2.get_all_bots(user_id=current_user.id):
-            add(b.get('strategy'), b.get('symbol'), b.get('status') == 'running')
+            # Stopped bots have nothing to evaluate, so they do not belong in the
+            # picker - it is titled "pick which running bot to evaluate".
+            if b.get('status') == 'running':
+                add(b.get('strategy'), b.get('symbol'), True)
     except Exception as e:
         logger.warning(f"[V2-EVO] could not list bots for candidates: {e}")
-
-    try:
-        for t in db_manager.v2_get_user_trades(user_id=current_user.id, limit=5000):
-            add(t.get('strategy'), t.get('symbol'), False)
-    except Exception as e:
-        logger.warning(f"[V2-EVO] could not list trades for candidates: {e}")
 
     out = []
     for (strategy, symbol), entry in sorted(pairs.items()):
