@@ -82,6 +82,38 @@ from v1.engine.core.bot_manager import get_bot_manager, BotManager, BotStats
 # Initialize Flask
 app = Flask(__name__, static_folder='web', static_url_path='/static')
 app.config['SECRET_KEY'] = 'god-bot-trade-secret-2026'  # PRO-CODER: Use environment variable in production
+
+
+# ── JSON that browsers can actually parse ───────────────────────────────────
+# Python happily serialises float('inf') and nan as the bare tokens Infinity and
+# NaN. Neither is valid JSON, so JSON.parse rejects the ENTIRE response - one
+# infinite number anywhere blanks a whole panel, which is what a bot with wins
+# and no losses (profit_factor = gross_profit / 0) did to The Lab.
+#
+# Sanitising here rather than at each call site means no future endpoint can
+# reintroduce it: a non-finite number becomes null, and the client decides how
+# to show "no value".
+import math as _math
+from flask.json.provider import DefaultJSONProvider
+
+
+class FiniteJSONProvider(DefaultJSONProvider):
+    @staticmethod
+    def _finite(obj):
+        if isinstance(obj, float) or isinstance(obj, np.floating):
+            f = float(obj)
+            return f if _math.isfinite(f) else None
+        if isinstance(obj, dict):
+            return {k: FiniteJSONProvider._finite(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [FiniteJSONProvider._finite(v) for v in obj]
+        return obj
+
+    def dumps(self, obj, **kwargs):
+        return super().dumps(self._finite(obj), **kwargs)
+
+
+app.json = FiniteJSONProvider(app)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
