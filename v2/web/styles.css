@@ -4830,3 +4830,72 @@ html {
 }
 
 .native-chart-readout b { font-weight: 700; color: var(--text, #e2e8f0); }
+
+/* ── One-click bot stop, on the collapsed card ──────────────────────────────
+   Stopping used to require expanding the card and scrolling to the bottom.
+   This sits in the card header; it arms on first click and confirms on the
+   second, so a stray click never stops a bot holding an open position. */
+.bot-quick-stop {
+    margin-left: auto;
+    margin-right: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 26px;
+    height: 22px;
+    padding: 0 7px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text-dim, #94A3B8);
+    background: transparent;
+    border: 1px solid var(--border, rgba(148, 163, 184, 0.25));
+    border-radius: 4px;
+    cursor: pointer;
+    /* Understated until hovered: it is one control among several on the card,
+       not the thing the eye should land on first. */
+    opacity: 0.55;
+    transition: opacity .15s ease, color .15s ease, border-color .15s ease,
+                background .15s ease;
+}
+
+.bot-card-item:hover .bot-quick-stop { opacity: 1; }
+
+.bot-quick-stop:hover,
+.bot-quick-stop:focus-visible {
+    opacity: 1;
+    color: var(--bearish, #FF3366);
+    border-color: var(--bearish, #FF3366);
+    background: color-mix(in srgb, var(--bearish, #FF3366) 12%, transparent);
+    outline: none;
+}
+
+/* Armed: the next click actually stops it, so it stops being subtle. */
+.bot-quick-stop.armed {
+    opacity: 1;
+    color: #fff;
+    background: var(--bearish, #FF3366);
+    border-color: var(--bearish, #FF3366);
+    animation: quickStopPulse 1.2s ease-in-out infinite;
+}
+
+.bot-quick-stop:disabled { opacity: .6; cursor: default; animation: none; }
+
+.btn-action.stop-all.armed {
+    color: #fff;
+    background: var(--bearish, #FF3366);
+    border-color: var(--bearish, #FF3366);
+    animation: quickStopPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes quickStopPulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bearish, #FF3366) 55%, transparent); }
+    50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bearish, #FF3366) 0%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bot-quick-stop.armed,
+    .btn-action.stop-all.armed { animation: none; }
+}

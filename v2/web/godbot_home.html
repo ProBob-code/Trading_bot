@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoatBot V2 — Institutional Terminal</title>
-    <link rel="stylesheet" href="styles.css?v=18">
+    <link rel="stylesheet" href="styles.css?v=19">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://s3.tradingview.com/tv.js"></script>
     <script src="common/NativeChart.js?v=1"></script>
@@ -521,10 +521,17 @@
                     <h2>RUNNING BOTS <span id="botCount"
                             style="color:var(--accent); font-family:var(--font-mono);">0</span></h2>
                 </div>
-                <button class="btn-action stop-all" id="btnRefreshBots" style="padding:6px 12px; font-size:10px;"
-                    onclick="loadAndRenderBots()">
-                    <i class="fas fa-sync-alt"></i> Refresh
-                </button>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button class="btn-action stop-all" id="btnStopAllBots"
+                        style="padding:6px 12px; font-size:10px; display:none;"
+                        onclick="event.stopPropagation(); confirmStopAllBots(this)">
+                        <i class="fas fa-stop"></i> Stop all
+                    </button>
+                    <button class="btn-action stop-all" id="btnRefreshBots" style="padding:6px 12px; font-size:10px;"
+                        onclick="loadAndRenderBots()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
             </div>
             <div class="bot-card-grid" id="runningBotsGrid">
                 <div class="no-bots-message">No bots running. Start one from the Command Deck above.</div>
@@ -915,7 +922,7 @@
     </div>
 
     <!-- V3: fixed boot chain + null-safe DOM access (paper_app.js kept as rollback) -->
-    <script src="paper_app_v3.js?v=17"></script>
+    <script src="paper_app_v3.js?v=18"></script>
     <!-- Same nav drawer as every other page -->
     <script src="/common/nav.js?v=2"></script>
     <style>

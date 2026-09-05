@@ -4324,9 +4324,97 @@ async function stopBotById(botId) {
         if (data.success) {
             console.log(`[V2] Bot stopped: ${botId}`);
             setTimeout(loadAndRenderBots, 500);
+            return true;
         }
+        // A refused stop used to be swallowed silently: the button did nothing
+        // and the bot kept trading with no explanation.
+        console.warn('[V2] Stop refused:', data.error || data);
+        showNotification(`Could not stop bot — ${data.error || 'server refused'}`);
+        return false;
     } catch (e) {
         console.error('[V2] Stop bot error:', e);
+        showNotification('Could not stop bot — the server did not respond.');
+        return false;
+    }
+}
+
+/**
+ * One-click stop straight from the collapsed card.
+ *
+ * Stopping used to mean expanding a card and scrolling past Performance,
+ * Settings and Learning to reach the button at the bottom — four interactions
+ * per bot, which is the wrong cost for the one action you want in a hurry.
+ *
+ * The first click arms, the second confirms. That keeps it to two clicks
+ * without a modal, while making a stray click on a live bot harmless: a bot
+ * usually holds an open position, so this is not an action to fire blind.
+ */
+async function quickStopBot(btn) {
+    if (!btn) return;
+    const botId = btn.dataset.botId;
+    const symbol = btn.dataset.symbol || 'this bot';
+
+    if (btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.classList.add('armed');
+        btn.innerHTML = 'STOP?';
+        btn.title = `Click again to stop ${symbol}`;
+        // Disarm on its own, so a forgotten click cannot be completed minutes
+        // later by someone who has lost the context.
+        btn._disarm = setTimeout(() => disarmQuickStop(btn), 3000);
+        return;
+    }
+
+    clearTimeout(btn._disarm);
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    const ok = await stopBotById(botId);
+    if (ok) {
+        showNotification(`${symbol} stopped`);
+    } else {
+        disarmQuickStop(btn);
+        btn.disabled = false;
+    }
+}
+
+function disarmQuickStop(btn) {
+    if (!btn) return;
+    clearTimeout(btn._disarm);
+    btn.dataset.armed = '';
+    btn.classList.remove('armed');
+    btn.innerHTML = '<i class="fas fa-stop"></i>';
+    btn.title = 'Stop this bot';
+}
+
+/** Stop every running bot. Same arm-then-confirm, and it names the count. */
+async function confirmStopAllBots(btn) {
+    if (!btn) return;
+    const running = document.querySelectorAll('.bot-quick-stop').length;
+    if (!running) return;
+
+    if (btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.classList.add('armed');
+        btn.innerHTML = `<i class="fas fa-stop"></i> Stop all ${running}?`;
+        btn._disarm = setTimeout(() => {
+            btn.dataset.armed = '';
+            btn.classList.remove('armed');
+            btn.innerHTML = '<i class="fas fa-stop"></i> Stop all';
+        }, 4000);
+        return;
+    }
+
+    clearTimeout(btn._disarm);
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping…';
+    try {
+        await stopAllBots();
+        showNotification(`Stopping ${running} bot${running === 1 ? '' : 's'}`);
+    } finally {
+        btn.disabled = false;
+        btn.dataset.armed = '';
+        btn.classList.remove('armed');
+        btn.innerHTML = '<i class="fas fa-stop"></i> Stop all';
     }
 }
 
@@ -5898,6 +5986,15 @@ async function loadAndRenderBots() {
         const runningBots = bots.filter(b => b.status === 'running');
         if (countEl) countEl.textContent = runningBots.length;
 
+        // "Stop all" only exists while there is something to stop.
+        const stopAllBtn = document.getElementById('btnStopAllBots');
+        if (stopAllBtn) {
+            stopAllBtn.style.display = runningBots.length ? '' : 'none';
+            stopAllBtn.dataset.armed = '';
+            stopAllBtn.classList.remove('armed');
+            stopAllBtn.innerHTML = '<i class="fas fa-stop"></i> Stop all';
+        }
+
         if (badge) {
             if (runningBots.length > 0) {
                 badge.textContent = `${runningBots.length} ACTIVE`;
@@ -5948,6 +6045,12 @@ async function loadAndRenderBots() {
                         <div class="bot-header">
                             <span class="bot-symbol">${bot.symbol || 'N/A'}</span>
                             <span class="bot-status ${isRunning ? 'running' : 'stopped'}">${bot.status || 'unknown'}</span>
+                            ${isRunning ? `<button class="bot-quick-stop"
+                                data-bot-id="${bot.bot_id}" data-symbol="${bot.symbol || ''}"
+                                title="Stop this bot"
+                                aria-label="Stop ${bot.symbol || 'bot'}"
+                                onclick="event.stopPropagation(); quickStopBot(this)">
+                                <i class="fas fa-stop"></i></button>` : ''}
                             <i class="fas fa-chevron-down bot-caret"></i>
                         </div>
                         <div class="bot-meta">
